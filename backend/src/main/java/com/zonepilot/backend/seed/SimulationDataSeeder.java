@@ -66,12 +66,36 @@ public class SimulationDataSeeder implements CommandLineRunner {
 
     @Override
     public void run(String... args) {
-        if (simulationPathRepository.count() > 0) {
-            log.info("Simulation paths already exist, skipping seed");
-            return;
-        }
+        long existingCount = simulationPathRepository.count();
 
-        log.info("Seeding simulation paths...");
+        if (existingCount > 0) {
+            // BUG-NEW-010: if existing paths are fallback straight-line paths (waypoint count
+            // matches the fallback coordinate arrays), regenerate them using pgRouting now that
+            // the road network may have been loaded since the last startup.
+            boolean roadNetworkAvailable = routingService.findNearestNodeOrNull(
+                    SCENARIO_A_COORDS[0][1], SCENARIO_A_COORDS[0][0]) != null;
+
+            if (!roadNetworkAvailable) {
+                log.info("Simulation paths already exist and road network is not loaded — skipping re-seed");
+                return;
+            }
+
+            // Check if any path is a fallback (waypoint count == fallback coord count)
+            boolean hasFallbackPaths = simulationPathRepository.findAll().stream()
+                    .anyMatch(p -> p.getTotalSteps() == SCENARIO_A_COORDS.length
+                            || p.getTotalSteps() == SCENARIO_B_COORDS.length
+                            || p.getTotalSteps() == SCENARIO_C_COORDS.length);
+
+            if (!hasFallbackPaths) {
+                log.info("Simulation paths already exist and appear to be pgRouting-backed — skipping re-seed");
+                return;
+            }
+
+            log.info("Existing simulation paths are fallback straight-line paths and road network is now available — regenerating with pgRouting");
+            simulationPathRepository.deleteAll();
+        } else {
+            log.info("Seeding simulation paths...");
+        }
 
         Vehicle vehicleA = vehicleRepository.findById(4L).orElse(null);
         Vehicle vehicleB = vehicleRepository.findById(7L).orElse(null);
