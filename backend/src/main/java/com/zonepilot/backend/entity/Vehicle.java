@@ -29,6 +29,9 @@ public class Vehicle {
     @Column(name = "is_active", nullable = false)
     private Boolean isActive = true;
 
+    @Column(name = "active_dispatch_route_id")
+    private Long activeDispatchRouteId;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -49,6 +52,8 @@ public class Vehicle {
     public void setDepot(Depot depot) { this.depot = depot; }
     public Boolean getIsActive() { return isActive; }
     public void setIsActive(Boolean isActive) { this.isActive = isActive; }
+    public Long getActiveDispatchRouteId() { return activeDispatchRouteId; }
+    public void setActiveDispatchRouteId(Long activeDispatchRouteId) { this.activeDispatchRouteId = activeDispatchRouteId; }
     public Instant getCreatedAt() { return createdAt; }
     public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }
 }

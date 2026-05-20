@@ -69,7 +69,6 @@ com.zonepilot.backend
 | `vehicle_position_log` | GPS position reports — **partitioned by month** on `recorded_at` |
 | `zone_breach_log` | Breach records written atomically by DB trigger |
 | `simulation_path` | Pre-seeded waypoint paths for simulation scenarios |
-
 ### Database Artifacts
 
 - **Trigger:** `trg_detect_zone_breach` — fires AFTER INSERT on `vehicle_position_log`, detects zone violations in the same transaction
@@ -84,6 +83,10 @@ com.zonepilot.backend
 - **Soft FK on `position_log_id`:** PostgreSQL does not support FKs to partitioned tables in all scenarios. `zone_breach_log.position_log_id` is a soft reference (no FK constraint).
 - **`RoadNetworkRepository` uses JdbcTemplate:** The `blr_2po_4pgr` table is not a JPA-managed entity. Road network queries use `JdbcTemplate` directly rather than Spring Data.
 - **SRID 4326 everywhere:** All geometry columns, inputs, and outputs use WGS84 SRID 4326. No coordinate transformation is needed.
+- **Time-based routing cost (Epic 1):** pgRouting uses `cost_time_sec` (travel time in seconds) instead of `length_m`. This produces faster routes rather than shorter ones. The column is pre-calculated by V13 migration using osm2po's `kmh` column; if `kmh` is 0 or null, a clazz-based fallback speed is applied (motorway=90, primary=60, residential=30, etc.). One-way streets are preserved: osm2po's `reverse_cost = -1` is passed through to pgRouting unchanged, so directed routing correctly blocks contra-flow traversal.
+- **Map-snapped simulation (Epic 2):** `SimulationDataSeeder` uses pgRouting to compute a real road-network path between scenario origin/destination pairs, then calls `ST_LineInterpolatePoints` to generate waypoints at ~30m intervals. Falls back to straight-line coordinates if the road network is not loaded. `SimulationService` injects GPS glitches (10% per tick: ~50m random offset + flipped heading) and wrong turns (5% per tick: 3-tick lateral drift) to exercise the real-world tracking pipeline.
+- **Stateful journey tracking (Epic 3):** `vehicle.active_dispatch_route_id` links a vehicle to its current route. `PositionTrackingService` computes `ST_Distance` between each GPS ping and the active route geometry. Pings within 30m with a reversed heading are snapped to the route (GPS glitch on opposite carriageway). Pings beyond 50m for two consecutive ticks trigger `BreachService.computeOffRouteReroute()`.
+- **Predictive compliance (Epic 4):** `RouteComplianceService.validateRoute()` runs up to 5 pgRouting attempts, penalising violated zones by 1000× on each retry. After each attempt, `TimePredictionService` calls the Google Routes API (`TRAFFIC_AWARE`) to predict arrival times at zone entry points. If all 5 attempts hit curfews, the candidate with the lowest `travel_duration + wait_duration` is returned with a `wait_until` timestamp and `wait_duration_sec` field. The winning route is persisted to `dispatch_route` with wait-state columns.
 
 ## API Endpoints
 
@@ -161,6 +164,7 @@ For production, set these in a `.env` file (never commit it):
 # .env (gitignored)
 DB_USER=zonepilot
 DB_PASSWORD=your-secure-password
+GOOGLE_ROUTES_API_KEY=your-google-routes-api-key   # optional; enables predictive compliance
 ```
 
 ### Start

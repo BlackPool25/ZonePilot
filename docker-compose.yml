@@ -32,6 +32,7 @@ services:
       SPRING_DATASOURCE_USERNAME: ${DB_USER:-zonepilot}
       SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD:-zonepilot}
       SPRING_PROFILES_ACTIVE: dev
+      GOOGLE_ROUTES_API_KEY: ${GOOGLE_ROUTES_API_KEY:-}
     ports:
       - "8080:8080"
     depends_on:

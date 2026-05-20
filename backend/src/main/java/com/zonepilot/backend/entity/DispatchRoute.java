@@ -40,6 +40,12 @@ public class DispatchRoute {
     @Column(name = "completed_at")
     private Instant completedAt;
 
+    @Column(name = "wait_until")
+    private Instant waitUntil;
+
+    @Column(name = "wait_duration_sec")
+    private Integer waitDurationSec;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -66,6 +72,10 @@ public class DispatchRoute {
     public void setDispatchedAt(Instant dispatchedAt) { this.dispatchedAt = dispatchedAt; }
     public Instant getCompletedAt() { return completedAt; }
     public void setCompletedAt(Instant completedAt) { this.completedAt = completedAt; }
+    public Instant getWaitUntil() { return waitUntil; }
+    public void setWaitUntil(Instant waitUntil) { this.waitUntil = waitUntil; }
+    public Integer getWaitDurationSec() { return waitDurationSec; }
+    public void setWaitDurationSec(Integer waitDurationSec) { this.waitDurationSec = waitDurationSec; }
     public Instant getCreatedAt() { return createdAt; }
     public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }
 }

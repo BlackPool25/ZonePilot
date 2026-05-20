@@ -1,5 +1,6 @@
 package com.zonepilot.backend.service;
 
+import com.zonepilot.backend.repository.DispatchRouteRepository;
 import com.zonepilot.backend.entity.Vehicle;
 import com.zonepilot.backend.enums.PositionSource;
 import com.zonepilot.backend.enums.VehicleClass;
@@ -15,6 +16,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.time.Instant;
 import java.util.Optional;
@@ -28,14 +30,17 @@ class PositionTrackingServiceTest {
     @Mock private VehicleRepository vehicleRepository;
     @Mock private VehiclePositionLogRepository positionLogRepository;
     @Mock private ZoneBreachLogRepository breachLogRepository;
+    @Mock private DispatchRouteRepository dispatchRouteRepository;
     @Mock private BreachService breachService;
+    @Mock private JdbcTemplate jdbcTemplate;
 
     private PositionTrackingService service;
 
     @BeforeEach
     void setUp() {
         service = new PositionTrackingService(
-                vehicleRepository, positionLogRepository, breachLogRepository, breachService);
+                vehicleRepository, positionLogRepository, breachLogRepository,
+                dispatchRouteRepository, breachService, jdbcTemplate);
     }
 
     @Test

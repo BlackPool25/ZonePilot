@@ -10,6 +10,9 @@ public class RouteValidationResponse {
     private String alternativeRouteGeoJson;
     private Boolean alternativeRouteUnavailable = false;
     private Long dispatchRouteId;
+    // Epic 4: wait-state fields (populated when waiting is faster than rerouting)
+    private String waitUntil;       // ISO-8601 timestamp
+    private Integer waitDurationSec; // seconds to wait
 
     public Boolean getCompliant() { return compliant; }
     public void setCompliant(Boolean compliant) { this.compliant = compliant; }
@@ -23,6 +26,10 @@ public class RouteValidationResponse {
     public void setAlternativeRouteUnavailable(Boolean alternativeRouteUnavailable) { this.alternativeRouteUnavailable = alternativeRouteUnavailable; }
     public Long getDispatchRouteId() { return dispatchRouteId; }
     public void setDispatchRouteId(Long dispatchRouteId) { this.dispatchRouteId = dispatchRouteId; }
+    public String getWaitUntil() { return waitUntil; }
+    public void setWaitUntil(String waitUntil) { this.waitUntil = waitUntil; }
+    public Integer getWaitDurationSec() { return waitDurationSec; }
+    public void setWaitDurationSec(Integer waitDurationSec) { this.waitDurationSec = waitDurationSec; }
 
     public static class ViolationDetail {
         private Long zoneId;
