@@ -57,8 +57,9 @@ class BackendApplicationTests {
     // ── Enum correctness ──────────────────────────────────────────────────────
 
     @Test
-    void vehicleClass_hasExactlyThreeValues() {
-        assertEquals(3, VehicleClass.values().length);
+    void vehicleClass_hasExactlyFourValues() {
+        // TWO_WHEELER, LCV, HCV, ALL (used in zone rules to match any vehicle class)
+        assertEquals(4, VehicleClass.values().length);
     }
 
     @ParameterizedTest

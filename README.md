@@ -100,7 +100,7 @@ com.zonepilot.backend
 |---|---|---|
 | GET | `/api/depots` | List all depots |
 | GET | `/api/depots/{id}` | Depot detail |
-| POST | `/api/depots` | Create depot |
+| POST | `/api/depots` | Create depot (JSON body: `name`, `address`, `lat`, `lng`) |
 
 ### Zones
 | Method | Path | Description |
@@ -108,7 +108,7 @@ com.zonepilot.backend
 | GET | `/api/zones` | List all zones |
 | GET | `/api/zones/{id}` | Zone detail with rules |
 | GET | `/api/zones/active` | Currently active zones |
-| POST | `/api/zones` | Create zone (accepts GeoJSON boundary string) |
+| POST | `/api/zones` | Create zone (JSON body: `name`, `description`, `boundaryGeoJson`, `restrictionType`, `isActive`) |
 
 ### Routes
 | Method | Path | Description |
@@ -135,7 +135,7 @@ com.zonepilot.backend
 | Method | Path | Description |
 |---|---|---|
 | GET | `/api/reports/summary` | Fleet-wide breach summary (from `v_vehicle_breach_summary`) |
-| GET | `/api/reports/zones/{id}/violations` | Zone violation stats |
+| GET | `/api/reports/zones/{id}/violations` | Zone violation stats filtered by zone ID (empty array if zone has no violations) |
 | GET | `/api/reports/active-restrictions` | Currently active restrictions |
 
 ### Simulation
@@ -182,7 +182,7 @@ Only when `pom.xml` changes will dependencies be re-downloaded.
 
 ### Road Network (Required for Route Validation)
 
-pgRouting requires the Bangalore OSM road network to be loaded. Without it, route validation endpoints return a 422 error. Simulation and breach detection work without it.
+pgRouting requires the Bangalore OSM road network to be loaded. Without it, route validation endpoints return a **503** error with code `ROAD_NETWORK_UNAVAILABLE`. Simulation and breach detection work without it.
 
 ```bash
 # 1. Download Karnataka OSM data
@@ -312,6 +312,13 @@ The schema is normalized to BCNF:
 - All endpoints are currently unauthenticated — suitable for academic/demo use. Add Spring Security for production.
 - `IllegalArgumentException` from invalid enum values returns HTTP 400, not 500.
 - Route validation failures (stored procedure errors) propagate as exceptions rather than silently returning compliant.
+- Malformed JSON returns HTTP 400 (`MALFORMED_JSON`), not 500.
+- Wrong HTTP method returns HTTP 405 (`METHOD_NOT_ALLOWED`), not 500.
+- Wrong `Content-Type` returns HTTP 415 (`UNSUPPORTED_MEDIA_TYPE`), not 500.
+- Invalid path returns HTTP 404 (`ENDPOINT_NOT_FOUND`), not 500.
+- Missing road network returns HTTP 503 (`ROAD_NETWORK_UNAVAILABLE`), not 500.
+- `speedKmh` must be ≥ 0. Negative values return HTTP 400.
+- `timestamp` in position records cannot be more than 5 minutes in the future. Future timestamps return HTTP 400.
 
 ## License
 
