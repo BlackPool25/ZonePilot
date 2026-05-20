@@ -186,7 +186,7 @@ pgRouting requires the Bangalore OSM road network to be loaded. Without it, rout
 
 ```bash
 # 1. Download Karnataka OSM data
-wget https://download.geofabrik.de/asia/india/karnataka-latest.osm.pbf
+wget https://download.openstreetmap.fr/extracts/asia/india/karnataka-latest.osm.pbf
 
 # 2. Clip to Bangalore bounding box
 osmium extract --bbox=77.45,12.83,77.78,13.14 karnataka-latest.osm.pbf -o bangalore.osm.pbf

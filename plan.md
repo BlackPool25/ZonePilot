@@ -69,8 +69,8 @@ Bengaluru Traffic Police (BTP) has mandated all delivery platforms and cab aggre
 
 ### 3A — Road Network (for pgRouting)
 **Tool:** `osm2po` (Java-based, handles PBF directly — simpler than osm2pgrouting for this setup)  
-**Source:** Geofabrik — download `south-india-latest.osm.pbf` OR Karnataka extract  
-**URL:** `https://download.geofabrik.de/asia/india/`  
+**Source:** OpenStreetMap France — download `karnataka-latest.osm.pbf`  
+**URL:** `https://download.openstreetmap.fr/extracts/asia/india/`  
 **Why osm2po over osm2pgrouting:** osm2po reads `.pbf` natively without conversion, generates a single `.sql` file importable directly into PostgreSQL, and produces the `ways` + `ways_vertices_pgr` tables that pgRouting needs. It is Java-based so no extra C dependencies.
 
 **Steps:**

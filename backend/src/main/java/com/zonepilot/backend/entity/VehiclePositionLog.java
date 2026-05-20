@@ -12,7 +12,8 @@ import java.time.Instant;
 public class VehiclePositionLog {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @GeneratedValue(strategy = GenerationType.SEQUENCE, generator = "position_log_seq")
+    @SequenceGenerator(name = "position_log_seq", sequenceName = "vehicle_position_log_id_seq", allocationSize = 1)
     private Long id;
 
     @Id

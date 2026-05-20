@@ -1,6 +1,7 @@
 package com.zonepilot.backend.entity;
 
 import jakarta.persistence.*;
+import org.hibernate.annotations.Type;
 import org.locationtech.jts.geom.Point;
 import java.time.Instant;
 
