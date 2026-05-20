@@ -24,12 +24,16 @@ public class RoadNetworkRepository {
      * KNN <-> operator on the GIST index (faster than ST_Distance ORDER BY).
      */
     public Optional<Long> findNearestNodeId(double lat, double lng) {
-        List<Long> results = jdbcTemplate.query(
-                "SELECT id FROM blr_2po_4pgr_vertices_pgr " +
-                "ORDER BY the_geom <-> ST_SetSRID(ST_Point(?, ?), 4326) LIMIT 1",
-                (rs, rowNum) -> rs.getLong("id"),
-                lng, lat);
-        return results.isEmpty() ? Optional.empty() : Optional.of(results.get(0));
+        try {
+            List<Long> results = jdbcTemplate.query(
+                    "SELECT id FROM blr_2po_4pgr_vertices_pgr " +
+                    "ORDER BY the_geom <-> ST_SetSRID(ST_Point(?, ?), 4326) LIMIT 1",
+                    (rs, rowNum) -> rs.getLong("id"),
+                    lng, lat);
+            return results.isEmpty() ? Optional.empty() : Optional.of(results.get(0));
+        } catch (Exception e) {
+            return Optional.empty();
+        }
     }
 
     /**

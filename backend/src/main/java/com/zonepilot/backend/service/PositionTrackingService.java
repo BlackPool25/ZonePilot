@@ -89,6 +89,9 @@ public class PositionTrackingService {
         List<ZoneBreachLog> breaches;
         if (saved.getId() != null) {
             breaches = breachLogRepository.findByPositionLogId(saved.getId());
+            if (breaches.isEmpty()) {
+                breaches = breachLogRepository.findByVehicleIdAndBreachTime(vehicleId, recordedAt);
+            }
         } else {
             log.warn("Position log ID was null after save (partitioned table); falling back to vehicleId+timestamp query");
             breaches = breachLogRepository.findByVehicleIdAndBreachTime(vehicleId, recordedAt);

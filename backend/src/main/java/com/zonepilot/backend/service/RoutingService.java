@@ -41,7 +41,12 @@ public class RoutingService {
      * Used by BreachService where routing is best-effort.
      */
     public Long findNearestNodeOrNull(double lat, double lng) {
-        return roadNetworkRepository.findNearestNodeId(lat, lng).orElse(null);
+        try {
+            return roadNetworkRepository.findNearestNodeId(lat, lng).orElse(null);
+        } catch (Exception e) {
+            log.warn("Road network unavailable for nearest node lookup: {}", e.getMessage());
+            return null;
+        }
     }
 
     public LineString computeRoute(long sourceNodeId, long targetNodeId) {
