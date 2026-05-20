@@ -46,7 +46,8 @@ public class RouteController {
     public ResponseEntity<ApiResponse<DispatchRoute>> getRoute(@PathVariable Long id) {
         return dispatchRouteRepository.findById(id)
                 .map(route -> ResponseEntity.ok(ApiResponse.success(route)))
-                .orElse(ResponseEntity.notFound().build());
+                .orElseGet(() -> ResponseEntity.status(org.springframework.http.HttpStatus.NOT_FOUND)
+                        .body(ApiResponse.error("RESOURCE_NOT_FOUND", "Route not found with id: " + id)));
     }
 
     @GetMapping("/vehicle/{vehicleId}")
