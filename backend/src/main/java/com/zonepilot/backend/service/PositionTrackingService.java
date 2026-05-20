@@ -54,6 +54,8 @@ public class PositionTrackingService {
 
     // Tracks consecutive off-route ping count per vehicleId
     private final ConcurrentHashMap<Long, Integer> offRoutePingCount = new ConcurrentHashMap<>();
+    // BUG-NEW-009: tracks the last known active route ID per vehicle to detect route changes
+    private final ConcurrentHashMap<Long, Long> lastKnownRouteId = new ConcurrentHashMap<>();
 
     public PositionTrackingService(VehicleRepository vehicleRepository,
                                    VehiclePositionLogRepository positionLogRepository,
@@ -163,7 +165,16 @@ public class PositionTrackingService {
         Long routeId = vehicle.getActiveDispatchRouteId();
         if (routeId == null) {
             offRoutePingCount.remove(vehicle.getId());
+            lastKnownRouteId.remove(vehicle.getId());
             return new double[]{lat, lng};
+        }
+
+        // BUG-NEW-009: reset off-route counter when the vehicle's active route changes
+        Long previousRouteId = lastKnownRouteId.put(vehicle.getId(), routeId);
+        if (previousRouteId != null && !previousRouteId.equals(routeId)) {
+            log.debug("Vehicle {} active route changed ({} → {}) — resetting off-route counter",
+                    vehicle.getId(), previousRouteId, routeId);
+            offRoutePingCount.remove(vehicle.getId());
         }
 
         try {
