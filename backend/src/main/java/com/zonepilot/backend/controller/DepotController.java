@@ -1,10 +1,12 @@
 package com.zonepilot.backend.controller;
 
+import com.zonepilot.backend.dto.request.CreateDepotRequest;
 import com.zonepilot.backend.dto.response.ApiResponse;
 import com.zonepilot.backend.dto.response.DepotResponse;
 import com.zonepilot.backend.service.DepotService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -36,10 +38,9 @@ public class DepotController {
     @PostMapping
     @Operation(summary = "Create a new depot", description = "Creates a depot with name, address, and coordinates")
     public ResponseEntity<ApiResponse<DepotResponse>> createDepot(
-            @RequestParam String name,
-            @RequestParam String address,
-            @RequestParam double lat,
-            @RequestParam double lng) {
-        return ResponseEntity.ok(ApiResponse.success(depotService.createDepot(name, address, lat, lng)));
+            @Valid @RequestBody CreateDepotRequest request) {
+        return ResponseEntity.ok(ApiResponse.success(
+                depotService.createDepot(request.getName(), request.getAddress(),
+                        request.getLat(), request.getLng())));
     }
 }

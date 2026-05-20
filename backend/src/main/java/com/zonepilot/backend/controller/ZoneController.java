@@ -1,10 +1,12 @@
 package com.zonepilot.backend.controller;
 
+import com.zonepilot.backend.dto.request.CreateZoneRequest;
 import com.zonepilot.backend.dto.response.ApiResponse;
 import com.zonepilot.backend.dto.response.ZoneResponse;
 import com.zonepilot.backend.service.ZoneService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -42,12 +44,9 @@ public class ZoneController {
     @PostMapping
     @Operation(summary = "Create a new zone", description = "Creates a zone restriction with a GeoJSON boundary")
     public ResponseEntity<ApiResponse<ZoneResponse>> createZone(
-            @RequestParam String name,
-            @RequestParam(required = false) String description,
-            @RequestParam String boundaryGeoJson,
-            @RequestParam String restrictionType,
-            @RequestParam(required = false, defaultValue = "true") Boolean isActive) {
+            @Valid @RequestBody CreateZoneRequest request) {
         return ResponseEntity.ok(ApiResponse.success(
-                zoneService.createZone(name, description, boundaryGeoJson, restrictionType, isActive)));
+                zoneService.createZone(request.getName(), request.getDescription(),
+                        request.getBoundaryGeoJson(), request.getRestrictionType(), request.getIsActive())));
     }
 }
