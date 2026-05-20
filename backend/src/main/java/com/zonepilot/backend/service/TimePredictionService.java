@@ -11,6 +11,7 @@ import org.springframework.web.client.RestClient;
 
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -68,14 +69,14 @@ public class TimePredictionService {
 
             List<Map<String, Object>> intermediates = buildIntermediates(coords, zoneEntryPoints);
 
-            Map<String, Object> requestBody = Map.of(
-                    "origin", waypointFromCoord(origin),
-                    "destination", waypointFromCoord(destination),
-                    "intermediates", intermediates,
-                    "travelMode", "DRIVE",
-                    "routingPreference", "TRAFFIC_AWARE",
-                    "departureTime", departureTime.toString()
-            );
+            // BUG-NEW-007: use HashMap instead of Map.of() — Map.of() throws NPE on null values
+            Map<String, Object> requestBody = new HashMap<>();
+            requestBody.put("origin", waypointFromCoord(origin));
+            requestBody.put("destination", waypointFromCoord(destination));
+            requestBody.put("intermediates", intermediates);
+            requestBody.put("travelMode", "DRIVE");
+            requestBody.put("routingPreference", "TRAFFIC_AWARE");
+            requestBody.put("departureTime", departureTime.toString());
 
             @SuppressWarnings("unchecked")
             Map<String, Object> response = restClient.post()
@@ -118,14 +119,14 @@ public class TimePredictionService {
             // so each becomes a leg boundary. We limit to MAX_INTERMEDIATES.
             List<Map<String, Object>> intermediates = buildZoneIntermediates(zoneEntryPoints);
 
-            Map<String, Object> requestBody = Map.of(
-                    "origin", waypointFromCoord(origin),
-                    "destination", waypointFromCoord(destination),
-                    "intermediates", intermediates,
-                    "travelMode", "DRIVE",
-                    "routingPreference", "TRAFFIC_AWARE",
-                    "departureTime", departureTime.toString()
-            );
+            // BUG-NEW-007: use HashMap instead of Map.of() — Map.of() throws NPE on null values
+            Map<String, Object> requestBody = new HashMap<>();
+            requestBody.put("origin", waypointFromCoord(origin));
+            requestBody.put("destination", waypointFromCoord(destination));
+            requestBody.put("intermediates", intermediates);
+            requestBody.put("travelMode", "DRIVE");
+            requestBody.put("routingPreference", "TRAFFIC_AWARE");
+            requestBody.put("departureTime", departureTime.toString());
 
             @SuppressWarnings("unchecked")
             Map<String, Object> response = restClient.post()
