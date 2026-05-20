@@ -16,6 +16,7 @@ import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.time.Instant;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -80,6 +81,23 @@ class PositionTrackingServiceTest {
         when(vehicleRepository.findById(1L)).thenReturn(Optional.empty());
         assertThrows(ResourceNotFoundException.class,
                 () -> service.recordPosition(1L, lat, lng, null, null, null, PositionSource.LIVE));
+        verify(vehicleRepository).findById(1L);
+    }
+
+    @Test
+    void recordPosition_withFutureTimestamp_throwsValidationException() {
+        Instant farFuture = Instant.now().plusSeconds(3600);
+        assertThrows(ValidationException.class,
+                () -> service.recordPosition(1L, 12.9, 77.6, farFuture, null, null, PositionSource.LIVE));
+        verify(vehicleRepository, never()).findById(any());
+    }
+
+    @Test
+    void recordPosition_withTimestampJustUnderFiveMinutes_proceedsToVehicleLookup() {
+        Instant nearFuture = Instant.now().plusSeconds(240); // 4 minutes — within tolerance
+        when(vehicleRepository.findById(1L)).thenReturn(Optional.empty());
+        assertThrows(ResourceNotFoundException.class,
+                () -> service.recordPosition(1L, 12.9, 77.6, nearFuture, null, null, PositionSource.LIVE));
         verify(vehicleRepository).findById(1L);
     }
 

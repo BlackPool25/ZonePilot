@@ -20,6 +20,7 @@ public class RecordPositionRequest {
 
     private Instant timestamp;
 
+    @DecimalMin(value = "0", message = "Speed must be non-negative")
     private BigDecimal speedKmh;
 
     private Short headingDeg;

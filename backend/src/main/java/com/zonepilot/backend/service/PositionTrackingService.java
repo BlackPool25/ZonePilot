@@ -58,6 +58,10 @@ public class PositionTrackingService {
                                                   Short headingDeg, PositionSource source) {
         validateBangaloreCoordinates(lat, lng);
 
+        if (timestamp != null && timestamp.isAfter(Instant.now().plusSeconds(300))) {
+            throw new ValidationException("Timestamp cannot be more than 5 minutes in the future");
+        }
+
         Vehicle vehicle = vehicleRepository.findById(vehicleId)
                 .orElseThrow(() -> new ResourceNotFoundException("Vehicle", "id", vehicleId));
 
@@ -80,13 +84,14 @@ public class PositionTrackingService {
         VehiclePositionLog saved = positionLogRepository.save(positionLog);
 
         // For partitioned tables, Hibernate may not always populate the generated ID.
-        // Use vehicleId + recordedAt as a reliable fallback to find breach records.
+        // Fall back to querying by vehicleId + exact recordedAt timestamp, which is
+        // reliable because the trigger inserts breach_time = NEW.recorded_at.
         List<ZoneBreachLog> breaches;
         if (saved.getId() != null) {
             breaches = breachLogRepository.findByPositionLogId(saved.getId());
         } else {
-            log.warn("Position log ID was null after save (partitioned table); falling back to vehicleId+time query");
-            breaches = breachLogRepository.findByVehicleIdAndBreachTimeAfter(vehicleId, recordedAt.minusSeconds(1));
+            log.warn("Position log ID was null after save (partitioned table); falling back to vehicleId+timestamp query");
+            breaches = breachLogRepository.findByVehicleIdAndBreachTime(vehicleId, recordedAt);
         }
 
         PositionRecordResponse response = new PositionRecordResponse();
