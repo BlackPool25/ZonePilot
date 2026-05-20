@@ -1,0 +1,48 @@
+services:
+  postgres:
+    build:
+      context: ./docker/postgres
+      dockerfile: Dockerfile
+    container_name: zonepilot-postgres
+    environment:
+      POSTGRES_USER: ${DB_USER:-zonepilot}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-zonepilot}
+      POSTGRES_DB: ZonePilot
+    ports:
+      - "5434:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./docker/init-db:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-zonepilot} -d ZonePilot"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks:
+      - zonepilot-net
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: zonepilot-backend
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/ZonePilot
+      SPRING_DATASOURCE_USERNAME: ${DB_USER:-zonepilot}
+      SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD:-zonepilot}
+      SPRING_PROFILES_ACTIVE: dev
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - zonepilot-net
+
+volumes:
+  pgdata:
+
+networks:
+  zonepilot-net:
+    driver: bridge
