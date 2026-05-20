@@ -17,6 +17,7 @@ import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.util.List;
@@ -148,5 +149,19 @@ class GlobalExceptionHandlerTest {
         ResponseEntity<ApiResponse<Void>> response = handler.handleMissingParam(ex);
         assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
         assertEquals("MISSING_PARAMETER", response.getBody().getError().getCode());
+    }
+
+    @Test
+    void methodArgumentTypeMismatch_returns400() {
+        MethodArgumentTypeMismatchException ex = mock(MethodArgumentTypeMismatchException.class);
+        when(ex.getName()).thenReturn("id");
+        when(ex.getValue()).thenReturn("abc");
+        when(ex.getRequiredType()).thenAnswer(inv -> Long.class);
+
+        ResponseEntity<ApiResponse<Void>> response = handler.handleTypeMismatch(ex);
+        assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
+        assertEquals("INVALID_PARAMETER_TYPE", response.getBody().getError().getCode());
+        assertTrue(response.getBody().getError().getMessage().contains("abc"));
+        assertTrue(response.getBody().getError().getMessage().contains("id"));
     }
 }
