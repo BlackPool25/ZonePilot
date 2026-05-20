@@ -6,10 +6,18 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.mock.http.MockHttpInputMessage;
 import org.springframework.validation.BindingResult;
 import org.springframework.validation.FieldError;
+import org.springframework.web.HttpMediaTypeNotSupportedException;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.util.List;
 import java.util.Map;
@@ -96,5 +104,49 @@ class GlobalExceptionHandlerTest {
         ResponseEntity<ApiResponse<Map<String, String>>> response = handler.handleValidationErrors(ex);
         assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
         assertEquals("VALIDATION_ERROR", response.getBody().getError().getCode());
+    }
+
+    @Test
+    void malformedJson_returns400() {
+        HttpMessageNotReadableException ex = new HttpMessageNotReadableException(
+                "JSON parse error", new MockHttpInputMessage(new byte[0]));
+        ResponseEntity<ApiResponse<Void>> response = handler.handleNotReadable(ex);
+        assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
+        assertEquals("MALFORMED_JSON", response.getBody().getError().getCode());
+    }
+
+    @Test
+    void unsupportedMediaType_returns415() {
+        HttpMediaTypeNotSupportedException ex = new HttpMediaTypeNotSupportedException(
+                MediaType.TEXT_PLAIN, List.of(MediaType.APPLICATION_JSON));
+        ResponseEntity<ApiResponse<Void>> response = handler.handleUnsupportedMediaType(ex);
+        assertEquals(HttpStatus.UNSUPPORTED_MEDIA_TYPE, response.getStatusCode());
+        assertEquals("UNSUPPORTED_MEDIA_TYPE", response.getBody().getError().getCode());
+    }
+
+    @Test
+    void methodNotSupported_returns405() {
+        HttpRequestMethodNotSupportedException ex =
+                new HttpRequestMethodNotSupportedException("GET", List.of("POST"));
+        ResponseEntity<ApiResponse<Void>> response = handler.handleMethodNotSupported(ex);
+        assertEquals(HttpStatus.METHOD_NOT_ALLOWED, response.getStatusCode());
+        assertEquals("METHOD_NOT_ALLOWED", response.getBody().getError().getCode());
+    }
+
+    @Test
+    void noResourceFound_returns404() {
+        NoResourceFoundException ex = new NoResourceFoundException(HttpMethod.GET, "/api/nonexistent");
+        ResponseEntity<ApiResponse<Void>> response = handler.handleNoResourceFound(ex);
+        assertEquals(HttpStatus.NOT_FOUND, response.getStatusCode());
+        assertEquals("ENDPOINT_NOT_FOUND", response.getBody().getError().getCode());
+    }
+
+    @Test
+    void missingRequestParam_returns400() {
+        MissingServletRequestParameterException ex =
+                new MissingServletRequestParameterException("name", "String");
+        ResponseEntity<ApiResponse<Void>> response = handler.handleMissingParam(ex);
+        assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
+        assertEquals("MISSING_PARAMETER", response.getBody().getError().getCode());
     }
 }
