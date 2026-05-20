@@ -90,64 +90,106 @@ com.zonepilot.backend
 
 ## API Endpoints
 
+All endpoints return a standardized `ApiResponse<T>` envelope:
+```json
+{ "success": true, "timestamp": "2026-05-20T16:30:00Z", "data": { ... }, "error": null }
+```
+On error:
+```json
+{ "success": false, "timestamp": "2026-05-20T16:30:00Z", "data": null, "error": { "code": "RESOURCE_NOT_FOUND", "message": "..." } }
+```
+
 ### Vehicles
+
 | Method | Path | Description |
 |---|---|---|
-| GET | `/api/vehicles` | List all vehicles (`?vehicleClass=HCV&isActive=true`) |
-| GET | `/api/vehicles/{id}` | Vehicle detail |
-| POST | `/api/vehicles` | Register vehicle |
-| PUT | `/api/vehicles/{id}` | Update vehicle |
+| GET | `/api/vehicles` | List all vehicles. Query params: `?vehicleClass=TWO_WHEELER\|LCV\|HCV`, `?isActive=true\|false` |
+| GET | `/api/vehicles/{id}` | Vehicle detail by ID |
+| POST | `/api/vehicles` | Register vehicle. Body: `{ "registrationNumber": "KA01-LCV-0010", "vehicleClass": "LCV", "ownerName": "Name", "depotId": 1 }` |
+| PUT | `/api/vehicles/{id}` | Update vehicle. Same body as POST |
+| GET | `/api/vehicles/{id}/zones-at-location` | Get active zones containing a point. Query params: `?lat=12.91&lng=77.63` |
+
+**VehicleResponse fields:** `id`, `registrationNumber`, `vehicleClass`, `ownerName`, `depotId`, `depotName`, `isActive`
 
 ### Depots
+
 | Method | Path | Description |
 |---|---|---|
 | GET | `/api/depots` | List all depots |
-| GET | `/api/depots/{id}` | Depot detail |
-| POST | `/api/depots` | Create depot (JSON body: `name`, `address`, `lat`, `lng`) |
+| GET | `/api/depots/{id}` | Depot detail by ID |
+| POST | `/api/depots` | Create depot. Body: `{ "name": "Depot Name", "address": "Street, Area", "lat": 12.91, "lng": 77.63 }` |
+
+**DepotResponse fields:** `id`, `name`, `address`, `latitude`, `longitude`
 
 ### Zones
+
 | Method | Path | Description |
 |---|---|---|
-| GET | `/api/zones` | List all zones |
-| GET | `/api/zones/{id}` | Zone detail with rules |
-| GET | `/api/zones/active` | Currently active zones |
-| POST | `/api/zones` | Create zone (JSON body: `name`, `description`, `boundaryGeoJson`, `restrictionType`, `isActive`) |
+| GET | `/api/zones` | List all zones with rules |
+| GET | `/api/zones/{id}` | Zone detail by ID with rules |
+| GET | `/api/zones/active` | Currently active zones (based on time/day) |
+| POST | `/api/zones` | Create zone. Body: `{ "name": "Zone Name", "description": "...", "boundaryGeoJson": "{\"type\":\"Polygon\",\"coordinates\":[[[lng,lat],...]]}", "restrictionType": "NO_ENTRY\|TIME_RESTRICTED\|VEHICLE_CLASS_RESTRICTED", "isActive": true }` |
+
+**ZoneResponse fields:** `id`, `name`, `description`, `boundaryGeoJson` (WKT string), `restrictionType`, `isActive`, `rules[]`
+**Rule fields:** `id`, `applicableVehicleClass`, `restrictionStartTime`, `restrictionEndTime`, `daysOfWeekBitmask`, `isActive`
 
 ### Routes
+
 | Method | Path | Description |
 |---|---|---|
-| POST | `/api/routes/validate` | Validate route pre-dispatch via pgRouting + `sp_validate_route` |
-| GET | `/api/routes/{id}` | Route detail |
-| GET | `/api/routes/vehicle/{vehicleId}` | Route history |
+| POST | `/api/routes/validate` | Validate route pre-dispatch. Body: `{ "vehicleId": 4, "originLat": 12.91, "originLng": 77.59, "destLat": 12.97, "destLng": 77.64 }`. Returns pgRouting path + zone violations + wait-state if applicable |
+| GET | `/api/routes/{id}` | Dispatch route detail by ID |
+| GET | `/api/routes/vehicle/{vehicleId}` | Route history for a vehicle (all dispatch routes, newest first) |
+
+**RouteValidationResponse fields:** `compliant` (boolean), `routeGeoJson` (WKT), `violations[]`, `alternativeRouteGeoJson`, `alternativeRouteUnavailable`, `dispatchRouteId`, `waitUntil` (ISO-8601), `waitDurationSec`
+**ViolationDetail fields:** `zoneId`, `zoneName`, `breachType`
 
 ### Positions
+
 | Method | Path | Description |
 |---|---|---|
-| POST | `/api/vehicles/{id}/positions` | Record live position — trigger fires, breach returned in response |
-| GET | `/api/vehicles/{id}/positions` | Position history (`?from=&to=` as ISO-8601) |
-| GET | `/api/vehicles/{id}/positions/latest` | Latest position |
+| POST | `/api/vehicles/{vehicleId}/positions` | Record live position. Body: `{ "lat": 12.91, "lng": 77.63, "speedKmh": 30.0, "headingDeg": 180, "timestamp": "2026-05-20T16:30:00Z" }`. DB trigger fires; breaches returned inline |
+| GET | `/api/vehicles/{vehicleId}/positions` | Position history. Query params: `?from=2026-05-20T00:00:00Z&to=2026-05-20T23:59:59Z` (ISO-8601, optional) |
+| GET | `/api/vehicles/{vehicleId}/positions/latest` | Latest position for vehicle |
+
+**PositionRecordResponse fields:** `breachDetected` (boolean), `position: { latitude, longitude, recordedAt, speedKmh, source }`, `breaches[]`
+**BreachDetail fields:** `breachId`, `zoneId`, `zoneName`, `breachType`, `rerouteGeoJson`
+**PositionResponse fields:** `id`, `vehicleId`, `latitude`, `longitude`, `recordedAt`, `speedKmh`, `headingDeg`, `source`
 
 ### Breaches
+
 | Method | Path | Description |
 |---|---|---|
-| GET | `/api/breaches` | All breaches (`?vehicleId=&zoneId=&from=&to=&unacknowledged=true`) |
+| GET | `/api/breaches` | List breaches. Query params: `?vehicleId=7&zoneId=1&from=...&to=...&unacknowledged=true` |
 | GET | `/api/breaches/{id}` | Breach detail with reroute geometry |
-| PUT | `/api/breaches/{id}/acknowledge` | Mark breach acknowledged |
+| PUT | `/api/breaches/{id}/acknowledge` | Mark breach acknowledged (idempotent) |
+
+**BreachResponse fields:** `id`, `vehicleId`, `registrationNumber`, `zoneId`, `zoneName`, `breachType`, `breachTime`, `rerouteGeoJson`, `isAcknowledged`
 
 ### Reports
+
 | Method | Path | Description |
 |---|---|---|
-| GET | `/api/reports/summary` | Fleet-wide breach summary (from `v_vehicle_breach_summary`) |
-| GET | `/api/reports/zones/{id}/violations` | Zone violation stats filtered by zone ID (empty array if zone has no violations) |
-| GET | `/api/reports/active-restrictions` | Currently active restrictions |
+| GET | `/api/reports/summary` | Fleet-wide breach summary per vehicle (from `v_vehicle_breach_summary` view) |
+| GET | `/api/reports/zones/{zoneId}/violations` | Violation stats for a specific zone. Returns empty array if zone has no violations |
+| GET | `/api/reports/active-restrictions` | Currently active restrictions (based on current IST time) |
+
+**Summary fields:** `vehicleId`, `registrationNumber`, `vehicleClass`, `totalBreaches`, `noEntryBreaches`, `timeWindowBreaches`, `classBreaches`, `unacknowledgedBreaches`, `lastBreachTime`
+**Zone violation fields:** `zoneId`, `zoneName`, `restrictionType`, `totalViolations`, `hcvViolations`, `lcvViolations`, `twoWheelerViolations`, `lastViolationTime`
+**Active restriction fields:** `id`, `name`, `restrictionType`, `applicableVehicleClass`, `restrictionStartTime`, `restrictionEndTime`
 
 ### Simulation
+
 | Method | Path | Description |
 |---|---|---|
-| POST | `/api/simulation/start` | Activate scenarios (`{"scenarios": ["A", "B", "C"]}`) |
-| POST | `/api/simulation/tick` | Advance all active vehicles one step |
-| GET | `/api/simulation/state` | Current state of all simulation paths |
-| POST | `/api/simulation/reset` | Reset all paths to step 0 |
+| POST | `/api/simulation/start` | Activate scenarios. Body: `{ "scenarios": ["A", "B", "C"] }`. Accepts short form (A/B/C) or full form (SCENARIO_A) |
+| POST | `/api/simulation/tick` | Advance all active vehicles one step. Returns positions, breach detection, and GPS glitch/wrong-turn deviations |
+| GET | `/api/simulation/state` | Current state of all simulation paths (active and inactive) |
+| POST | `/api/simulation/reset` | Reset all paths to step 0 and deactivate |
+
+**SimulationTickResponse fields:** `tickNumber`, `vehicles[]`
+**TickVehicleResult fields:** `vehicleId`, `registrationNumber`, `latitude`, `longitude`, `breachDetected`, `breaches[]`, `status` (MOVING/COMPLETED)
+**SimulationStateResponse fields:** `pathId`, `vehicleId`, `registrationNumber`, `scenarioName`, `currentStep`, `totalSteps`, `isActive`, `latitude`, `longitude`
 
 ## Running with Docker (Recommended)
 
