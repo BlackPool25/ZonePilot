@@ -106,9 +106,13 @@ public class RouteComplianceService {
 
         DispatchRoute saved = dispatchRouteRepository.save(dispatchRoute);
 
-        // Epic 3: mark this as the vehicle's active route
-        vehicle.setActiveDispatchRouteId(saved.getId());
-        vehicleRepository.save(vehicle);
+        // Epic 3: only mark as active route when the route is usable (compliant or wait-state).
+        // BUG-NEW-008: do not set active route for non-compliant routes with no wait state,
+        // as map-matching against a non-compliant route would produce incorrect off-route signals.
+        if (response.getCompliant() || winner.waitDurationSec() > 0) {
+            vehicle.setActiveDispatchRouteId(saved.getId());
+            vehicleRepository.save(vehicle);
+        }
 
         response.setDispatchRouteId(saved.getId());
         return response;
@@ -263,6 +267,11 @@ public class RouteComplianceService {
     /**
      * Runs pgr_dijkstra with 1000x cost penalty on all penalised zones.
      * Uses cost_time_sec (Epic 1) as base cost. Preserves reverse_cost=-1 for one-ways.
+     *
+     * BUG-NEW-006: pgr_dijkstra requires its edge SQL as a server-evaluated string literal —
+     * JDBC bind parameters cannot be used inside it. Zone IDs are server-side Long values
+     * (never user-controlled input), so %d / String.valueOf formatting is safe here.
+     * The outer pgr_dijkstra call uses JDBC bind parameters for sourceNode and targetNode.
      */
     private LineString computeRouteAvoidingZones(Long sourceNode, Long targetNode,
                                                   Set<Long> penalisedZones) {
@@ -273,7 +282,7 @@ public class RouteComplianceService {
         String zoneIds = String.join(",",
                 penalisedZones.stream().map(String::valueOf).toList());
 
-        String penalisedQuery = String.format(
+        String pgRoutingEdgeSql = String.format(
                 "SELECT id, source, target, " +
                 "CASE WHEN ST_Intersects(the_geom, (SELECT ST_Union(boundary) FROM zone_restriction WHERE id IN (%s))) " +
                 "THEN cost_time_sec * 1000 ELSE cost_time_sec END AS cost, " +
@@ -290,7 +299,7 @@ public class RouteComplianceService {
                         rs.getInt("seq"), rs.getLong("edge"),
                         rs.getDouble("cost"), rs.getString("geom")
                 },
-                penalisedQuery, sourceNode, targetNode);
+                pgRoutingEdgeSql, sourceNode, targetNode);
 
         if (results.isEmpty()) {
             throw new RoutingException("No route found avoiding zones: " + zoneIds);
