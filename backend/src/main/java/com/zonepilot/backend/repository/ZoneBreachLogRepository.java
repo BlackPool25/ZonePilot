@@ -19,6 +19,11 @@ public interface ZoneBreachLogRepository extends JpaRepository<ZoneBreachLog, Lo
             @Param("vehicleId") Long vehicleId,
             @Param("after") java.time.Instant after);
 
+    @Query(value = "SELECT * FROM zone_breach_log WHERE vehicle_id = :vehicleId AND breach_time = :breachTime", nativeQuery = true)
+    List<ZoneBreachLog> findByVehicleIdAndBreachTime(
+            @Param("vehicleId") Long vehicleId,
+            @Param("breachTime") java.time.Instant breachTime);
+
     List<ZoneBreachLog> findByVehicleIdOrderByBreachTimeDesc(Long vehicleId);
 
     @Query(value = "SELECT * FROM zone_breach_log WHERE vehicle_id = :vehicleId AND breach_time BETWEEN :from AND :to ORDER BY breach_time DESC", nativeQuery = true)
@@ -36,4 +41,7 @@ public interface ZoneBreachLogRepository extends JpaRepository<ZoneBreachLog, Lo
 
     @Query(value = "SELECT * FROM v_zone_violation_stats", nativeQuery = true)
     List<Object[]> getZoneViolationStats();
+
+    @Query(value = "SELECT * FROM v_zone_violation_stats WHERE zone_id = :zoneId", nativeQuery = true)
+    List<Object[]> getZoneViolationStatsByZoneId(@Param("zoneId") Long zoneId);
 }

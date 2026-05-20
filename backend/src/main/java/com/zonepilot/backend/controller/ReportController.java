@@ -31,7 +31,7 @@ public class ReportController {
     @Operation(summary = "Zone violation stats", description = "Returns violation statistics for a specific zone")
     public ResponseEntity<ApiResponse<List<Map<String, Object>>>> getZoneViolations(
             @PathVariable Long zoneId) {
-        return ResponseEntity.ok(ApiResponse.success(reportingService.getZoneViolationStats()));
+        return ResponseEntity.ok(ApiResponse.success(reportingService.getZoneViolationStatsByZoneId(zoneId)));
     }
 
     @GetMapping("/active-restrictions")

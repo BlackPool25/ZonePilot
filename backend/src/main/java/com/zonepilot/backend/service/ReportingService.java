@@ -43,6 +43,15 @@ public class ReportingService {
 
     public List<Map<String, Object>> getZoneViolationStats() {
         List<Object[]> rows = breachLogRepository.getZoneViolationStats();
+        return mapZoneViolationRows(rows);
+    }
+
+    public List<Map<String, Object>> getZoneViolationStatsByZoneId(Long zoneId) {
+        List<Object[]> rows = breachLogRepository.getZoneViolationStatsByZoneId(zoneId);
+        return mapZoneViolationRows(rows);
+    }
+
+    private List<Map<String, Object>> mapZoneViolationRows(List<Object[]> rows) {
         List<Map<String, Object>> results = new ArrayList<>();
         for (Object[] row : rows) {
             Map<String, Object> map = new HashMap<>();
