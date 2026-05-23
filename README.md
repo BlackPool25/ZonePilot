@@ -88,6 +88,65 @@ com.zonepilot.backend
 - **Stateful journey tracking (Epic 3):** `vehicle.active_dispatch_route_id` links a vehicle to its current route. `PositionTrackingService` computes `ST_Distance` between each GPS ping and the active route geometry. Pings within 30m with a reversed heading are snapped to the route (GPS glitch on opposite carriageway). Pings beyond 50m for two consecutive ticks trigger `BreachService.computeOffRouteReroute()`.
 - **Predictive compliance (Epic 4):** `RouteComplianceService.validateRoute()` runs up to 5 pgRouting attempts, penalising violated zones by 1000× on each retry. After each attempt, `TimePredictionService` calls the Google Routes API (`TRAFFIC_AWARE`) to predict arrival times at zone entry points. If all 5 attempts hit curfews, the candidate with the lowest `travel_duration + wait_duration` is returned with a `wait_until` timestamp and `wait_duration_sec` field. The winning route is persisted to `dispatch_route` with wait-state columns.
 
+## Advanced Spatial Routing & Telemetry Engine
+
+ZonePilot utilizes a high-performance spatial pipeline to validate, track, and simulate fleet routes across Bangalore. Here is the technical breakdown of the core engine components.
+
+### 1. Spatial Routing Architecture (`pgRouting`)
+All road network routing is computed against the `blr_2po_4pgr` table using pgRouting's `pgr_dijkstra` function.
+*   **Directed Dijkstra:** The engine invokes pgRouting with `directed := true`. This ensures that one-way street constraints (where reverse travel cost is set to `-1`) are strictly respected during computation.
+*   **Travel-Time Based Costing:** Cost is calculated in travel duration seconds (`cost_time_sec`) derived from physical segment lengths and OSM speeds or road class fallbacks (motorway = 90 km/h, primary = 60 km/h, residential = 30 km/h).
+*   **KNN Junction Snapping:** GPS coordinates are snapped to vertices using the spatial KNN operator (`<->`) on the GiST geometry index of the vertices table `blr_2po_4pgr_vertices_pgr`, which provides rapid snapping without expensive full-table distance scans:
+    ```sql
+    SELECT id FROM blr_2po_4pgr_vertices_pgr 
+    ORDER BY the_geom <-> ST_SetSRID(ST_Point(?, ?), 4326) LIMIT 1
+    ```
+
+### 2. Recursive Compliance & Zone Penalty Escalation
+To find compliant paths that bypass active restricted zones, the engine runs a **5-attempt recursive routing pipeline**:
+1.  **Initial Route:** Computes standard travel-time shortest path.
+2.  **Intersection Check:** The route geometry is passed to a PL/pgSQL database stored procedure `sp_validate_route()`, checking intersections with active zone polygons.
+3.  **Clean Exit:** If no zones are violated, the compliant route is saved and returned.
+4.  **Penalty Application:** If zones are violated, those zones are added to a list of penalized zones. The router recurses and executes `pgr_dijkstra` with a dynamic SQL clause multiplying the travel cost of segments intersecting those zones by **1,000x**:
+    ```sql
+    CASE WHEN ST_Intersects(the_geom, (SELECT ST_Union(boundary) FROM zone_restriction WHERE id IN (:penalizedIds)))
+         THEN cost_time_sec * 1000 ELSE cost_time_sec END AS cost
+    ```
+5.  **Wait-State Fallback:** If all 5 attempts fail to avoid restricted zones, the engine predicts arrival times using the Google Routes API (or segment fallbacks). It computes the curfew end time from `zone_restriction_rule` and generates a **Wait-State Route** scheduling an automated wait at the zone boundary.
+
+### 3. Timezone Alignment & Overnight Curfews
+To prevent false compliance states, the engine utilizes strict timezone and overnight window logic inside Postgres triggers and stored procedures:
+*   **IST Timezone Locking:** Coordinates and timestamps are cast to `Asia/Kolkata` (`recorded_at AT TIME ZONE 'Asia/Kolkata'`) before extracting the hour and day of week. This aligns server clocks (often in UTC) with localized enforcement hours.
+*   **Cross-Midnight Windows:** Time restrictions that wrap around midnight (e.g., overnight windows from 22:00 to 06:00) are evaluated using boolean overnight detection:
+    ```sql
+    (start_time > end_time) AND (current_time >= start_time OR current_time <= end_time)
+    ```
+*   **Boundary Inclusion (`ST_Covers` vs `ST_Within`):** Database triggers and spatial algorithms utilize `ST_Covers(zr.boundary, NEW.position)` instead of `ST_Within`. This ensures that points directly on zone boundaries are correctly detected as breaches (since `ST_Within` yields false for points located precisely on boundary lines).
+
+### 4. Stateful Journey Tracking & Map-Matching
+Live GPS pings are compared in real-time to the planned route geometry using JTS and PostGIS geographic queries:
+*   **Carriageway Snap (≤ 30m):** If the vehicle is within 30m of the planned line and heading is opposite to route azimuth (`delta > 150°`), the position is snapped to the nearest point on the route (correcting GPS dual-carriageway drift).
+*   **Tracking Buffer (30m to 50m):** Tolerated as sensor noise.
+*   **Off-Route Rerouting (> 50m):** If a vehicle is more than 50 meters away from the route for **2 consecutive ticks/pings**, it is flagged as off-route. `PositionTrackingService` triggers `BreachService.computeOffRouteReroute()`, which automatically calculates a new pgRouting path from the vehicle's current map-snapped junction to the original destination.
+
+### 5. Waypoint Seeding for Simulation Scenarios
+To feed the simulation scenarios, high-fidelity waypoints are generated dynamically during database seeding when the `dev` profile is active:
+*   **Dynamic pgRouting Fallback:** If the road network is loaded, the seeder computes actual paths between scenario depots. If not loaded, it falls back to straight-line coordinate interpolations.
+*   **Database-Side Waypoint Interpolation:** To ensure waypoints are spaced at exact **30-meter intervals** (simulating realistic urban driving intervals), the seeder runs a PostGIS query using `ST_LineInterpolatePoints` and `ST_DumpPoints`:
+    ```sql
+    WITH route AS (SELECT ST_GeomFromText(?, 4326) AS geom),
+         len   AS (SELECT ST_Length(geom::geography) AS meters FROM route)
+    SELECT ST_Y(pt) AS lat, ST_X(pt) AS lng
+    FROM route, len,
+         ST_DumpPoints(ST_LineInterpolatePoints(geom, LEAST(? / meters, 1.0))) AS dp(path, pt)
+    ORDER BY dp.path
+    ```
+
+### 6. Emulating Live Telemetry & Noise Injectors
+To thoroughly verify the robustness of tracking and compliance checks, the `SimulationService` injects synthetic telemetry noise:
+*   **GPS Glitch Injector (10% chance):** Shifts the position coordinate randomly by ~50 meters and flips the heading by 180 degrees for one tick. This ensures the map-matching snaps the vehicle back onto its route without triggering false off-route reroutes.
+*   **Wrong-Turn Injector (5% chance):** Simulates a driver missing a turn by applying a persistent perpendicular lateral offset of ~120m for **3 consecutive ticks**. This purposely drives the vehicle beyond the 50m off-route boundary for more than one ping, triggering the automatic rerouting engine.
+
 ## API Endpoints
 
 All endpoints return a standardized `ApiResponse<T>` envelope:

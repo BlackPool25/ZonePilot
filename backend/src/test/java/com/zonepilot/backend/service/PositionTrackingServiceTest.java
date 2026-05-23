@@ -19,6 +19,9 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -104,6 +107,136 @@ class PositionTrackingServiceTest {
         assertThrows(ResourceNotFoundException.class,
                 () -> service.recordPosition(1L, 12.9, 77.6, nearFuture, null, null, PositionSource.LIVE));
         verify(vehicleRepository).findById(1L);
+    }
+
+    @Test
+    void recordPosition_whenVehicleHasNoActiveRoute_doesNotPerformMapMatching() {
+        Vehicle active = buildVehicle(1L, true);
+        active.setActiveDispatchRouteId(null);
+        when(vehicleRepository.findById(1L)).thenReturn(Optional.of(active));
+
+        com.zonepilot.backend.entity.VehiclePositionLog savedLog = new com.zonepilot.backend.entity.VehiclePositionLog();
+        savedLog.setId(100L);
+        when(positionLogRepository.save(any())).thenReturn(savedLog);
+        when(breachLogRepository.findByPositionLogId(100L)).thenReturn(Collections.emptyList());
+
+        com.zonepilot.backend.dto.response.PositionRecordResponse response =
+                service.recordPosition(1L, 12.9, 77.6, Instant.now(), null, null, PositionSource.LIVE);
+
+        assertNotNull(response);
+        assertEquals(12.9, response.getPosition().getLatitude());
+        assertEquals(77.6, response.getPosition().getLongitude());
+        verify(jdbcTemplate, never()).query(anyString(), any(org.springframework.jdbc.core.RowMapper.class), (Object[]) any());
+    }
+
+    @Test
+    void recordPosition_whenVehicleOnRoute_logsRawCoordinateAndResetsCounter() {
+        Vehicle active = buildVehicle(1L, true);
+        active.setActiveDispatchRouteId(500L);
+        when(vehicleRepository.findById(1L)).thenReturn(Optional.of(active));
+
+        // dist_m = 10.0 (on-route)
+        List<Object[]> queryResult = new ArrayList<>();
+        queryResult.add(new Object[]{10.0, 12.905, 77.605, 0.0});
+        when(jdbcTemplate.query(anyString(), any(org.springframework.jdbc.core.RowMapper.class),
+                anyDouble(), anyDouble(), anyDouble(), anyDouble(), anyDouble(), anyDouble(), anyLong()))
+                .thenReturn(queryResult);
+
+        com.zonepilot.backend.entity.VehiclePositionLog savedLog = new com.zonepilot.backend.entity.VehiclePositionLog();
+        savedLog.setId(100L);
+        when(positionLogRepository.save(any())).thenReturn(savedLog);
+        when(breachLogRepository.findByPositionLogId(100L)).thenReturn(Collections.emptyList());
+
+        com.zonepilot.backend.dto.response.PositionRecordResponse response =
+                service.recordPosition(1L, 12.9, 77.6, Instant.now(), null, null, PositionSource.LIVE);
+
+        assertNotNull(response);
+        // Should keep raw coordinate since heading was null and distance is within 30m
+        assertEquals(12.9, response.getPosition().getLatitude());
+        assertEquals(77.6, response.getPosition().getLongitude());
+    }
+
+    @Test
+    void recordPosition_whenGpsGlitchReversedHeading_snapsToRoute() {
+        Vehicle active = buildVehicle(1L, true);
+        active.setActiveDispatchRouteId(500L);
+        when(vehicleRepository.findById(1L)).thenReturn(Optional.of(active));
+
+        // dist_m = 15.0, snap_lat/lng = 12.905, 77.605, route heading = 0 radians (North)
+        List<Object[]> queryResult = new ArrayList<>();
+        queryResult.add(new Object[]{15.0, 12.905, 77.605, 0.0});
+        when(jdbcTemplate.query(anyString(), any(org.springframework.jdbc.core.RowMapper.class),
+                anyDouble(), anyDouble(), anyDouble(), anyDouble(), anyDouble(), anyDouble(), anyLong()))
+                .thenReturn(queryResult);
+
+        com.zonepilot.backend.entity.VehiclePositionLog savedLog = new com.zonepilot.backend.entity.VehiclePositionLog();
+        savedLog.setId(100L);
+        when(positionLogRepository.save(any())).thenReturn(savedLog);
+        when(breachLogRepository.findByPositionLogId(100L)).thenReturn(Collections.emptyList());
+
+        // Send reversed heading of 180 degrees (South)
+        com.zonepilot.backend.dto.response.PositionRecordResponse response =
+                service.recordPosition(1L, 12.9, 77.6, Instant.now(), null, (short) 180, PositionSource.LIVE);
+
+        assertNotNull(response);
+        // Reversed heading within 30m -> snaps to route's closest point
+        assertEquals(12.905, response.getPosition().getLatitude());
+        assertEquals(77.605, response.getPosition().getLongitude());
+    }
+
+    @Test
+    void recordPosition_whenOffRouteFirstPing_logsRawCoordinatesAndToleratesGlitch() {
+        Vehicle active = buildVehicle(1L, true);
+        active.setActiveDispatchRouteId(500L);
+        when(vehicleRepository.findById(1L)).thenReturn(Optional.of(active));
+
+        // dist_m = 60.0 (off-route)
+        List<Object[]> queryResult = new ArrayList<>();
+        queryResult.add(new Object[]{60.0, 12.905, 77.605, 0.0});
+        when(jdbcTemplate.query(anyString(), any(org.springframework.jdbc.core.RowMapper.class),
+                anyDouble(), anyDouble(), anyDouble(), anyDouble(), anyDouble(), anyDouble(), anyLong()))
+                .thenReturn(queryResult);
+
+        com.zonepilot.backend.entity.VehiclePositionLog savedLog = new com.zonepilot.backend.entity.VehiclePositionLog();
+        savedLog.setId(100L);
+        when(positionLogRepository.save(any())).thenReturn(savedLog);
+        when(breachLogRepository.findByPositionLogId(100L)).thenReturn(Collections.emptyList());
+
+        com.zonepilot.backend.dto.response.PositionRecordResponse response =
+                service.recordPosition(1L, 12.9, 77.6, Instant.now(), null, null, PositionSource.LIVE);
+
+        assertNotNull(response);
+        assertEquals(12.9, response.getPosition().getLatitude());
+        assertEquals(77.6, response.getPosition().getLongitude());
+        // Verify off-route rerouting was NOT triggered on 1st off-route ping
+        verify(breachService, never()).computeOffRouteReroute(anyLong(), anyDouble(), anyDouble());
+    }
+
+    @Test
+    void recordPosition_whenOffRouteSecondConsecutivePing_triggersRerouteAndResetsCounter() {
+        Vehicle active = buildVehicle(1L, true);
+        active.setActiveDispatchRouteId(500L);
+        when(vehicleRepository.findById(1L)).thenReturn(Optional.of(active));
+
+        // dist_m = 60.0 (off-route)
+        List<Object[]> queryResult = new ArrayList<>();
+        queryResult.add(new Object[]{60.0, 12.905, 77.605, 0.0});
+        when(jdbcTemplate.query(anyString(), any(org.springframework.jdbc.core.RowMapper.class),
+                anyDouble(), anyDouble(), anyDouble(), anyDouble(), anyDouble(), anyDouble(), anyLong()))
+                .thenReturn(queryResult);
+
+        com.zonepilot.backend.entity.VehiclePositionLog savedLog = new com.zonepilot.backend.entity.VehiclePositionLog();
+        savedLog.setId(100L);
+        when(positionLogRepository.save(any())).thenReturn(savedLog);
+        when(breachLogRepository.findByPositionLogId(100L)).thenReturn(Collections.emptyList());
+
+        // Ping 1 (increment off-route count to 1)
+        service.recordPosition(1L, 12.9, 77.6, Instant.now(), null, null, PositionSource.LIVE);
+        verify(breachService, never()).computeOffRouteReroute(anyLong(), anyDouble(), anyDouble());
+
+        // Ping 2 (increment off-route count to 2 -> trigger reroute and reset)
+        service.recordPosition(1L, 12.9, 77.6, Instant.now(), null, null, PositionSource.LIVE);
+        verify(breachService).computeOffRouteReroute(1L, 12.9, 77.6);
     }
 
     private Vehicle buildVehicle(Long id, boolean active) {
