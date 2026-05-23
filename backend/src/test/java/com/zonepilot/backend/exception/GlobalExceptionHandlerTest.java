@@ -102,7 +102,7 @@ class GlobalExceptionHandlerTest {
         when(ex.getBindingResult()).thenReturn(bindingResult);
         when(bindingResult.getFieldErrors()).thenReturn(List.of(fieldError));
 
-        ResponseEntity<ApiResponse<Map<String, String>>> response = handler.handleValidationErrors(ex);
+        ResponseEntity<ApiResponse<Void>> response = handler.handleValidationErrors(ex);
         assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
         assertEquals("VALIDATION_ERROR", response.getBody().getError().getCode());
     }

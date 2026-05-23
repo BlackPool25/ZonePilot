@@ -2,6 +2,7 @@ package com.zonepilot.backend.service;
 
 import com.zonepilot.backend.dto.response.BreachResponse;
 import com.zonepilot.backend.entity.ZoneBreachLog;
+import com.zonepilot.backend.exception.ConflictException;
 import com.zonepilot.backend.exception.ResourceNotFoundException;
 import com.zonepilot.backend.repository.ZoneBreachLogRepository;
 import org.springframework.stereotype.Service;
@@ -12,6 +13,7 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 @Service
+@Transactional(readOnly = true)
 public class BreachQueryService {
 
     private final ZoneBreachLogRepository breachLogRepository;
@@ -48,6 +50,9 @@ public class BreachQueryService {
     public BreachResponse acknowledgeBreach(Long id) {
         ZoneBreachLog breach = breachLogRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Breach", "id", id));
+        if (Boolean.TRUE.equals(breach.getIsAcknowledged())) {
+            throw new ConflictException("Breach " + id + " has already been acknowledged");
+        }
         breach.setIsAcknowledged(true);
         return toResponse(breachLogRepository.save(breach));
     }

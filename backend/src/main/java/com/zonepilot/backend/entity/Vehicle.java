@@ -22,7 +22,7 @@ public class Vehicle {
     @Column(name = "owner_name", nullable = false, length = 100)
     private String ownerName;
 
-    @ManyToOne(fetch = FetchType.LAZY)
+    @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "depot_id", nullable = false)
     private Depot depot;
 

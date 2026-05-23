@@ -1,5 +1,6 @@
 package com.zonepilot.backend.entity;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import org.hibernate.annotations.Type;
 import org.locationtech.jts.geom.Point;
@@ -19,6 +20,7 @@ public class Depot {
     @Column(nullable = false, columnDefinition = "TEXT")
     private String address;
 
+    @JsonIgnore
     @Column(nullable = false, columnDefinition = "geometry(Point,4326)")
     private Point location;
 

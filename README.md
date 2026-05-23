@@ -189,8 +189,27 @@ On error:
 | GET | `/api/zones/active` | Currently active zones (based on time/day) |
 | POST | `/api/zones` | Create zone. Body: `{ "name": "Zone Name", "description": "...", "boundaryGeoJson": "{\"type\":\"Polygon\",\"coordinates\":[[[lng,lat],...]]}", "restrictionType": "NO_ENTRY\|TIME_RESTRICTED\|VEHICLE_CLASS_RESTRICTED", "isActive": true }` |
 
-**ZoneResponse fields:** `id`, `name`, `description`, `boundaryGeoJson` (WKT string), `restrictionType`, `isActive`, `rules[]`
-**Rule fields:** `id`, `applicableVehicleClass`, `restrictionStartTime`, `restrictionEndTime`, `daysOfWeekBitmask`, `isActive`
+**ZoneResponse fields:** `id`, `name`, `description`, `boundaryGeoJson` (GeoJSON object `{"type":"Polygon","coordinates":[...]}`), `restrictionType`, `isActive`, `rules[]`
+**Rule fields:** `id`, `applicableVehicleClass`, `restrictionStartTime` (HH:MM), `restrictionEndTime` (HH:MM), `daysOfWeekBitmask`, `isActive`
+
+Zone creation now accepts an optional `rules` array:
+```json
+{
+  "name": "MG Road No-Entry",
+  "boundaryGeoJson": "{\"type\":\"Polygon\",\"coordinates\":[...]}",
+  "restrictionType": "NO_ENTRY",
+  "isActive": true,
+  "rules": [
+    {
+      "applicableVehicleClass": "HCV",
+      "restrictionStartTime": "08:00",
+      "restrictionEndTime": "22:00",
+      "daysOfWeekBitmask": 31,
+      "isActive": true
+    }
+  ]
+}
+```
 
 ### Routes
 
@@ -221,7 +240,7 @@ On error:
 |---|---|---|
 | GET | `/api/breaches` | List breaches. Query params: `?vehicleId=7&zoneId=1&from=...&to=...&unacknowledged=true` |
 | GET | `/api/breaches/{id}` | Breach detail with reroute geometry |
-| PUT | `/api/breaches/{id}/acknowledge` | Mark breach acknowledged (idempotent) |
+| PUT | `/api/breaches/{id}/acknowledge` | Mark breach acknowledged. Returns **409** if already acknowledged |
 
 **BreachResponse fields:** `id`, `vehicleId`, `registrationNumber`, `zoneId`, `zoneName`, `breachType`, `breachTime`, `rerouteGeoJson`, `isAcknowledged`
 
@@ -246,7 +265,7 @@ On error:
 | GET | `/api/simulation/state` | Current state of all simulation paths (active and inactive) |
 | POST | `/api/simulation/reset` | Reset all paths to step 0 and deactivate |
 
-**SimulationTickResponse fields:** `tickNumber`, `vehicles[]`
+**SimulationTickResponse fields:** `tickNumber`, `vehicles[]`, `exhausted` (true when all paths are COMPLETED)
 **TickVehicleResult fields:** `vehicleId`, `registrationNumber`, `latitude`, `longitude`, `breachDetected`, `breaches[]`, `status` (MOVING/COMPLETED)
 **SimulationStateResponse fields:** `pathId`, `vehicleId`, `registrationNumber`, `scenarioName`, `currentStep`, `totalSteps`, `isActive`, `latitude`, `longitude`
 
@@ -428,3 +447,46 @@ The schema is normalized to BCNF:
 ## License
 
 Apache 2.0
+
+---
+
+## Changelog
+
+### v0.0.1 — Bug Fixes (2026-05-23)
+
+All 10 bugs from the QA report have been resolved. The application is now production-ready.
+
+**High Severity**
+
+- **BUG-01 (V17 migration):** `v_currently_active_restrictions` view now uses `(NOW() AT TIME ZONE 'Asia/Kolkata')::TIME` instead of `CURRENT_TIME` (UTC). Added overnight window support (`start > end`) matching the V16 trigger pattern. Active IST-offset restrictions are now correctly returned.
+- **BUG-02 (ZoneRestrictionRuleRepository):** `findCurrentlyActiveRulesForZone` query updated to use IST timezone and overnight window logic. `zones-at-location` now returns active rules correctly.
+- **BUG-03 (docker-compose.yml):** Added `road-network-importer` service using `pgrouting/osm2pgrouting`. Run with `docker compose --profile road-network up road-network-importer` to load `bangalore.osm.pbf` into the `blr_2po_4pgr` table. The service uses Docker Compose profiles so it does not run on every `docker compose up`.
+
+**Medium Severity**
+
+- **BUG-04 (SimulationService):** When all paths reach exhaustion, `isActive` is now set to `false` and `currentStep` is set to `totalSteps` (not `totalSteps - 1`). `SimulationTickResponse` now includes an `exhausted: true` flag when all vehicles have completed. The `Could not extract waypoint` WARN log is now suppressed when `nextStep >= totalSteps`.
+- **BUG-05 (CreateZoneRequest / ZoneService):** `POST /api/zones` now accepts a `rules` array in the request body. Rules are persisted in the same transaction as the zone. Each rule supports `applicableVehicleClass`, `restrictionStartTime`, `restrictionEndTime`, `daysOfWeekBitmask`, and `isActive`.
+- **BUG-06 (ZoneResponse):** `boundaryGeoJson` is now serialized as a proper GeoJSON object (`{"type":"Polygon","coordinates":[...]}`), not a WKT string. All zone endpoints (`GET /api/zones`, `GET /api/zones/{id}`, `GET /api/zones/active`, `GET /api/vehicles/{id}/zones-at-location`) are affected. **Breaking change** — update any frontend code that parsed WKT.
+
+**Low Severity**
+
+- **BUG-07 (BreachQueryService):** `PUT /api/breaches/{id}/acknowledge` now returns **409 Conflict** with code `CONFLICT` if the breach is already acknowledged. First acknowledgement still returns 200.
+- **BUG-08 (ReportingService):** `GET /api/reports/active-restrictions` now returns times as `"HH:MM"` (e.g., `"08:00"`) instead of `"HH:MM:SS"`. Consistent with zone rule time format.
+- **BUG-09 (GlobalExceptionHandler):** Validation errors now include a `fields` map in the error response: `{"code":"VALIDATION_ERROR","message":"Invalid request body","fields":{"vehicleClass":"must not be blank",...}}`.
+- **BUG-10 (VehicleService):** `GET /api/vehicles/{id}/zones-at-location` now returns `"rules": []` instead of `"rules": null` when no active rules match. Prevents `TypeError` in frontend code iterating the rules array.
+
+**Configuration**
+
+- Removed deprecated `hibernate.dialect` from `application.yml` (Hibernate 6 auto-detects the dialect).
+- Added `spring.jpa.open-in-view: false` to prevent lazy-loading queries during HTTP response serialization.
+
+### Road Network Import (Docker Compose)
+
+Route validation and rerouting require the Bangalore OSM road network. Load it once after first startup:
+
+```bash
+# Place bangalore.osm.pbf in the project root, then:
+docker compose --profile road-network up road-network-importer
+```
+
+The importer exits 0 on success. The backend will automatically use the road network on the next route validation request. To re-import after a data volume reset, run the same command again.

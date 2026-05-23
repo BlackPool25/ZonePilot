@@ -1,5 +1,6 @@
 package com.zonepilot.backend.entity;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.zonepilot.backend.enums.RouteStatus;
 import jakarta.persistence.*;
 import org.locationtech.jts.geom.LineString;
@@ -14,16 +15,19 @@ public class DispatchRoute {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @ManyToOne(fetch = FetchType.LAZY)
+    @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "vehicle_id", nullable = false)
     private Vehicle vehicle;
 
+    @JsonIgnore
     @Column(name = "origin_point", nullable = false, columnDefinition = "geometry(Point,4326)")
     private Point originPoint;
 
+    @JsonIgnore
     @Column(name = "destination_point", nullable = false, columnDefinition = "geometry(Point,4326)")
     private Point destinationPoint;
 
+    @JsonIgnore
     @Column(name = "planned_route_geometry", columnDefinition = "geometry(LineString,4326)")
     private LineString plannedRouteGeometry;
 
@@ -48,6 +52,10 @@ public class DispatchRoute {
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
+
+    public boolean isCompliant() {
+        return this.status == RouteStatus.COMPLIANT;
+    }
 
     @PrePersist
     protected void onCreate() {

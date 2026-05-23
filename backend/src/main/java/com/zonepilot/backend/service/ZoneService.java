@@ -1,5 +1,7 @@
 package com.zonepilot.backend.service;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.zonepilot.backend.dto.response.ZoneResponse;
 import com.zonepilot.backend.entity.ZoneRestriction;
 import com.zonepilot.backend.entity.ZoneRestrictionRule;
@@ -12,10 +14,12 @@ import org.locationtech.jts.geom.Polygon;
 import org.locationtech.jts.geom.PrecisionModel;
 import org.locationtech.jts.io.ParseException;
 import org.locationtech.jts.io.geojson.GeoJsonReader;
+import org.locationtech.jts.io.geojson.GeoJsonWriter;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 @Service
@@ -25,6 +29,8 @@ public class ZoneService {
     private final ZoneRestrictionRuleRepository zoneRestrictionRuleRepository;
     private final GeometryFactory geometryFactory;
     private final GeoJsonReader geoJsonReader;
+    private final GeoJsonWriter geoJsonWriter;
+    private final ObjectMapper objectMapper;
 
     public ZoneService(ZoneRestrictionRepository zoneRestrictionRepository,
                        ZoneRestrictionRuleRepository zoneRestrictionRuleRepository) {
@@ -32,6 +38,8 @@ public class ZoneService {
         this.zoneRestrictionRuleRepository = zoneRestrictionRuleRepository;
         this.geometryFactory = new GeometryFactory(new PrecisionModel(), 4326);
         this.geoJsonReader = new GeoJsonReader(geometryFactory);
+        this.geoJsonWriter = new GeoJsonWriter();
+        this.objectMapper = new ObjectMapper();
     }
 
     public List<ZoneResponse> getAllZones() {
@@ -53,16 +61,15 @@ public class ZoneService {
     }
 
     @Transactional
-    public ZoneResponse createZone(String name, String description, String boundaryGeoJson,
-                                   String restrictionType, Boolean isActive) {
+    public ZoneResponse createZone(com.zonepilot.backend.dto.request.CreateZoneRequest request) {
         Polygon boundary;
         try {
-            org.locationtech.jts.geom.Geometry geom = geoJsonReader.read(boundaryGeoJson);
+            org.locationtech.jts.geom.Geometry geom = geoJsonReader.read(request.getBoundaryGeoJson());
             if (!(geom instanceof Polygon)) {
                 throw new ValidationException("Boundary must be a Polygon geometry");
             }
             boundary = (Polygon) geom;
-            boundary.setSRID(4326);  // GeoJsonReader does not set SRID; must be set explicitly
+            boundary.setSRID(4326);
             if (!boundary.isValid()) {
                 throw new ValidationException("Invalid polygon geometry");
             }
@@ -71,13 +78,35 @@ public class ZoneService {
         }
 
         ZoneRestriction zone = new ZoneRestriction();
-        zone.setName(name);
-        zone.setDescription(description);
+        zone.setName(request.getName());
+        zone.setDescription(request.getDescription());
         zone.setBoundary(boundary);
-        zone.setRestrictionType(com.zonepilot.backend.enums.RestrictionType.valueOf(restrictionType));
-        zone.setIsActive(isActive != null ? isActive : true);
+        zone.setRestrictionType(com.zonepilot.backend.enums.RestrictionType.valueOf(request.getRestrictionType()));
+        zone.setIsActive(request.getIsActive() != null ? request.getIsActive() : true);
 
         ZoneRestriction saved = zoneRestrictionRepository.save(zone);
+
+        if (request.getRules() != null) {
+            for (com.zonepilot.backend.dto.request.CreateZoneRequest.CreateZoneRuleRequest ruleReq : request.getRules()) {
+                ZoneRestrictionRule rule = new ZoneRestrictionRule();
+                rule.setZone(saved);
+                if (ruleReq.getApplicableVehicleClass() != null && !ruleReq.getApplicableVehicleClass().equalsIgnoreCase("ALL")) {
+                    rule.setApplicableVehicleClass(com.zonepilot.backend.enums.VehicleClass.valueOf(ruleReq.getApplicableVehicleClass()));
+                }
+                if (ruleReq.getRestrictionStartTime() != null) {
+                    rule.setRestrictionStartTime(java.time.LocalTime.parse(ruleReq.getRestrictionStartTime()));
+                }
+                if (ruleReq.getRestrictionEndTime() != null) {
+                    rule.setRestrictionEndTime(java.time.LocalTime.parse(ruleReq.getRestrictionEndTime()));
+                }
+                if (ruleReq.getDaysOfWeekBitmask() != null) {
+                    rule.setDaysOfWeekBitmask(ruleReq.getDaysOfWeekBitmask());
+                }
+                rule.setIsActive(ruleReq.getIsActive() != null ? ruleReq.getIsActive() : true);
+                zoneRestrictionRuleRepository.save(rule);
+            }
+        }
+
         return toResponse(saved);
     }
 
@@ -89,7 +118,12 @@ public class ZoneService {
         r.setRestrictionType(z.getRestrictionType());
         r.setIsActive(z.getIsActive());
         if (z.getBoundary() != null) {
-            r.setBoundaryGeoJson(z.getBoundary().toText());
+            try {
+                String geoJsonStr = geoJsonWriter.write(z.getBoundary());
+                r.setBoundaryGeoJson(objectMapper.readValue(geoJsonStr, new TypeReference<Map<String, Object>>() {}));
+            } catch (Exception e) {
+                r.setBoundaryGeoJson(z.getBoundary().toText());
+            }
         }
         List<ZoneRestrictionRule> rules = zoneRestrictionRuleRepository.findByZoneIdAndIsActive(z.getId(), true);
         r.setRules(rules.stream().map(this::toRuleResponse).collect(Collectors.toList()));

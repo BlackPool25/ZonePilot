@@ -2,6 +2,7 @@ package com.zonepilot.backend.dto.response;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import java.time.Instant;
+import java.util.Map;
 
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class ApiResponse<T> {
@@ -41,6 +42,7 @@ public class ApiResponse<T> {
     public static class ErrorDetail {
         private String code;
         private String message;
+        private Map<String, String> fields;
 
         public ErrorDetail() {}
 
@@ -53,5 +55,7 @@ public class ApiResponse<T> {
         public void setCode(String code) { this.code = code; }
         public String getMessage() { return message; }
         public void setMessage(String message) { this.message = message; }
+        public Map<String, String> getFields() { return fields; }
+        public void setFields(Map<String, String> fields) { this.fields = fields; }
     }
 }

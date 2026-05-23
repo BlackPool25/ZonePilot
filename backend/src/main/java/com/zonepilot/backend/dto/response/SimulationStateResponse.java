@@ -11,6 +11,8 @@ public class SimulationStateResponse {
     private Boolean isActive;
     private Double latitude;
     private Double longitude;
+    private String routeGeoJson;
+    private Boolean compliant;
 
     public Long getPathId() { return pathId; }
     public void setPathId(Long pathId) { this.pathId = pathId; }
@@ -30,4 +32,8 @@ public class SimulationStateResponse {
     public void setLatitude(Double latitude) { this.latitude = latitude; }
     public Double getLongitude() { return longitude; }
     public void setLongitude(Double longitude) { this.longitude = longitude; }
+    public String getRouteGeoJson() { return routeGeoJson; }
+    public void setRouteGeoJson(String routeGeoJson) { this.routeGeoJson = routeGeoJson; }
+    public Boolean getCompliant() { return compliant; }
+    public void setCompliant(Boolean compliant) { this.compliant = compliant; }
 }

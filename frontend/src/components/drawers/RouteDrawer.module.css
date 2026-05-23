@@ -1,0 +1,36 @@
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+  gap: 12px;
+}
+.title { font-size: 16px; font-weight: 700; color: var(--text-primary); }
+
+.altUnavailable {
+  font-size: 13px;
+  color: var(--amber-500);
+  background: var(--amber-50);
+  border: 1px solid var(--amber-100);
+  border-radius: var(--radius-md);
+  padding: 8px 12px;
+  margin-top: 8px;
+}
+
+.violation {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.violation:last-child { border-bottom: none; }
+.violationDot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--red-500);
+  flex-shrink: 0;
+  margin-top: 3px;
+}
+.violationZone { display: block; font-size: 13px; font-weight: 500; color: var(--text-primary); }
+.violationType { display: block; font-size: 11px; color: var(--text-tertiary); margin-top: 2px; }

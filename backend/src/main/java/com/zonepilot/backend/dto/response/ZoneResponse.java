@@ -8,7 +8,7 @@ public class ZoneResponse {
     private Long id;
     private String name;
     private String description;
-    private String boundaryGeoJson;
+    private Object boundaryGeoJson;
     private RestrictionType restrictionType;
     private Boolean isActive;
     private List<ZoneRuleResponse> rules;
@@ -19,8 +19,8 @@ public class ZoneResponse {
     public void setName(String name) { this.name = name; }
     public String getDescription() { return description; }
     public void setDescription(String description) { this.description = description; }
-    public String getBoundaryGeoJson() { return boundaryGeoJson; }
-    public void setBoundaryGeoJson(String boundaryGeoJson) { this.boundaryGeoJson = boundaryGeoJson; }
+    public Object getBoundaryGeoJson() { return boundaryGeoJson; }
+    public void setBoundaryGeoJson(Object boundaryGeoJson) { this.boundaryGeoJson = boundaryGeoJson; }
     public RestrictionType getRestrictionType() { return restrictionType; }
     public void setRestrictionType(RestrictionType restrictionType) { this.restrictionType = restrictionType; }
     public Boolean getIsActive() { return isActive; }

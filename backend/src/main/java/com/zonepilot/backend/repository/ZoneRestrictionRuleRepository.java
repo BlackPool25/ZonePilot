@@ -20,10 +20,17 @@ public interface ZoneRestrictionRuleRepository extends JpaRepository<ZoneRestric
           AND zr.is_active = true
           AND zrr.is_active = true
           AND (zrr.applicable_vehicle_class = 'ALL' OR zrr.applicable_vehicle_class = :vehicleClass)
-          AND (zrr.days_of_week_bitmask & (1 << (EXTRACT(DOW FROM NOW())::INT % 7))) > 0
+          AND (zrr.days_of_week_bitmask & (1 << (EXTRACT(DOW FROM (NOW() AT TIME ZONE 'Asia/Kolkata'))::INT % 7))) > 0
           AND (
-              zrr.restriction_start_time IS NULL
-              OR CURRENT_TIME BETWEEN zrr.restriction_start_time AND zrr.restriction_end_time
+              (zrr.restriction_start_time IS NULL AND zrr.restriction_end_time IS NULL)
+              OR (zrr.restriction_start_time IS NOT NULL AND zrr.restriction_end_time IS NOT NULL
+                  AND zrr.restriction_start_time <= zrr.restriction_end_time
+                  AND (NOW() AT TIME ZONE 'Asia/Kolkata')::TIME
+                      BETWEEN zrr.restriction_start_time AND zrr.restriction_end_time)
+              OR (zrr.restriction_start_time IS NOT NULL AND zrr.restriction_end_time IS NOT NULL
+                  AND zrr.restriction_start_time > zrr.restriction_end_time
+                  AND ((NOW() AT TIME ZONE 'Asia/Kolkata')::TIME >= zrr.restriction_start_time
+                       OR (NOW() AT TIME ZONE 'Asia/Kolkata')::TIME <= zrr.restriction_end_time))
           )
         """, nativeQuery = true)
     List<ZoneRestrictionRule> findCurrentlyActiveRulesForZone(

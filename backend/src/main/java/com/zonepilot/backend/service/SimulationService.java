@@ -101,6 +101,7 @@ public class SimulationService {
 
             if (nextStep > path.getTotalSteps()) {
                 path.setIsActive(false);
+                path.setCurrentStepIndex(path.getTotalSteps());
                 simulationPathRepository.save(path);
                 wrongTurnCounters.remove(path.getId());
                 wrongTurnOffsets.remove(path.getId());
@@ -116,7 +117,9 @@ public class SimulationService {
 
             Coordinate trueWaypoint = extractWaypoint(path.getWaypoints(), nextStep + 1);
             if (trueWaypoint == null) {
-                log.warn("Could not extract waypoint at step {} for path {}", nextStep, path.getId());
+                if (nextStep < path.getTotalSteps()) {
+                    log.warn("Could not extract waypoint at step {} for path {}", nextStep, path.getId());
+                }
                 continue;
             }
 
@@ -156,9 +159,15 @@ public class SimulationService {
         SimulationTickResponse response = new SimulationTickResponse();
         response.setTickNumber(tickNumber);
         response.setVehicles(vehicleResults);
+        boolean allExhausted = vehicleResults.stream()
+                .allMatch(r -> "COMPLETED".equals(r.getStatus()));
+        if (allExhausted && !vehicleResults.isEmpty()) {
+            response.setExhausted(true);
+        }
         return response;
     }
 
+    @Transactional(readOnly = true)
     public List<SimulationStateResponse> getState() {
         List<SimulationPath> allPaths = simulationPathRepository.findAll();
         List<SimulationStateResponse> states = new ArrayList<>();
@@ -172,6 +181,8 @@ public class SimulationService {
             state.setCurrentStep(path.getCurrentStepIndex());
             state.setTotalSteps(path.getTotalSteps());
             state.setIsActive(path.getIsActive());
+            state.setRouteGeoJson(path.getWaypoints() != null ? path.getWaypoints().toText() : null);
+            state.setCompliant("SCENARIO_A".equals(path.getScenarioName()));
 
             Coordinate currentWaypoint = extractWaypoint(path.getWaypoints(), path.getCurrentStepIndex() + 1);
             if (currentWaypoint != null) {

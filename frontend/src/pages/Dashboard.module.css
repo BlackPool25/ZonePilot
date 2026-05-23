@@ -1,0 +1,198 @@
+.page {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  height: 100%;
+}
+
+.mapContainer {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+}
+
+/* ─── Floating top bar ───────────────────────────────────────────── */
+.mapTopBar {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  right: 12px;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  pointer-events: none;
+}
+
+.layerToggles {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  pointer-events: all;
+}
+
+.layerBtn {
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  background: var(--surface-0);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-full);
+  color: var(--text-secondary);
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+.layerBtn:hover { background: var(--surface-2); color: var(--text-primary); }
+.layerBtn.layerActive {
+  background: var(--brand-500);
+  border-color: var(--brand-500);
+  color: white;
+}
+
+/* ─── Metric strip — reference image style ───────────────────────── */
+.metricStrip {
+  position: absolute;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  background: var(--text-primary);
+  border-radius: var(--radius-xl);
+  padding: 0 4px;
+  box-shadow: var(--shadow-xl);
+  overflow: hidden;
+}
+
+.metricCard {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 14px 28px;
+  gap: 2px;
+  min-width: 100px;
+}
+.metricCard.metricAlert .metricValue { color: #f87171; }
+
+.metricValue {
+  font-size: 28px;
+  font-weight: 800;
+  color: white;
+  line-height: 1;
+  letter-spacing: -0.02em;
+}
+.metricLabel {
+  font-size: 11px;
+  color: rgba(255,255,255,0.55);
+  font-weight: 500;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.metricDivider {
+  width: 1px;
+  height: 40px;
+  background: rgba(255,255,255,0.15);
+  flex-shrink: 0;
+}
+
+/* ─── Activity feed ──────────────────────────────────────────────── */
+.activityFeed {
+  position: absolute;
+  top: 60px;
+  right: 12px;
+  z-index: 1000;
+  background: var(--surface-0);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  width: 240px;
+  overflow: hidden;
+}
+
+.feedTitle {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--red-500);
+  padding: 10px 12px 6px;
+  border-bottom: 1px solid var(--border-subtle);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.feedItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  width: 100%;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--border-subtle);
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s;
+}
+.feedItem:last-child { border-bottom: none; }
+.feedItem:hover { background: var(--surface-1); }
+
+.feedDot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.feedInfo { flex: 1; min-width: 0; }
+.feedReg { display: block; font-size: 11px; font-weight: 600; color: var(--text-primary); font-family: var(--font-mono); }
+.feedZone { display: block; font-size: 11px; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.feedTime { font-size: 10px; color: var(--text-tertiary); flex-shrink: 0; }
+
+/* ─── Legend ─────────────────────────────────────────────────────── */
+.legend {
+  position: absolute;
+  bottom: 90px;
+  left: 12px;
+  z-index: 1000;
+  background: var(--surface-0);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 8px 12px;
+  box-shadow: var(--shadow-md);
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.legendItem {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+.legendDot { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
+
+/* ─── Loading overlay ────────────────────────────────────────────── */
+.loadingOverlay {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1001;
+  background: var(--surface-0);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-full);
+  padding: 5px 14px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  box-shadow: var(--shadow-md);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.loadingDot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--brand-500);
+  animation: pulse 1s ease-in-out infinite;
+}
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }

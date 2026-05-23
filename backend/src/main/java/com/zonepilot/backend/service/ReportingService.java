@@ -5,6 +5,7 @@ import com.zonepilot.backend.repository.ZoneBreachLogRepository;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -79,8 +80,13 @@ public class ReportingService {
                     map.put("name", rs.getString("name"));
                     map.put("restrictionType", rs.getString("restriction_type"));
                     map.put("applicableVehicleClass", rs.getString("applicable_vehicle_class"));
-                    map.put("restrictionStartTime", rs.getTime("restriction_start_time"));
-                    map.put("restrictionEndTime", rs.getTime("restriction_end_time"));
+                    java.sql.Time startTime = rs.getTime("restriction_start_time");
+                    java.sql.Time endTime = rs.getTime("restriction_end_time");
+                    DateTimeFormatter fmt = DateTimeFormatter.ofPattern("HH:mm");
+                    map.put("restrictionStartTime", startTime != null
+                            ? startTime.toLocalTime().format(fmt) : null);
+                    map.put("restrictionEndTime", endTime != null
+                            ? endTime.toLocalTime().format(fmt) : null);
                     return map;
                 });
     }

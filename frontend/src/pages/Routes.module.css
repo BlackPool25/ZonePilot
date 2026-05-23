@@ -1,0 +1,95 @@
+.page {
+  display: flex;
+  height: 100%;
+  overflow: hidden;
+}
+
+.formPanel {
+  width: 420px;
+  flex-shrink: 0;
+  padding: 24px;
+  overflow-y: auto;
+  border-right: 1px solid var(--border-subtle);
+  background: var(--surface-0);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.title { font-size: 20px; font-weight: 700; color: var(--text-primary); }
+.subtitle { font-size: 13px; color: var(--text-secondary); line-height: 1.5; }
+
+.presets { display: flex; flex-direction: column; gap: 6px; }
+.presetsLabel { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-tertiary); }
+.presetBtns { display: flex; flex-wrap: wrap; gap: 6px; }
+.presetBtn {
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 500;
+  background: var(--surface-1);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-full);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.presetBtn:hover { background: var(--brand-50); border-color: var(--brand-500); color: var(--brand-500); }
+
+.form { display: flex; flex-direction: column; gap: 14px; }
+.coordGroup { border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 12px; }
+.coordLegend { font-size: 12px; font-weight: 600; color: var(--text-secondary); padding: 0 4px; }
+.coordRow { display: flex; gap: 10px; margin-top: 8px; }
+.coordRow > * { flex: 1; }
+.submitBtn { width: 100%; }
+
+/* ─── Result ─────────────────────────────────────────────────────── */
+.result {
+  border-radius: var(--radius-md);
+  padding: 14px;
+  border: 1px solid transparent;
+}
+.resultOk   { background: var(--green-50);  border-color: var(--green-100); }
+.resultWarn { background: var(--amber-50);  border-color: var(--amber-100); }
+.resultError{ background: var(--red-50);    border-color: var(--red-100); }
+
+.resultHeader { display: flex; align-items: flex-start; gap: 10px; }
+.resultIcon { font-size: 18px; font-weight: 700; flex-shrink: 0; }
+.resultTitle { font-size: 14px; font-weight: 600; color: var(--text-primary); }
+.resultSub { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
+.resultMsg { font-size: 13px; color: var(--red-500); }
+
+.violationList { list-style: none; margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
+.violationItem { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-primary); }
+.violationDot { width: 7px; height: 7px; border-radius: 50%; background: var(--red-500); flex-shrink: 0; }
+
+/* ─── History ────────────────────────────────────────────────────── */
+.historyPanel {
+  flex: 1;
+  padding: 24px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.historyTitle { font-size: 16px; font-weight: 700; color: var(--text-primary); }
+
+.historyList { display: flex; flex-direction: column; gap: 6px; }
+.historyItem {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: var(--surface-0);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s;
+  width: 100%;
+}
+.historyItem:hover { background: var(--surface-2); }
+.historyStatus { font-size: 16px; font-weight: 700; flex-shrink: 0; }
+.ok { color: var(--green-500); }
+.warn { color: var(--red-500); }
+.historyInfo { flex: 1; min-width: 0; }
+.historyId { display: block; font-size: 13px; font-weight: 600; color: var(--text-primary); }
+.historyDate { display: block; font-size: 11px; color: var(--text-tertiary); margin-top: 2px; }

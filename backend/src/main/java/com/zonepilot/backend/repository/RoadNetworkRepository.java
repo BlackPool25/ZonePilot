@@ -1,5 +1,6 @@
 package com.zonepilot.backend.repository;
 
+import org.springframework.jdbc.BadSqlGrammarException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
@@ -31,6 +32,8 @@ public class RoadNetworkRepository {
                     (rs, rowNum) -> rs.getLong("id"),
                     lng, lat);
             return results.isEmpty() ? Optional.empty() : Optional.of(results.get(0));
+        } catch (BadSqlGrammarException e) {
+            throw e;
         } catch (Exception e) {
             return Optional.empty();
         }
@@ -49,6 +52,8 @@ public class RoadNetworkRepository {
                     (rs, rowNum) -> new long[]{rs.getLong("id")});
             if (results.size() < 2) return Optional.empty();
             return Optional.of(new long[]{results.get(0)[0], results.get(1)[0]});
+        } catch (BadSqlGrammarException e) {
+            throw e;
         } catch (Exception e) {
             return Optional.empty();
         }
@@ -116,6 +121,8 @@ public class RoadNetworkRepository {
                     (rs, rowNum) -> new Object[]{rs.getLong("id"), rs.getString("geom")},
                     nodeId, nodeId, excludeEdgeId);
             return results.isEmpty() ? Optional.empty() : Optional.of(results.get(0));
+        } catch (BadSqlGrammarException e) {
+            throw e;
         } catch (Exception e) {
             return Optional.empty();
         }

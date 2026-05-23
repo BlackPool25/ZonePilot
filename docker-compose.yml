@@ -22,6 +22,35 @@ services:
     networks:
       - zonepilot-net
 
+  # Road network importer — runs once, imports bangalore.osm.pbf into the
+  # blr_2po_4pgr table used by pgRouting. Exits 0 on success; Docker marks
+  # it as "exited" which is expected. Re-run with:
+  #   docker compose run --rm road-network-importer
+  road-network-importer:
+    image: pgrouting/osm2pgrouting:latest
+    container_name: zonepilot-road-importer
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./bangalore.osm.pbf:/data/bangalore.osm.pbf:ro
+    command: >
+      osm2pgrouting
+        --file /data/bangalore.osm.pbf
+        --conf /usr/share/osm2pgrouting/mapconfig.xml
+        --dbname ZonePilot
+        --host postgres
+        --port 5432
+        --username ${DB_USER:-zonepilot}
+        --password ${DB_PASSWORD:-zonepilot}
+        --schema public
+        --prefix blr_
+        --clean
+    networks:
+      - zonepilot-net
+    profiles:
+      - road-network
+
   backend:
     build:
       context: ./backend

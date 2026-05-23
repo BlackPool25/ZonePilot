@@ -1,0 +1,24 @@
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-weight: 500;
+  border-radius: var(--radius-full);
+  white-space: nowrap;
+}
+.sm { font-size: 11px; padding: 2px 7px; }
+.md { font-size: 12px; padding: 3px 9px; }
+
+.dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+
+.green  { background: var(--green-50);  color: var(--green-500); }
+.amber  { background: var(--amber-50);  color: var(--amber-500); }
+.red    { background: var(--red-50);    color: var(--red-500); }
+.blue   { background: var(--brand-50);  color: var(--brand-500); }
+.gray   { background: var(--surface-2); color: var(--text-secondary); }
+.purple { background: #f5f3ff;          color: #7c3aed; }

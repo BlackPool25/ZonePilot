@@ -1,5 +1,7 @@
 package com.zonepilot.backend.service;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.zonepilot.backend.entity.Depot;
 import com.zonepilot.backend.entity.Vehicle;
 import com.zonepilot.backend.entity.ZoneRestriction;
@@ -14,13 +16,17 @@ import org.locationtech.jts.geom.Coordinate;
 import org.locationtech.jts.geom.GeometryFactory;
 import org.locationtech.jts.geom.Point;
 import org.locationtech.jts.geom.PrecisionModel;
+import org.locationtech.jts.io.geojson.GeoJsonWriter;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 @Service
+@Transactional(readOnly = true)
 public class VehicleService {
 
     private final VehicleRepository vehicleRepository;
@@ -28,6 +34,8 @@ public class VehicleService {
     private final ZoneRestrictionRepository zoneRestrictionRepository;
     private final ZoneRestrictionRuleRepository zoneRestrictionRuleRepository;
     private final GeometryFactory geometryFactory;
+    private final GeoJsonWriter geoJsonWriter;
+    private final ObjectMapper objectMapper;
 
     public VehicleService(VehicleRepository vehicleRepository,
                           DepotRepository depotRepository,
@@ -38,6 +46,8 @@ public class VehicleService {
         this.zoneRestrictionRepository = zoneRestrictionRepository;
         this.zoneRestrictionRuleRepository = zoneRestrictionRuleRepository;
         this.geometryFactory = new GeometryFactory(new PrecisionModel(), 4326);
+        this.geoJsonWriter = new GeoJsonWriter();
+        this.objectMapper = new ObjectMapper();
     }
 
     public List<com.zonepilot.backend.dto.response.VehicleResponse> getAllVehicles(
@@ -133,8 +143,29 @@ public class VehicleService {
         r.setRestrictionType(z.getRestrictionType());
         r.setIsActive(z.getIsActive());
         if (z.getBoundary() != null) {
-            r.setBoundaryGeoJson(z.getBoundary().toText());
+            try {
+                String geoJsonStr = geoJsonWriter.write(z.getBoundary());
+                r.setBoundaryGeoJson(objectMapper.readValue(geoJsonStr, new TypeReference<Map<String, Object>>() {}));
+            } catch (Exception e) {
+                r.setBoundaryGeoJson(z.getBoundary().toText());
+            }
         }
+        // BUG-10: return empty list instead of null when no active rules match
+        List<ZoneRestrictionRule> rules = zoneRestrictionRuleRepository.findByZoneIdAndIsActive(z.getId(), true);
+        r.setRules(rules.stream().map(rule -> {
+            com.zonepilot.backend.dto.response.ZoneResponse.ZoneRuleResponse rr =
+                    new com.zonepilot.backend.dto.response.ZoneResponse.ZoneRuleResponse();
+            rr.setId(rule.getId());
+            rr.setApplicableVehicleClass(rule.getApplicableVehicleClass() != null
+                    ? rule.getApplicableVehicleClass().name() : "ALL");
+            rr.setRestrictionStartTime(rule.getRestrictionStartTime() != null
+                    ? rule.getRestrictionStartTime().toString() : null);
+            rr.setRestrictionEndTime(rule.getRestrictionEndTime() != null
+                    ? rule.getRestrictionEndTime().toString() : null);
+            rr.setDaysOfWeekBitmask(rule.getDaysOfWeekBitmask());
+            rr.setIsActive(rule.getIsActive());
+            return rr;
+        }).collect(Collectors.toList()));
         return r;
     }
 }

@@ -1,9 +1,9 @@
 package com.zonepilot.backend.dto.request;
 
-import jakarta.validation.constraints.DecimalMax;
-import jakarta.validation.constraints.DecimalMin;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
+
+import java.util.List;
 
 public class CreateZoneRequest {
 
@@ -20,6 +20,9 @@ public class CreateZoneRequest {
 
     private Boolean isActive = true;
 
+    @Valid
+    private List<CreateZoneRuleRequest> rules;
+
     public String getName() { return name; }
     public void setName(String name) { this.name = name; }
     public String getDescription() { return description; }
@@ -30,4 +33,25 @@ public class CreateZoneRequest {
     public void setRestrictionType(String restrictionType) { this.restrictionType = restrictionType; }
     public Boolean getIsActive() { return isActive; }
     public void setIsActive(Boolean isActive) { this.isActive = isActive; }
+    public List<CreateZoneRuleRequest> getRules() { return rules; }
+    public void setRules(List<CreateZoneRuleRequest> rules) { this.rules = rules; }
+
+    public static class CreateZoneRuleRequest {
+        private String applicableVehicleClass;
+        private String restrictionStartTime;
+        private String restrictionEndTime;
+        private Short daysOfWeekBitmask = 127;
+        private Boolean isActive = true;
+
+        public String getApplicableVehicleClass() { return applicableVehicleClass; }
+        public void setApplicableVehicleClass(String applicableVehicleClass) { this.applicableVehicleClass = applicableVehicleClass; }
+        public String getRestrictionStartTime() { return restrictionStartTime; }
+        public void setRestrictionStartTime(String restrictionStartTime) { this.restrictionStartTime = restrictionStartTime; }
+        public String getRestrictionEndTime() { return restrictionEndTime; }
+        public void setRestrictionEndTime(String restrictionEndTime) { this.restrictionEndTime = restrictionEndTime; }
+        public Short getDaysOfWeekBitmask() { return daysOfWeekBitmask; }
+        public void setDaysOfWeekBitmask(Short daysOfWeekBitmask) { this.daysOfWeekBitmask = daysOfWeekBitmask; }
+        public Boolean getIsActive() { return isActive; }
+        public void setIsActive(Boolean isActive) { this.isActive = isActive; }
+    }
 }

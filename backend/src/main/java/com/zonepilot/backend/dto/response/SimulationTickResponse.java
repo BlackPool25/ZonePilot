@@ -6,11 +6,14 @@ public class SimulationTickResponse {
 
     private Integer tickNumber;
     private List<TickVehicleResult> vehicles;
+    private Boolean exhausted;
 
     public Integer getTickNumber() { return tickNumber; }
     public void setTickNumber(Integer tickNumber) { this.tickNumber = tickNumber; }
     public List<TickVehicleResult> getVehicles() { return vehicles; }
     public void setVehicles(List<TickVehicleResult> vehicles) { this.vehicles = vehicles; }
+    public Boolean getExhausted() { return exhausted; }
+    public void setExhausted(Boolean exhausted) { this.exhausted = exhausted; }
 
     public static class TickVehicleResult {
         private Long vehicleId;

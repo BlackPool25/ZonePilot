@@ -45,8 +45,6 @@ public class ZoneController {
     @Operation(summary = "Create a new zone", description = "Creates a zone restriction with a GeoJSON boundary")
     public ResponseEntity<ApiResponse<ZoneResponse>> createZone(
             @Valid @RequestBody CreateZoneRequest request) {
-        return ResponseEntity.ok(ApiResponse.success(
-                zoneService.createZone(request.getName(), request.getDescription(),
-                        request.getBoundaryGeoJson(), request.getRestrictionType(), request.getIsActive())));
+        return ResponseEntity.ok(ApiResponse.success(zoneService.createZone(request)));
     }
 }
