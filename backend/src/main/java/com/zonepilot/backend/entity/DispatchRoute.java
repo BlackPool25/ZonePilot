@@ -57,6 +57,10 @@ public class DispatchRoute {
         return this.status == RouteStatus.COMPLIANT;
     }
 
+    public String getRouteGeoJson() {
+        return this.plannedRouteGeometry != null ? this.plannedRouteGeometry.toText() : null;
+    }
+
     @PrePersist
     protected void onCreate() {
         this.createdAt = Instant.now();

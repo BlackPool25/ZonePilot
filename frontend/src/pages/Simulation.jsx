@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { simulationApi, vehiclesApi } from '../api/client.js';
-import { DEMO_SIMULATION_STATE, DEMO_VEHICLES } from '../data/demo.js';
+import { simulationApi, vehiclesApi, zonesApi } from '../api/client.js';
+import { DEMO_SIMULATION_STATE, DEMO_VEHICLES, DEMO_ZONES } from '../data/demo.js';
 import LiveMap from '../components/map/LiveMap.jsx';
 import Badge from '../components/atoms/Badge.jsx';
 import Button from '../components/atoms/Button.jsx';
@@ -18,6 +18,7 @@ export default function Simulation() {
   const { addToast } = useApp();
   const [selectedScenarios, setSelectedScenarios] = useState(['A', 'B', 'C']);
   const [simState, setSimState] = useState([]);
+  const [zones, setZones] = useState([]);
   const [vehicles, setVehicles] = useState([]);
   const [positions, setPositions] = useState({});
   const [tickLog, setTickLog] = useState([]);
@@ -32,6 +33,9 @@ export default function Simulation() {
     vehiclesApi.list()
       .then(setVehicles)
       .catch(() => setVehicles(DEMO_VEHICLES));
+    zonesApi.list()
+      .then(setZones)
+      .catch(() => setZones(DEMO_ZONES));
     loadState();
   }, []);
 
@@ -277,9 +281,10 @@ export default function Simulation() {
         <LiveMap
           vehicles={vehicles.filter(v => simState.some(s => s.vehicleId === v.id))}
           positions={simPositions}
-          zones={[]}
+          zones={zones}
           breaches={[]}
-          layers={{ vehicles: true, zones: false, breaches: false, routes: false, labels: true }}
+          routes={simState.filter(s => s.routeGeoJson)}
+          layers={{ vehicles: true, zones: true, breaches: true, routes: true, labels: true }}
         />
         {exhausted && (
           <div className={styles.exhaustedBanner} role="status">

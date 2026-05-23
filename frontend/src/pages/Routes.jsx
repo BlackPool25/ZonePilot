@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { routesApi, vehiclesApi } from '../api/client.js';
-import { DEMO_VEHICLES } from '../data/demo.js';
+import { routesApi, vehiclesApi, zonesApi } from '../api/client.js';
+import { DEMO_VEHICLES, DEMO_ZONES } from '../data/demo.js';
+import LiveMap from '../components/map/LiveMap.jsx';
 import Badge from '../components/atoms/Badge.jsx';
 import Button from '../components/atoms/Button.jsx';
 import Input, { Select } from '../components/atoms/Input.jsx';
@@ -18,15 +19,17 @@ const PRESETS = [
 ];
 
 export default function Routes() {
-  const { openDrawer, addToast } = useApp();
+  const { openDrawer, addToast, setMapCenter } = useApp();
   const [searchParams] = useSearchParams();
   const vehicleIdParam = searchParams.get('vehicleId');
 
   const [vehicles, setVehicles] = useState([]);
+  const [zones, setZones] = useState([]);
   const [history, setHistory] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [validating, setValidating] = useState(false);
   const [result, setResult] = useState(null);
+  const [selectedRoute, setSelectedRoute] = useState(null);
 
   const [form, setForm] = useState({
     vehicleId: vehicleIdParam ?? '',
@@ -39,6 +42,9 @@ export default function Routes() {
     vehiclesApi.list({ isActive: true })
       .then(setVehicles)
       .catch(() => setVehicles(DEMO_VEHICLES.filter(v => v.isActive)));
+    zonesApi.list()
+      .then(setZones)
+      .catch(() => setZones(DEMO_ZONES));
   }, []);
 
   useEffect(() => {
@@ -49,6 +55,23 @@ export default function Routes() {
       .catch(() => setHistory([]))
       .finally(() => setHistoryLoading(false));
   }, [form.vehicleId]);
+
+  // Auto-center map on selected route
+  useEffect(() => {
+    if (!selectedRoute) return;
+    const geom = selectedRoute.routeGeoJson ?? selectedRoute.alternativeRouteGeoJson;
+    if (!geom) return;
+    try {
+      const latlngs = wktToLatLngs(geom);
+      if (latlngs && latlngs.length > 0) {
+        const midIndex = Math.floor(latlngs.length / 2);
+        const [lat, lng] = latlngs[midIndex];
+        setMapCenter([lat, lng], 12);
+      }
+    } catch (err) {
+      console.error('Failed to parse route for centering', err);
+    }
+  }, [selectedRoute, setMapCenter]);
 
   function applyPreset(preset) {
     setForm(f => ({ ...f, ...preset }));
@@ -80,6 +103,7 @@ export default function Routes() {
         destLng: Number(form.destLng),
       });
       setResult(data);
+      setSelectedRoute(data);
       if (data.compliant) addToast('success', 'Route is compliant');
       else addToast('warning', `${data.violations?.length ?? 0} violation(s) found`);
       
@@ -159,7 +183,7 @@ export default function Routes() {
                     {result.alternativeRouteUnavailable && <p className={styles.resultSub}>No compliant alternative found</p>}
                   </div>
                   {result.dispatchRouteId && (
-                    <Button size="sm" variant="secondary" onClick={() => openDrawer('route', result.dispatchRouteId, result)}>
+                    <Button size="sm" variant="secondary" onClick={() => { setSelectedRoute(result); openDrawer('route', result.dispatchRouteId, result); }}>
                       View Route
                     </Button>
                   )}
@@ -181,7 +205,7 @@ export default function Routes() {
         )}
       </div>
 
-      {/* Right: history */}
+      {/* Middle: history */}
       <div className={styles.historyPanel}>
         <h2 className={styles.historyTitle}>Route History</h2>
         {!form.vehicleId ? (
@@ -196,7 +220,7 @@ export default function Routes() {
               <button
                 key={r.id}
                 className={styles.historyItem}
-                onClick={() => openDrawer('route', r.id, r)}
+                onClick={() => { setSelectedRoute(r); openDrawer('route', r.id, r); }}
                 aria-label={`Route #${r.id}`}
               >
                 <span className={`${styles.historyStatus} ${r.compliant ? styles.ok : styles.warn}`}>
@@ -211,6 +235,18 @@ export default function Routes() {
             ))}
           </div>
         )}
+      </div>
+
+      {/* Right: Map */}
+      <div className={styles.mapArea}>
+        <LiveMap
+          vehicles={vehicles}
+          positions={{}}
+          zones={zones}
+          breaches={[]}
+          routes={selectedRoute ? [selectedRoute] : []}
+          layers={{ vehicles: false, zones: true, breaches: false, routes: true, labels: true }}
+        />
       </div>
     </div>
   );
