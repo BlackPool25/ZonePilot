@@ -41,6 +41,12 @@ public class ZoneBreachLog {
     @Column(name = "is_acknowledged", nullable = false)
     private Boolean isAcknowledged = false;
 
+    @Column(name = "end_time")
+    private Instant endTime;
+
+    @Column(name = "distance_m")
+    private Double distanceM = 0.0;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -49,6 +55,9 @@ public class ZoneBreachLog {
         this.createdAt = Instant.now();
         if (this.breachTime == null) {
             this.breachTime = Instant.now();
+        }
+        if (this.endTime == null) {
+            this.endTime = this.breachTime;
         }
     }
 
@@ -62,6 +71,10 @@ public class ZoneBreachLog {
     public void setPositionLogId(Long positionLogId) { this.positionLogId = positionLogId; }
     public Instant getBreachTime() { return breachTime; }
     public void setBreachTime(Instant breachTime) { this.breachTime = breachTime; }
+    public Instant getEndTime() { return endTime; }
+    public void setEndTime(Instant endTime) { this.endTime = endTime; }
+    public Double getDistanceM() { return distanceM; }
+    public void setDistanceM(Double distanceM) { this.distanceM = distanceM; }
     public BreachType getBreachType() { return breachType; }
     public void setBreachType(BreachType breachType) { this.breachType = breachType; }
     public ZoneRestrictionRule getRule() { return rule; }

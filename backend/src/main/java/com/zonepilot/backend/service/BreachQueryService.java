@@ -66,6 +66,13 @@ public class BreachQueryService {
         r.setZoneName(b.getZone().getName());
         r.setBreachType(b.getBreachType());
         r.setBreachTime(b.getBreachTime());
+        r.setEndTime(b.getEndTime());
+        if (b.getBreachTime() != null && b.getEndTime() != null) {
+            r.setDurationSec(java.time.Duration.between(b.getBreachTime(), b.getEndTime()).toSeconds());
+        } else {
+            r.setDurationSec(0L);
+        }
+        r.setDistanceM(b.getDistanceM() != null ? b.getDistanceM() : 0.0);
         r.setIsAcknowledged(b.getIsAcknowledged());
         if (b.getResolvedRouteGeometry() != null) {
             r.setRerouteGeoJson(b.getResolvedRouteGeometry().toText());

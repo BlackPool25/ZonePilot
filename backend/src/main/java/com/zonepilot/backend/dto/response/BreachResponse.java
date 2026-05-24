@@ -12,6 +12,9 @@ public class BreachResponse {
     private String zoneName;
     private BreachType breachType;
     private Instant breachTime;
+    private Instant endTime;
+    private Long durationSec;
+    private Double distanceM;
     private String rerouteGeoJson;
     private Boolean isAcknowledged;
 
@@ -29,6 +32,12 @@ public class BreachResponse {
     public void setBreachType(BreachType breachType) { this.breachType = breachType; }
     public Instant getBreachTime() { return breachTime; }
     public void setBreachTime(Instant breachTime) { this.breachTime = breachTime; }
+    public Instant getEndTime() { return endTime; }
+    public void setEndTime(Instant endTime) { this.endTime = endTime; }
+    public Long getDurationSec() { return durationSec; }
+    public void setDurationSec(Long durationSec) { this.durationSec = durationSec; }
+    public Double getDistanceM() { return distanceM; }
+    public void setDistanceM(Double distanceM) { this.distanceM = distanceM; }
     public String getRerouteGeoJson() { return rerouteGeoJson; }
     public void setRerouteGeoJson(String rerouteGeoJson) { this.rerouteGeoJson = rerouteGeoJson; }
     public Boolean getIsAcknowledged() { return isAcknowledged; }

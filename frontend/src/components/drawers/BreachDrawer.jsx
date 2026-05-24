@@ -8,6 +8,23 @@ import { useApp } from '../../context/AppContext.jsx';
 import { BREACH_TYPE_LABELS, BREACH_TYPE_COLORS, formatDateTime } from '../../utils/helpers.js';
 import styles from './BreachDrawer.module.css';
 
+function formatDuration(sec) {
+  if (sec === null || sec === undefined) return '—';
+  if (sec < 60) return `${sec}s`;
+  const mins = Math.floor(sec / 60);
+  const secs = sec % 60;
+  if (mins < 60) return `${mins}m ${secs}s`;
+  const hrs = Math.floor(mins / 60);
+  const remMins = mins % 60;
+  return `${hrs}h ${remMins}m`;
+}
+
+function formatDistance(meters) {
+  if (meters === null || meters === undefined) return '—';
+  if (meters < 1000) return `${Math.round(meters)} m`;
+  return `${(meters / 1000).toFixed(2)} km`;
+}
+
 export default function BreachDrawer({ entityId, data: initialData }) {
   const { addToast } = useApp();
   const [breach, setBreach] = useState(initialData ?? null);
@@ -82,7 +99,12 @@ export default function BreachDrawer({ entityId, data: initialData }) {
         <div className="drawer-row"><span className="drawer-row-label">Vehicle</span><span className="drawer-row-value" style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}>{breach.registrationNumber}</span></div>
         <div className="drawer-row"><span className="drawer-row-label">Zone</span><span className="drawer-row-value">{breach.zoneName}</span></div>
         <div className="drawer-row"><span className="drawer-row-label">Type</span><span className="drawer-row-value">{typeLabel}</span></div>
-        <div className="drawer-row"><span className="drawer-row-label">Time</span><span className="drawer-row-value">{formatDateTime(breach.breachTime)}</span></div>
+        <div className="drawer-row"><span className="drawer-row-label">First Entered</span><span className="drawer-row-value">{formatDateTime(breach.breachTime)}</span></div>
+        {breach.endTime && breach.endTime !== breach.breachTime && (
+          <div className="drawer-row"><span className="drawer-row-label">Last Active</span><span className="drawer-row-value">{formatDateTime(breach.endTime)}</span></div>
+        )}
+        <div className="drawer-row"><span className="drawer-row-label">Duration</span><span className="drawer-row-value">{formatDuration(breach.durationSec)}</span></div>
+        <div className="drawer-row"><span className="drawer-row-label">Distance Traveled</span><span className="drawer-row-value">{formatDistance(breach.distanceM)}</span></div>
       </div>
 
       {/* Reroute */}
