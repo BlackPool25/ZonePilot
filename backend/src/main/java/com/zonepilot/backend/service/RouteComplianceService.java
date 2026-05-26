@@ -80,13 +80,33 @@ public class RouteComplianceService {
         response.setRouteGeoJson(winner.geometry.toText());
         response.setCompliant(winner.violations.isEmpty() && winner.waitDurationSec == 0);
 
-        if (!winner.violations.isEmpty() && winner.waitDurationSec > 0) {
-            // Wait-state route: original route is faster with a wait than any alternate
-            response.setAlternativeRouteUnavailable(false);
-            response.setWaitDurationSec(winner.waitDurationSec);
-            response.setWaitUntil(winner.waitUntil != null ? winner.waitUntil.toString() : null);
-        } else if (!winner.violations.isEmpty()) {
-            response.setAlternativeRouteGeoJson(winner.geometry.toText());
+        if (!response.getCompliant()) {
+            try {
+                Set<Long> violatedZoneIds = winner.violations.stream()
+                        .filter(v -> v.getZoneId() != null)
+                        .map(RouteValidationResponse.ViolationDetail::getZoneId)
+                        .collect(java.util.stream.Collectors.toSet());
+                if (!violatedZoneIds.isEmpty()) {
+                    LineString altGeom = computeRouteAvoidingZones(sourceNode, targetNode, violatedZoneIds);
+                    List<RouteValidationResponse.ViolationDetail> altViolations = validateRouteAgainstZones(vehicleId, altGeom);
+                    if (altViolations.isEmpty()) {
+                        response.setAlternativeRouteGeoJson(altGeom.toText());
+                        response.setAlternativeRouteUnavailable(false);
+                    } else {
+                        response.setAlternativeRouteUnavailable(true);
+                    }
+                } else {
+                    response.setAlternativeRouteUnavailable(true);
+                }
+            } catch (Exception e) {
+                log.info("Could not compute strictly compliant alternative route: {}", e.getMessage());
+                response.setAlternativeRouteUnavailable(true);
+            }
+
+            if (winner.waitDurationSec > 0) {
+                response.setWaitDurationSec(winner.waitDurationSec);
+                response.setWaitUntil(winner.waitUntil != null ? winner.waitUntil.toString() : null);
+            }
         }
 
         DispatchRoute dispatchRoute = new DispatchRoute();

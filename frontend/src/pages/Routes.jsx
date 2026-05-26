@@ -253,6 +253,11 @@ export default function Routes() {
                   <div>
                     <p className={styles.resultTitle}>{result.compliant ? 'Route is compliant' : 'Route has violations'}</p>
                     {result.waitUntil && <p className={styles.resultSub}>Wait until {formatDateTime(result.waitUntil)} ({Math.round(result.waitDurationSec / 60)} min)</p>}
+                    {result.alternativeRouteGeoJson && !result.compliant && (
+                      <p className={styles.resultSub} style={{ color: 'var(--green-600)', fontWeight: 600 }}>
+                        ✓ Compliant alternative route found (shown in green on map)
+                      </p>
+                    )}
                     {result.alternativeRouteUnavailable && <p className={styles.resultSub}>No compliant alternative found</p>}
                   </div>
                   {result.dispatchRouteId && (

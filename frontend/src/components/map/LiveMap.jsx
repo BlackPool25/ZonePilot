@@ -244,16 +244,63 @@ export default function LiveMap({
       })}
 
       {/* Route overlays */}
-      {activeLayers.routes && routes.map((route, i) => {
-        const latlngs = wktToLatLngs(route.routeGeoJson ?? route.alternativeRouteGeoJson);
-        if (!latlngs.length) return null;
-        return (
-          <Polyline
-            key={i}
-            positions={latlngs}
-            pathOptions={{ color: route.compliant ? '#16a34a' : '#dc2626', weight: 3, dashArray: route.compliant ? undefined : '8 4' }}
-          />
-        );
+      {activeLayers.routes && routes.flatMap((route, i) => {
+        const paths = [];
+        if (route.routeGeoJson) {
+          const latlngs = wktToLatLngs(route.routeGeoJson);
+          if (latlngs.length) {
+            paths.push(
+              <Polyline
+                key={`route-${i}`}
+                positions={latlngs}
+                pathOptions={{
+                  color: route.compliant || route.status === 'COMPLIANT' ? '#16a34a' : '#dc2626',
+                  weight: route.compliant || route.status === 'COMPLIANT' ? 4 : 3,
+                  dashArray: route.compliant || route.status === 'COMPLIANT' ? undefined : '8 4'
+                }}
+              >
+                <Popup>
+                  <div style={{ padding: '2px' }}>
+                    <strong style={{ color: route.compliant || route.status === 'COMPLIANT' ? '#16a34a' : '#dc2626' }}>
+                      {route.compliant || route.status === 'COMPLIANT' ? 'Compliant Route' : 'Original Non-Compliant Route'}
+                    </strong>
+                    {!route.compliant && route.status !== 'COMPLIANT' && (
+                      <p style={{ fontSize: '11px', margin: '4px 0 0 0', color: '#64748b' }}>
+                        This path intersects a restricted zone or curfew window.
+                      </p>
+                    )}
+                  </div>
+                </Popup>
+              </Polyline>
+            );
+          }
+        }
+        if (route.alternativeRouteGeoJson && !(route.compliant || route.status === 'COMPLIANT')) {
+          const altLatlngs = wktToLatLngs(route.alternativeRouteGeoJson);
+          if (altLatlngs.length) {
+            paths.push(
+              <Polyline
+                key={`alt-${i}`}
+                positions={altLatlngs}
+                pathOptions={{
+                  color: '#16a34a',
+                  weight: 4,
+                  dashArray: '5 5'
+                }}
+              >
+                <Popup>
+                  <div style={{ padding: '2px' }}>
+                    <strong style={{ color: '#16a34a' }}>✓ Compliant Alternative Route</strong>
+                    <p style={{ fontSize: '11px', margin: '4px 0 0 0', color: '#64748b' }}>
+                      This route was computed dynamically to completely bypass all active restricted zones.
+                    </p>
+                  </div>
+                </Popup>
+              </Polyline>
+            );
+          }
+        }
+        return paths;
       })}
 
       {/* Origin Pin drop */}

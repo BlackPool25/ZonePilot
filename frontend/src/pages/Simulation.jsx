@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { simulationApi, vehiclesApi, zonesApi } from '../api/client.js';
+import { simulationApi, vehiclesApi, zonesApi, routesApi } from '../api/client.js';
 import { DEMO_SIMULATION_STATE, DEMO_VEHICLES, DEMO_ZONES } from '../data/demo.js';
 import LiveMap from '../components/map/LiveMap.jsx';
 import Badge from '../components/atoms/Badge.jsx';
@@ -28,6 +28,46 @@ export default function Simulation() {
   const [tickNumber, setTickNumber] = useState(0);
   const [exhausted, setExhausted] = useState(false);
   const runRef = useRef(false);
+
+  // Custom Route Simulation states
+  const [customVehicleId, setCustomVehicleId] = useState('');
+  const [customRoutes, setCustomRoutes] = useState([]);
+  const [customRouteId, setCustomRouteId] = useState('');
+  const [routesLoading, setRoutesLoading] = useState(false);
+  const [customStarting, setCustomStarting] = useState(false);
+
+  useEffect(() => {
+    if (!customVehicleId) {
+      setCustomRoutes([]);
+      setCustomRouteId('');
+      return;
+    }
+    setRoutesLoading(true);
+    routesApi.vehicleHistory(customVehicleId)
+      .then(setCustomRoutes)
+      .catch(() => setCustomRoutes([]))
+      .finally(() => setRoutesLoading(false));
+  }, [customVehicleId]);
+
+  async function startCustomSimulation() {
+    if (!customRouteId) {
+      addToast('warning', 'Please select a custom route to simulate');
+      return;
+    }
+    setCustomStarting(true);
+    try {
+      await simulationApi.startFromRoute({ dispatchRouteId: Number(customRouteId) });
+      await loadState();
+      setTickLog([]);
+      setTickNumber(0);
+      setExhausted(false);
+      addToast('success', `Started simulation for custom Route #${customRouteId}`);
+    } catch (err) {
+      addToast('error', err.message || 'Failed to start custom simulation');
+    } finally {
+      setCustomStarting(false);
+    }
+  }
 
   useEffect(() => {
     vehiclesApi.list()
@@ -209,6 +249,62 @@ export default function Simulation() {
                 <span className={styles.scenarioReg}>{s.reg}</span>
               </button>
             ))}
+          </div>
+        </div>
+
+        {/* Custom Route Simulation */}
+        <div className={styles.section} style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: '16px' }}>
+          <p className={styles.sectionTitle}>Simulate Custom Route</p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <div>
+              <label htmlFor="sim-vehicle-select" className={styles.customLabel}>Select Vehicle</label>
+              <select
+                id="sim-vehicle-select"
+                className={styles.customSelect}
+                value={customVehicleId}
+                onChange={e => setCustomVehicleId(e.target.value)}
+                disabled={running}
+              >
+                <option value="">Choose vehicle...</option>
+                {vehicles.map(v => (
+                  <option key={v.id} value={v.id}>
+                    {v.registrationNumber} ({v.ownerName})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {customVehicleId && (
+              <div>
+                <label htmlFor="sim-route-select" className={styles.customLabel}>Select Route</label>
+                <select
+                  id="sim-route-select"
+                  className={styles.customSelect}
+                  value={customRouteId}
+                  onChange={e => setCustomRouteId(e.target.value)}
+                  disabled={running || routesLoading}
+                >
+                  <option value="">
+                    {routesLoading ? 'Loading routes...' : customRoutes.length === 0 ? 'No validated routes found' : 'Choose route...'}
+                  </option>
+                  {customRoutes.map(r => (
+                    <option key={r.id} value={r.id}>
+                      Route #{r.id} ({r.compliant ? 'Compliant' : 'Non-Compliant'} · {new Date(r.createdAt).toLocaleString()})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            <Button
+              variant="primary"
+              onClick={startCustomSimulation}
+              loading={customStarting}
+              disabled={running || !customRouteId}
+              style={{ marginTop: '4px' }}
+            >
+              Start Custom Route Simulation
+            </Button>
           </div>
         </div>
 
