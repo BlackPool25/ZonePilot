@@ -1,0 +1,17 @@
+# Exclude database seed data and files
+*.pbf
+bangalore.osm.pbf
+karnataka-latest.osm.pbf
+
+# Exclude backend
+backend/
+fly/
+docker/
+docker-compose.yml
+import-osm-remote.sh
+
+# Exclude local caches
+.idea/
+.git/
+node_modules/
+frontend/node_modules/

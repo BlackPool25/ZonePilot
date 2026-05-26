@@ -19,7 +19,7 @@ import org.springframework.stereotype.Component;
 import java.util.List;
 
 @Component
-@Profile("dev")
+@Profile({"dev", "prod"})
 public class SimulationDataSeeder implements CommandLineRunner {
 
     private static final Logger log = LoggerFactory.getLogger(SimulationDataSeeder.class);
