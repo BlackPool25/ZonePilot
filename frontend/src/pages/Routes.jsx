@@ -62,14 +62,31 @@ export default function Routes() {
       .catch(() => setZones(DEMO_ZONES));
   }, []);
 
-  useEffect(() => {
-    if (!form.vehicleId) return;
+  const loadHistory = () => {
+    if (!form.vehicleId) {
+      setHistory([]);
+      return;
+    }
     setHistoryLoading(true);
     routesApi.vehicleHistory(form.vehicleId)
       .then(setHistory)
       .catch(() => setHistory([]))
       .finally(() => setHistoryLoading(false));
+  };
+
+  useEffect(() => {
+    loadHistory();
   }, [form.vehicleId]);
+
+  useEffect(() => {
+    const handleRouteDeleted = () => {
+      loadHistory();
+      setSelectedRoute(null);
+    };
+    window.addEventListener('route-deleted', handleRouteDeleted);
+    return () => window.removeEventListener('route-deleted', handleRouteDeleted);
+  }, [form.vehicleId]);
+
 
   // Auto-center map on selected route
   useEffect(() => {

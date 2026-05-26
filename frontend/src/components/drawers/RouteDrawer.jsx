@@ -2,12 +2,35 @@ import { useState, useEffect } from 'react';
 import { routesApi } from '../../api/client.js';
 import Badge from '../atoms/Badge.jsx';
 import { Spinner } from '../atoms/Spinner.jsx';
+import { useApp } from '../../context/AppContext.jsx';
 import { formatDateTime, VEHICLE_CLASS_LABELS, VEHICLE_CLASS_ICONS } from '../../utils/helpers.js';
 import styles from './RouteDrawer.module.css';
 
 export default function RouteDrawer({ entityId, data: initialData }) {
+  const { closeDrawer, addToast } = useApp();
   const [route, setRoute] = useState(initialData ?? null);
   const [loading, setLoading] = useState(!initialData || (initialData && !initialData.vehicle));
+  const [deleting, setDeleting] = useState(false);
+
+  async function handleDelete() {
+    const routeId = route?.id ?? route?.dispatchRouteId ?? entityId;
+    if (!routeId) return;
+    if (!window.confirm(`Are you sure you want to delete Route #${routeId}? This will permanently purge the route records and automatically clear any active route assignment for vehicles.`)) {
+      return;
+    }
+    setDeleting(true);
+    try {
+      await routesApi.delete(routeId);
+      addToast('success', `Route #${routeId} deleted successfully.`);
+      window.dispatchEvent(new CustomEvent('route-deleted', { detail: { id: routeId } }));
+      closeDrawer();
+    } catch (err) {
+      addToast('danger', err.message || 'Failed to delete route.');
+    } finally {
+      setDeleting(false);
+    }
+  }
+
 
   useEffect(() => {
     // If we have initialData and it has vehicle details, we can skip fetching
@@ -118,6 +141,17 @@ export default function RouteDrawer({ entityId, data: initialData }) {
           ))}
         </div>
       )}
+
+      {/* Actions */}
+      <div className={styles.actions}>
+        <button
+          className={styles.deleteBtn}
+          onClick={handleDelete}
+          disabled={deleting}
+        >
+          {deleting ? 'Deleting...' : '🗑 Delete Route'}
+        </button>
+      </div>
     </div>
   );
 }

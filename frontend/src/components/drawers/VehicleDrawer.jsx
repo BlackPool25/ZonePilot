@@ -21,6 +21,27 @@ export default function VehicleDrawer({ entityId }) {
   const [breaches, setBreaches] = useState([]);
   const [routes, setRoutes] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [clearing, setClearing] = useState(false);
+
+  async function handleClearRoute() {
+    if (!vehicle) return;
+    if (!window.confirm("Are you sure you want to clear the active route for this vehicle?")) {
+      return;
+    }
+    setClearing(true);
+    try {
+      await vehiclesApi.clearRoute(vehicle.id);
+      addToast('success', 'Active route cleared successfully.');
+      const updated = await vehiclesApi.get(vehicle.id);
+      setVehicle(updated);
+      const updatedHistory = await routesApi.vehicleHistory(vehicle.id);
+      setRoutes(updatedHistory);
+    } catch (err) {
+      addToast('danger', err.message || 'Failed to clear active route.');
+    } finally {
+      setClearing(false);
+    }
+  }
 
   useEffect(() => {
     if (!entityId) return;
@@ -41,6 +62,7 @@ export default function VehicleDrawer({ entityId }) {
 
   if (loading) return <Spinner />;
   if (!vehicle) return <p style={{ color: 'var(--text-secondary)', fontSize: 13 }}>Vehicle not found.</p>;
+
 
   const unacked = breaches.filter(b => !b.isAcknowledged);
   const statusVariant = vehicle.isActive ? 'green' : 'gray';
@@ -79,7 +101,37 @@ export default function VehicleDrawer({ entityId }) {
         <div className="drawer-row"><span className="drawer-row-label">Class</span><span className="drawer-row-value">{VEHICLE_CLASS_LABELS[vehicle.vehicleClass]}</span></div>
       </div>
 
+      {/* Active Route */}
+      {vehicle.activeDispatchRouteId && (
+        <div className="drawer-section" style={{ background: 'var(--brand-50)', border: '1px dashed var(--brand-300)', padding: 12, borderRadius: 8, marginBottom: 16 }}>
+          <p className="drawer-section-title" style={{ color: 'var(--brand-800)', margin: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span>Active Dispatch Route</span>
+            <span style={{ fontSize: 10, background: 'var(--brand-500)', color: 'white', padding: '2px 6px', borderRadius: 4, fontWeight: 700 }}>DISPATCHED</span>
+          </p>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 10 }}>
+            <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--brand-900)' }}>Route #{vehicle.activeDispatchRouteId}</span>
+            <Button
+              size="xs"
+              variant="secondary"
+              onClick={handleClearRoute}
+              disabled={clearing}
+              style={{
+                background: 'var(--red-50)',
+                color: 'var(--red-600)',
+                border: '1px solid var(--red-200)',
+                fontSize: 11,
+                padding: '3px 8px',
+                fontWeight: 600
+              }}
+            >
+              {clearing ? 'Clearing...' : 'Clear Route'}
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* Live position */}
+
       {position && (
         <div className="drawer-section">
           <p className="drawer-section-title">Live Position</p>

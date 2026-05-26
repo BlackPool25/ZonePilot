@@ -34,3 +34,37 @@
 }
 .violationZone { display: block; font-size: 13px; font-weight: 500; color: var(--text-primary); }
 .violationType { display: block; font-size: 11px; color: var(--text-tertiary); margin-top: 2px; }
+
+.actions {
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-subtle);
+  display: flex;
+  gap: 12px;
+}
+.deleteBtn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 16px;
+  border-radius: 8px;
+  border: 1px solid var(--red-200);
+  background: var(--red-50);
+  color: var(--red-700);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.deleteBtn:hover:not(:disabled) {
+  background: var(--red-100);
+  border-color: var(--red-300);
+  color: var(--red-800);
+}
+.deleteBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+

@@ -32,7 +32,15 @@ export default function Zones() {
     }
   }
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    load();
+    const handleDeleted = () => {
+      load();
+      setSelectedZone(null);
+    };
+    window.addEventListener('zone-deleted', handleDeleted);
+    return () => window.removeEventListener('zone-deleted', handleDeleted);
+  }, []);
 
   const filtered = typeFilter ? zones.filter(z => z.restrictionType === typeFilter) : zones;
 

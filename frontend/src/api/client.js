@@ -74,6 +74,7 @@ export const routesApi = {
   validate: (body) => post('/routes/validate', body),
   get: (id) => get(`/routes/${id}`),
   vehicleHistory: (vehicleId) => get(`/routes/vehicle/${vehicleId}`),
+  delete: (id) => del(`/routes/${id}`),
 };
 
 // ─── Reports ──────────────────────────────────────────────────────────

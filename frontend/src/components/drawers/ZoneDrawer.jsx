@@ -3,6 +3,7 @@ import { zonesApi, reportsApi } from '../../api/client.js';
 import { DEMO_ZONES } from '../../data/demo.js';
 import Badge from '../atoms/Badge.jsx';
 import { Spinner } from '../atoms/Spinner.jsx';
+import { useApp } from '../../context/AppContext.jsx';
 import {
   RESTRICTION_TYPE_LABELS, RESTRICTION_TYPE_COLORS,
   VEHICLE_CLASS_LABELS, decodeDays, formatRelative,
@@ -10,9 +11,30 @@ import {
 import styles from './ZoneDrawer.module.css';
 
 export default function ZoneDrawer({ entityId }) {
+  const { closeDrawer, addToast } = useApp();
   const [zone, setZone] = useState(null);
   const [violations, setViolations] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [deleting, setDeleting] = useState(false);
+
+  async function handleDelete() {
+    if (!zone) return;
+    if (!window.confirm(`Are you sure you want to delete the zone "${zone.name}"? This will permanently remove all associated rules and logged breaches.`)) {
+      return;
+    }
+    setDeleting(true);
+    try {
+      await zonesApi.delete(zone.id);
+      addToast('success', `Zone "${zone.name}" deleted successfully.`);
+      window.dispatchEvent(new CustomEvent('zone-deleted', { detail: { id: zone.id } }));
+      closeDrawer();
+    } catch (err) {
+      addToast('danger', err.message || 'Failed to delete zone.');
+    } finally {
+      setDeleting(false);
+    }
+  }
+
 
   useEffect(() => {
     if (!entityId) return;
@@ -101,6 +123,18 @@ export default function ZoneDrawer({ entityId }) {
           ))}
         </div>
       )}
+
+      {/* Actions */}
+      <div className={styles.actions}>
+        <button
+          className={styles.deleteBtn}
+          onClick={handleDelete}
+          disabled={deleting}
+        >
+          {deleting ? 'Deleting...' : '🗑 Delete Zone'}
+        </button>
+      </div>
     </div>
   );
 }
+
