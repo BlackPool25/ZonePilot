@@ -5,6 +5,7 @@ import com.zonepilot.backend.entity.SimulationPath;
 import com.zonepilot.backend.entity.Vehicle;
 import com.zonepilot.backend.enums.VehicleClass;
 import com.zonepilot.backend.exception.SimulationException;
+import com.zonepilot.backend.repository.DispatchRouteRepository;
 import com.zonepilot.backend.repository.SimulationPathRepository;
 import com.zonepilot.backend.repository.VehicleRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -30,6 +31,7 @@ class SimulationServiceTest {
     @Mock private SimulationPathRepository simulationPathRepository;
     @Mock private VehicleRepository vehicleRepository;
     @Mock private PositionTrackingService positionTrackingService;
+    @Mock private DispatchRouteRepository dispatchRouteRepository;
 
     private SimulationService simulationService;
     private final GeometryFactory gf = new GeometryFactory(new PrecisionModel(), 4326);
@@ -37,7 +39,7 @@ class SimulationServiceTest {
     @BeforeEach
     void setUp() {
         simulationService = new SimulationService(
-                simulationPathRepository, vehicleRepository, positionTrackingService);
+                simulationPathRepository, vehicleRepository, positionTrackingService, dispatchRouteRepository);
     }
 
     @Test

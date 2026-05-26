@@ -12,6 +12,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/simulation")
@@ -30,6 +31,18 @@ public class SimulationController {
             @Valid @RequestBody StartSimulationRequest request) {
         simulationService.startScenarios(request.getScenarios());
         return ResponseEntity.ok(ApiResponse.success("Simulation started for scenarios: " + request.getScenarios()));
+    }
+
+    @PostMapping("/start-from-route")
+    @Operation(summary = "Start simulation from a validated route",
+               description = "Creates a simulation path from a dispatch route. Optional startLat/startLng overrides the start position (drop-pin).")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> startFromRoute(
+            @RequestBody Map<String, Object> body) {
+        Long dispatchRouteId = ((Number) body.get("dispatchRouteId")).longValue();
+        Double startLat = body.get("startLat") != null ? ((Number) body.get("startLat")).doubleValue() : null;
+        Double startLng = body.get("startLng") != null ? ((Number) body.get("startLng")).doubleValue() : null;
+        Long pathId = simulationService.startFromRoute(dispatchRouteId, startLat, startLng);
+        return ResponseEntity.ok(ApiResponse.success(Map.of("pathId", pathId, "message", "Simulation started from route " + dispatchRouteId)));
     }
 
     @PostMapping("/tick")

@@ -89,44 +89,36 @@ class RouteComplianceServiceTest {
     }
 
     @Test
-    void validateRoute_withViolationsAndSuccessfulBypass_performsRecursiveRouting() {
+    void validateRoute_withViolations_usesZoneExitWaypointRouting() {
         when(vehicleRepository.findById(5L)).thenReturn(Optional.of(vehicle));
         when(routingService.findNearestNode(12.9, 77.6)).thenReturn(100L);
         when(routingService.findNearestNode(12.91, 77.61)).thenReturn(200L);
-        
-        // Attempt 1: Returns initial route
+
+        // Phase 1: direct route has a violation
         when(routingService.computeRoute(100L, 200L)).thenReturn(mockRoute);
 
-        // Attempt 1 validation: returns 1 violation
         Map<String, Object> violation = new HashMap<>();
         violation.put("violated_zone_id", 1L);
         violation.put("violated_zone_name", "MG Road");
         violation.put("breach_type", "TIME_WINDOW");
-        
-        // Mock queryForList for Attempt 1 and Attempt 2 (which is compliant)
+
+        // Phase 1 validation: violation. Phase 2 (waypoint route): compliant.
         when(jdbcTemplate.queryForList(eq("SELECT * FROM sp_validate_route(?, ST_GeomFromText(?, 4326))"), eq(5L), anyString()))
-                .thenReturn(Arrays.asList(violation)) // Attempt 1 returns violation
-                .thenReturn(Collections.emptyList()); // Attempt 2 returns empty (compliant bypass)
+                .thenReturn(Arrays.asList(violation))   // direct route: violation
+                .thenReturn(Collections.emptyList());   // waypoint route: compliant
 
-        // Mock wait state lookups for Attempt 1:
-        // Entry points:
-        List<double[]> entryPoints = Arrays.asList(new double[]{12.905, 77.605});
-        when(jdbcTemplate.query(eq("SELECT ST_Y(ST_ClosestPoint(boundary, ST_GeomFromText(?, 4326))) AS lat,        ST_X(ST_ClosestPoint(boundary, ST_GeomFromText(?, 4326))) AS lng FROM zone_restriction WHERE id = ?"), any(RowMapper.class), anyString(), anyString(), eq(1L)))
-                .thenReturn(entryPoints);
-        // Time prediction arrivals and total times:
-        when(timePredictionService.predictCumulativeArrivalsSec(any(), anyList(), any())).thenReturn(Arrays.asList(50L));
-        when(timePredictionService.predictTotalDurationSec(any(), anyList(), any())).thenReturn(300L);
-        // Curfew end time:
-        List<Object[]> curfewRules = new ArrayList<>();
-        curfewRules.add(new Object[]{Time.valueOf("23:00:00")});
-        when(jdbcTemplate.query(eq("SELECT restriction_end_time FROM zone_restriction_rule WHERE zone_id = ? AND is_active = true AND restriction_end_time IS NOT NULL ORDER BY restriction_end_time DESC LIMIT 1"), any(RowMapper.class), eq(1L)))
-                .thenReturn(curfewRules);
+        // Zone-exit node lookup (findZoneExitNodes)
+        when(jdbcTemplate.query(contains("blr_2po_4pgr_vertices_pgr"), any(RowMapper.class),
+                eq(1L), eq(1L), eq(100L), eq(1L)))
+                .thenReturn(Arrays.asList(150L));
 
-        // Attempt 2: Avoid zones routing using pgr_dijkstra with penalty SQL
-        List<Object[]> dijkstraBypassEdges = new ArrayList<>();
-        dijkstraBypassEdges.add(new Object[]{1, 1001L, 10.0, "LINESTRING(77.6 12.9, 77.62 12.92, 77.61 12.91)"});
-        when(jdbcTemplate.query(contains("pgr_dijkstra"), any(RowMapper.class), anyString(), eq(100L), eq(200L)))
-                .thenReturn(dijkstraBypassEdges);
+        // Waypoint route: source(100) → exit(150) → target(200)
+        LineString seg1 = gf.createLineString(new Coordinate[]{new Coordinate(77.6, 12.9), new Coordinate(77.605, 12.905)});
+        LineString seg2 = gf.createLineString(new Coordinate[]{new Coordinate(77.605, 12.905), new Coordinate(77.61, 12.91)});
+        when(routingService.computeRoute(100L, 150L)).thenReturn(seg1);
+        when(routingService.computeRoute(150L, 200L)).thenReturn(seg2);
+
+        when(timePredictionService.predictTotalDurationSec(any(), anyList(), any())).thenReturn(350L);
 
         DispatchRoute savedRoute = new DispatchRoute();
         savedRoute.setId(600L);
@@ -134,7 +126,6 @@ class RouteComplianceServiceTest {
 
         RouteValidationResponse response = complianceService.validateRoute(5L, 12.9, 77.6, 12.91, 77.61);
 
-        // Bypass found, so compliant is true
         assertTrue(response.getCompliant());
         assertEquals(600L, response.getDispatchRouteId());
         verify(vehicleRepository).save(vehicle);

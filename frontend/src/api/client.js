@@ -87,6 +87,7 @@ export const reportsApi = {
 // ─── Simulation ───────────────────────────────────────────────────────
 export const simulationApi = {
   start: (scenarios) => post('/simulation/start', { scenarios }),
+  startFromRoute: (body) => post('/simulation/start-from-route', body),
   tick: () => post('/simulation/tick'),
   state: () => get('/simulation/state'),
   reset: () => post('/simulation/reset'),

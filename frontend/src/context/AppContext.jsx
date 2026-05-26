@@ -23,6 +23,9 @@ const initialState = {
 
   // Navigation
   navExpanded: false,
+
+  // Last validated route — shown on Dashboard map
+  lastValidatedRoute: null,
 };
 
 // ─── Actions ─────────────────────────────────────────────────────────
@@ -38,6 +41,7 @@ const actions = {
   SET_BREACH_COUNT: 'SET_BREACH_COUNT',
   SET_RESTRICTION_COUNT: 'SET_RESTRICTION_COUNT',
   TOGGLE_NAV: 'TOGGLE_NAV',
+  SET_LAST_ROUTE: 'SET_LAST_ROUTE',
 };
 
 function reducer(state, action) {
@@ -64,6 +68,8 @@ function reducer(state, action) {
       return { ...state, activeRestrictionsCount: action.count };
     case actions.TOGGLE_NAV:
       return { ...state, navExpanded: !state.navExpanded };
+    case actions.SET_LAST_ROUTE:
+      return { ...state, lastValidatedRoute: action.route };
     default:
       return state;
   }
@@ -108,6 +114,9 @@ export function AppProvider({ children }) {
   const toggleNav = useCallback(() =>
     dispatch({ type: actions.TOGGLE_NAV }), []);
 
+  const setLastValidatedRoute = useCallback((route) =>
+    dispatch({ type: actions.SET_LAST_ROUTE, route }), []);
+
   return (
     <AppContext.Provider value={{
       state,
@@ -117,6 +126,7 @@ export function AppProvider({ children }) {
       addToast,
       setBreachCount, setRestrictionCount,
       toggleNav,
+      setLastValidatedRoute,
     }}>
       {children}
     </AppContext.Provider>

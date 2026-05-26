@@ -23,18 +23,16 @@ import java.time.Instant;
 import java.time.LocalTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 @Service
 public class RouteComplianceService {
 
     private static final Logger log = LoggerFactory.getLogger(RouteComplianceService.class);
 
-    private static final int MAX_ROUTE_ATTEMPTS = 5;
     // IST timezone for curfew window calculations
     private static final ZoneId IST = ZoneId.of("Asia/Kolkata");
 
@@ -69,9 +67,8 @@ public class RouteComplianceService {
 
         Instant departureTime = Instant.now().plusSeconds(10);
 
-        // Epic 4: 5-attempt recursive routing with zone penalty escalation
-        RouteCandidate winner = computeBestRoute(
-                sourceNode, targetNode, vehicleId, departureTime, new HashSet<>(), 0);
+        // Smart zone-aware routing: direct route → zone-exit waypoints → wait-state fallback
+        RouteCandidate winner = computeBestRoute(sourceNode, targetNode, vehicleId, departureTime);
 
         Point originPoint = geometryFactory.createPoint(new Coordinate(originLng, originLat));
         originPoint.setSRID(4326);
@@ -118,73 +115,139 @@ public class RouteComplianceService {
         return response;
     }
 
-    // ── Epic 4: 5-attempt recursive routing ──────────────────────────────────
+    // ── Smart zone-aware routing ──────────────────────────────────────────────
 
     /**
-     * Recursively computes routes, penalising violated zones on each attempt.
+     * Two-phase routing strategy:
      *
-     * Exit A: a route with 0 violations → return immediately.
-     * Exit B: after MAX_ROUTE_ATTEMPTS, compare all candidates by
-     *         (travelDuration + waitDuration) and return the minimum.
+     * Phase 1 — Direct route: compute standard Dijkstra. If compliant, done.
+     *
+     * Phase 2 — Zone-exit waypoint routing: for each violated zone, find the
+     * nearest road network node that lies OUTSIDE the zone boundary using
+     * ST_ExteriorRing + KNN. Route as a waypoint chain:
+     *   origin → exit_node_1 → exit_node_2 → ... → destination
+     * This guarantees the route leaves each zone before continuing — no
+     * penalty retries needed.
+     *
+     * Phase 3 — Wait-state fallback: if the destination itself is inside a
+     * zone (unavoidable), compute the curfew end time and return a wait-state
+     * route rather than exhausting retries.
      */
     private RouteCandidate computeBestRoute(Long sourceNode, Long targetNode,
-                                             Long vehicleId, Instant departureTime,
-                                             Set<Long> penalisedZones, int attempt) {
-        if (attempt >= MAX_ROUTE_ATTEMPTS) {
-            // Should not reach here — caller collects candidates and picks best
-            throw new RoutingException("Max route attempts exceeded");
-        }
-
-        LineString routeGeometry = computeRouteAvoidingZones(sourceNode, targetNode, penalisedZones);
+                                             Long vehicleId, Instant departureTime) {
+        // Phase 1: direct route
+        LineString directRoute = computeRouteAvoidingZones(sourceNode, targetNode, Set.of());
         List<RouteValidationResponse.ViolationDetail> violations =
-                validateRouteAgainstZones(vehicleId, routeGeometry);
+                validateRouteAgainstZones(vehicleId, directRoute);
 
         if (violations.isEmpty()) {
-            // Exit A: clean route found
             long travelSec = timePredictionService.predictTotalDurationSec(
-                    routeGeometry, List.of(), departureTime);
-            return new RouteCandidate(routeGeometry, violations, 0, null, travelSec);
+                    directRoute, List.of(), departureTime);
+            return new RouteCandidate(directRoute, violations, 0, null, travelSec);
         }
 
-        // Collect zone entry points for Google Routes API timing
-        List<double[]> zoneEntryPoints = queryZoneEntryPoints(routeGeometry, violations);
-        List<Long> cumulativeArrivals = timePredictionService.predictCumulativeArrivalsSec(
-                routeGeometry, zoneEntryPoints, departureTime);
+        // Phase 2: smart zone-exit waypoint routing
+        try {
+            Set<Long> violatedZoneIds = violations.stream()
+                    .filter(v -> v.getZoneId() != null)
+                    .map(RouteValidationResponse.ViolationDetail::getZoneId)
+                    .collect(java.util.stream.Collectors.toCollection(java.util.LinkedHashSet::new));
 
-        // Compute wait time for this route (time until first curfew ends)
+            List<Long> exitNodes = findZoneExitNodes(violatedZoneIds, sourceNode, targetNode);
+
+            if (!exitNodes.isEmpty()) {
+                LineString waypointRoute = computeWaypointRoute(sourceNode, exitNodes, targetNode);
+                List<RouteValidationResponse.ViolationDetail> waypointViolations =
+                        validateRouteAgainstZones(vehicleId, waypointRoute);
+
+                if (waypointViolations.isEmpty()) {
+                    long travelSec = timePredictionService.predictTotalDurationSec(
+                            waypointRoute, List.of(), departureTime);
+                    return new RouteCandidate(waypointRoute, waypointViolations, 0, null, travelSec);
+                }
+
+                // Waypoint route still has violations (destination inside zone) — use it for wait-state
+                violations = waypointViolations;
+                directRoute = waypointRoute;
+            }
+        } catch (RoutingException e) {
+            log.warn("Zone-exit waypoint routing failed, falling back to wait-state: {}", e.getMessage());
+        }
+
+        // Phase 3: wait-state fallback
+        List<double[]> zoneEntryPoints = queryZoneEntryPoints(directRoute, violations);
+        List<Long> cumulativeArrivals = timePredictionService.predictCumulativeArrivalsSec(
+                directRoute, zoneEntryPoints, departureTime);
         WaitState waitState = computeWaitState(violations, departureTime, cumulativeArrivals);
         long travelSec = timePredictionService.predictTotalDurationSec(
-                routeGeometry, zoneEntryPoints, departureTime);
+                directRoute, zoneEntryPoints, departureTime);
         long totalWithWait = (travelSec > 0 ? travelSec : 0) + waitState.waitDurationSec;
 
-        RouteCandidate thisCandidate = new RouteCandidate(
-                routeGeometry, violations, waitState.waitDurationSec, waitState.waitUntil, totalWithWait);
+        return new RouteCandidate(directRoute, violations, waitState.waitDurationSec,
+                waitState.waitUntil, totalWithWait);
+    }
 
-        if (attempt + 1 >= MAX_ROUTE_ATTEMPTS) {
-            return thisCandidate;
+    /**
+     * For each violated zone, finds the nearest road network node that is
+     * OUTSIDE the zone boundary. Uses ST_ExteriorRing to get the boundary
+     * ring, then KNN to snap to the nearest road vertex outside the polygon.
+     *
+     * Returns nodes ordered by proximity to the source (so the waypoint chain
+     * routes through them in a sensible geographic order).
+     */
+    private List<Long> findZoneExitNodes(Set<Long> zoneIds, Long sourceNode, Long targetNode) {
+        if (zoneIds.isEmpty()) return List.of();
+
+        String ids = String.join(",", zoneIds.stream().map(String::valueOf).toList());
+
+        // For each zone: find the nearest road vertex that is outside the zone polygon.
+        // ST_ExteriorRing gives the boundary; we want a point just outside it.
+        // We use NOT ST_Within to exclude vertices inside the zone.
+        List<Long> exitNodes = new ArrayList<>();
+        for (Long zoneId : zoneIds) {
+            try {
+                List<Long> nodes = jdbcTemplate.query(
+                        "SELECT v.id FROM blr_2po_4pgr_vertices_pgr v " +
+                        "WHERE NOT ST_Within(v.the_geom, (SELECT boundary FROM zone_restriction WHERE id = ?)) " +
+                        "AND v.the_geom && ST_Expand((SELECT boundary FROM zone_restriction WHERE id = ?), 0.02) " +
+                        "ORDER BY v.the_geom <-> (SELECT ST_ClosestPoint(ST_ExteriorRing(boundary), " +
+                        "  (SELECT the_geom FROM blr_2po_4pgr_vertices_pgr WHERE id = ?)) " +
+                        "  FROM zone_restriction WHERE id = ?) " +
+                        "LIMIT 1",
+                        (rs, rowNum) -> rs.getLong("id"),
+                        zoneId, zoneId, sourceNode, zoneId);
+                if (!nodes.isEmpty()) exitNodes.add(nodes.get(0));
+            } catch (Exception e) {
+                log.warn("Could not find exit node for zone {}: {}", zoneId, e.getMessage());
+            }
+        }
+        return exitNodes;
+    }
+
+    /**
+     * Routes through a sequence of waypoint nodes: source → wp1 → wp2 → ... → target.
+     * Stitches the individual Dijkstra segments into a single LineString.
+     */
+    private LineString computeWaypointRoute(Long sourceNode, List<Long> waypointNodes, Long targetNode) {
+        List<Long> chain = new ArrayList<>();
+        chain.add(sourceNode);
+        chain.addAll(waypointNodes);
+        chain.add(targetNode);
+
+        List<org.locationtech.jts.geom.Coordinate> allCoords = new ArrayList<>();
+        for (int i = 0; i < chain.size() - 1; i++) {
+            LineString segment = routingService.computeRoute(chain.get(i), chain.get(i + 1));
+            org.locationtech.jts.geom.Coordinate[] segCoords = segment.getCoordinates();
+            if (allCoords.isEmpty()) {
+                for (org.locationtech.jts.geom.Coordinate c : segCoords) allCoords.add(c);
+            } else {
+                for (int j = 1; j < segCoords.length; j++) allCoords.add(segCoords[j]);
+            }
         }
 
-        // Penalise all violated zones and recurse
-        Set<Long> nextPenalised = new HashSet<>(penalisedZones);
-        for (RouteValidationResponse.ViolationDetail v : violations) {
-            if (v.getZoneId() != null) nextPenalised.add(v.getZoneId());
-        }
-
-        try {
-            RouteCandidate nextCandidate = computeBestRoute(
-                    sourceNode, targetNode, vehicleId, departureTime, nextPenalised, attempt + 1);
-
-            // Exit A propagation: if next attempt found a clean route, return it
-            if (nextCandidate.violations.isEmpty()) return nextCandidate;
-
-            // Exit B: pick the candidate with lower total trip time
-            return nextCandidate.totalTripSec <= thisCandidate.totalTripSec
-                    ? nextCandidate : thisCandidate;
-
-        } catch (RoutingException e) {
-            log.warn("Attempt {} routing failed: {}", attempt + 1, e.getMessage());
-            return thisCandidate;
-        }
+        if (allCoords.size() < 2) throw new RoutingException("Waypoint route has insufficient points");
+        return geometryFactory.createLineString(
+                allCoords.toArray(new org.locationtech.jts.geom.Coordinate[0]));
     }
 
     /**
@@ -292,12 +355,15 @@ public class RouteComplianceService {
                 zoneIds, zoneIds);
 
         List<Object[]> results = jdbcTemplate.query(
-                "SELECT seq, edge, cost, ST_AsText(pt.the_geom) AS geom " +
+                "SELECT di.seq, di.edge, di.cost, ST_AsText(pt.the_geom) AS geom, di.node, pt.source " +
                 "FROM pgr_dijkstra(?, CAST(? AS BIGINT), CAST(? AS BIGINT), directed := true) AS di " +
-                "JOIN blr_2po_4pgr pt ON pt.id = di.edge ORDER BY seq",
+                "JOIN blr_2po_4pgr pt ON pt.id = di.edge " +
+                "WHERE di.edge <> -1 " +
+                "ORDER BY di.seq",
                 (rs, rowNum) -> new Object[]{
                         rs.getInt("seq"), rs.getLong("edge"),
-                        rs.getDouble("cost"), rs.getString("geom")
+                        rs.getDouble("cost"), rs.getString("geom"),
+                        rs.getLong("node"), rs.getLong("source")
                 },
                 pgRoutingEdgeSql, sourceNode, targetNode);
 
@@ -309,28 +375,8 @@ public class RouteComplianceService {
     }
 
     private LineString buildLineStringFromEdgeResults(List<Object[]> results) {
-        List<Coordinate> coordinates = new ArrayList<>();
-        for (Object[] row : results) {
-            String geomText = (String) row[3];
-            if (geomText == null) continue;
-            try {
-                org.locationtech.jts.io.WKTReader reader =
-                        new org.locationtech.jts.io.WKTReader(geometryFactory);
-                LineString edge = (LineString) reader.read(geomText);
-                Coordinate[] edgeCoords = edge.getCoordinates();
-                if (coordinates.isEmpty()) {
-                    for (Coordinate c : edgeCoords) coordinates.add(c);
-                } else {
-                    for (int i = 1; i < edgeCoords.length; i++) coordinates.add(edgeCoords[i]);
-                }
-            } catch (org.locationtech.jts.io.ParseException e) {
-                log.warn("Failed to parse route edge geometry: {}", geomText);
-            }
-        }
-        if (coordinates.size() < 2) {
-            throw new RoutingException("Route geometry has insufficient points");
-        }
-        return geometryFactory.createLineString(coordinates.toArray(new Coordinate[0]));
+        // Delegate to RoutingService which handles edge direction (node vs source check)
+        return routingService.assembleRouteFromEdgeRows(results);
     }
 
     private List<RouteValidationResponse.ViolationDetail> validateRouteAgainstZones(

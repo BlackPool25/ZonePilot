@@ -81,10 +81,30 @@ class RoutingServiceTest {
     @Test
     void computeRoute_withValidEdges_stitchesLineStringsAndAvoidsDuplicatingJunctions() {
         List<Object[]> mockEdges = new ArrayList<>();
-        // Edge 1: (77.6, 12.9) to (77.61, 12.91)
-        mockEdges.add(new Object[]{1, 101L, 5.0, "LINESTRING(77.6 12.9, 77.61 12.91)"});
-        // Edge 2: (77.61, 12.91) to (77.62, 12.92)
-        mockEdges.add(new Object[]{2, 102L, 6.0, "LINESTRING(77.61 12.91, 77.62 12.92)"});
+        // Edge 1: (77.6, 12.9) to (77.61, 12.91), traversalNode=10 == edgeSource=10 → forward
+        mockEdges.add(new Object[]{1, 101L, 5.0, "LINESTRING(77.6 12.9, 77.61 12.91)", 10L, 10L});
+        // Edge 2: (77.61, 12.91) to (77.62, 12.92), traversalNode=11 == edgeSource=11 → forward
+        mockEdges.add(new Object[]{2, 102L, 6.0, "LINESTRING(77.61 12.91, 77.62 12.92)", 11L, 11L});
+
+        when(roadNetworkRepository.computeDijkstraRoute(1L, 2L)).thenReturn(mockEdges);
+
+        LineString route = routingService.computeRoute(1L, 2L);
+
+        assertNotNull(route);
+        assertEquals(3, route.getNumPoints());
+        assertEquals(new Coordinate(77.6, 12.9), route.getCoordinateN(0));
+        assertEquals(new Coordinate(77.61, 12.91), route.getCoordinateN(1));
+        assertEquals(new Coordinate(77.62, 12.92), route.getCoordinateN(2));
+    }
+
+    @Test
+    void computeRoute_withReversedEdge_correctlyReversesGeometry() {
+        List<Object[]> mockEdges = new ArrayList<>();
+        // Edge 1 forward: traversalNode=10 == edgeSource=10
+        mockEdges.add(new Object[]{1, 101L, 5.0, "LINESTRING(77.6 12.9, 77.61 12.91)", 10L, 10L});
+        // Edge 2 reversed: traversalNode=12 != edgeSource=11 → reverse geometry
+        // Stored as (77.62, 12.92) to (77.61, 12.91), but traversed backwards → should become (77.61, 12.91) to (77.62, 12.92)
+        mockEdges.add(new Object[]{2, 102L, 6.0, "LINESTRING(77.62 12.92, 77.61 12.91)", 12L, 11L});
 
         when(roadNetworkRepository.computeDijkstraRoute(1L, 2L)).thenReturn(mockEdges);
 
@@ -100,7 +120,7 @@ class RoutingServiceTest {
     @Test
     void computeRoute_withInvalidWktAndToleratedParsing_throwsIfInsufficientPoints() {
         List<Object[]> mockEdges = new ArrayList<>();
-        mockEdges.add(new Object[]{1, 101L, 5.0, "INVALID WKT GEOMETRY"});
+        mockEdges.add(new Object[]{1, 101L, 5.0, "INVALID WKT GEOMETRY", 10L, 10L});
 
         when(roadNetworkRepository.computeDijkstraRoute(1L, 2L)).thenReturn(mockEdges);
 

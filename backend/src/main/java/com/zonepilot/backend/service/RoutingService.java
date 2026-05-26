@@ -58,21 +58,42 @@ public class RoutingService {
                             + ". Check coordinates are within Bangalore.");
         }
 
+        return assembleRouteFromEdgeRows(results);
+    }
+
+    /**
+     * Assembles a LineString from pgr_dijkstra edge rows.
+     *
+     * Each row is [seq, edge, cost, geom_wkt, node, source].
+     * - node: the node we are LEAVING on this edge (the traversal start node)
+     * - source: the stored source node of the edge in blr_2po_4pgr
+     *
+     * If node == source, the edge is traversed forward (source→target): use coords as-is.
+     * If node != source, the edge is traversed backward (target→source): reverse the coords.
+     *
+     * This fixes the off-road geometry bug where edges stored in the wrong direction
+     * caused straight-line jumps through forests/off-road areas.
+     */
+    public LineString assembleRouteFromEdgeRows(List<Object[]> results) {
         List<Coordinate> coordinates = new ArrayList<>();
         for (Object[] row : results) {
             String geomText = (String) row[3];
+            long traversalNode = ((Number) row[4]).longValue(); // di.node = node we leave from
+            long edgeSource   = ((Number) row[5]).longValue(); // pt.source = stored source of edge
             try {
                 LineString edgeGeom = (LineString) wktReader.read(geomText);
                 Coordinate[] edgeCoords = edgeGeom.getCoordinates();
+
+                // Reverse if traversed backwards (target→source)
+                if (traversalNode != edgeSource) {
+                    edgeCoords = reverse(edgeCoords);
+                }
+
                 if (coordinates.isEmpty()) {
-                    for (Coordinate c : edgeCoords) {
-                        coordinates.add(c);
-                    }
+                    for (Coordinate c : edgeCoords) coordinates.add(c);
                 } else {
                     // Skip first coordinate to avoid duplicating junction points
-                    for (int i = 1; i < edgeCoords.length; i++) {
-                        coordinates.add(edgeCoords[i]);
-                    }
+                    for (int i = 1; i < edgeCoords.length; i++) coordinates.add(edgeCoords[i]);
                 }
             } catch (ParseException e) {
                 log.warn("Failed to parse edge geometry: {}", geomText, e);
@@ -84,5 +105,11 @@ public class RoutingService {
         }
 
         return geometryFactory.createLineString(coordinates.toArray(new Coordinate[0]));
+    }
+
+    private static Coordinate[] reverse(Coordinate[] coords) {
+        Coordinate[] reversed = new Coordinate[coords.length];
+        for (int i = 0; i < coords.length; i++) reversed[i] = coords[coords.length - 1 - i];
+        return reversed;
     }
 }

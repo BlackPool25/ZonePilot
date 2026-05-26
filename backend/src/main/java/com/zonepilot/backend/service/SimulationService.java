@@ -3,10 +3,13 @@ package com.zonepilot.backend.service;
 import com.zonepilot.backend.dto.response.PositionRecordResponse;
 import com.zonepilot.backend.dto.response.SimulationStateResponse;
 import com.zonepilot.backend.dto.response.SimulationTickResponse;
+import com.zonepilot.backend.entity.DispatchRoute;
 import com.zonepilot.backend.entity.SimulationPath;
 import com.zonepilot.backend.entity.Vehicle;
 import com.zonepilot.backend.enums.PositionSource;
+import com.zonepilot.backend.exception.ResourceNotFoundException;
 import com.zonepilot.backend.exception.SimulationException;
+import com.zonepilot.backend.repository.DispatchRouteRepository;
 import com.zonepilot.backend.repository.SimulationPathRepository;
 import com.zonepilot.backend.repository.VehicleRepository;
 import org.locationtech.jts.geom.Coordinate;
@@ -38,6 +41,7 @@ public class SimulationService {
     private final SimulationPathRepository simulationPathRepository;
     private final VehicleRepository vehicleRepository;
     private final PositionTrackingService positionTrackingService;
+    private final DispatchRouteRepository dispatchRouteRepository;
     private final GeometryFactory geometryFactory;
     private final Random random = new Random();
 
@@ -48,10 +52,12 @@ public class SimulationService {
 
     public SimulationService(SimulationPathRepository simulationPathRepository,
                              VehicleRepository vehicleRepository,
-                             PositionTrackingService positionTrackingService) {
+                             PositionTrackingService positionTrackingService,
+                             DispatchRouteRepository dispatchRouteRepository) {
         this.simulationPathRepository = simulationPathRepository;
         this.vehicleRepository = vehicleRepository;
         this.positionTrackingService = positionTrackingService;
+        this.dispatchRouteRepository = dispatchRouteRepository;
         this.geometryFactory = new GeometryFactory(new PrecisionModel(), 4326);
     }
 
@@ -76,6 +82,57 @@ public class SimulationService {
                 throw new SimulationException("Scenario not found: " + scenarioName);
             }
         }
+    }
+
+    /**
+     * Creates a transient SimulationPath from a validated DispatchRoute and starts it.
+     * The route geometry is used as waypoints. An optional startLat/startLng overrides
+     * the first waypoint (drop-pin start location).
+     *
+     * Returns the new SimulationPath id.
+     */
+    @Transactional
+    public Long startFromRoute(Long dispatchRouteId, Double startLat, Double startLng) {
+        DispatchRoute route = dispatchRouteRepository.findById(dispatchRouteId)
+                .orElseThrow(() -> new ResourceNotFoundException("DispatchRoute", "id", dispatchRouteId));
+
+        if (route.getPlannedRouteGeometry() == null) {
+            throw new SimulationException("Dispatch route " + dispatchRouteId + " has no route geometry");
+        }
+
+        Vehicle vehicle = route.getVehicle();
+
+        // If a custom start pin was provided, prepend it to the route geometry
+        org.locationtech.jts.geom.LineString waypoints = route.getPlannedRouteGeometry();
+        if (startLat != null && startLng != null) {
+            org.locationtech.jts.geom.Coordinate[] existing = waypoints.getCoordinates();
+            org.locationtech.jts.geom.Coordinate[] withStart =
+                    new org.locationtech.jts.geom.Coordinate[existing.length + 1];
+            withStart[0] = new org.locationtech.jts.geom.Coordinate(startLng, startLat);
+            System.arraycopy(existing, 0, withStart, 1, existing.length);
+            waypoints = geometryFactory.createLineString(withStart);
+        }
+
+        // Deactivate any existing simulation paths for this vehicle
+        simulationPathRepository.findAll().stream()
+                .filter(p -> p.getVehicle().getId().equals(vehicle.getId()) && p.getIsActive())
+                .forEach(p -> {
+                    p.setIsActive(false);
+                    simulationPathRepository.save(p);
+                });
+
+        SimulationPath path = new SimulationPath();
+        path.setVehicle(vehicle);
+        path.setScenarioName("ROUTE_" + dispatchRouteId);
+        path.setWaypoints(waypoints);
+        path.setTotalSteps(waypoints.getNumPoints());
+        path.setCurrentStepIndex(0);
+        path.setIsActive(true);
+
+        SimulationPath saved = simulationPathRepository.save(path);
+        wrongTurnCounters.remove(saved.getId());
+        wrongTurnOffsets.remove(saved.getId());
+        return saved.getId();
     }
 
     @Transactional
@@ -182,7 +239,9 @@ public class SimulationService {
             state.setTotalSteps(path.getTotalSteps());
             state.setIsActive(path.getIsActive());
             state.setRouteGeoJson(path.getWaypoints() != null ? path.getWaypoints().toText() : null);
-            state.setCompliant("SCENARIO_A".equals(path.getScenarioName()));
+            // compliant: true for scenario A (known compliant) and any ROUTE_ path (user validated it)
+            state.setCompliant("SCENARIO_A".equals(path.getScenarioName())
+                    || path.getScenarioName().startsWith("ROUTE_"));
 
             Coordinate currentWaypoint = extractWaypoint(path.getWaypoints(), path.getCurrentStepIndex() + 1);
             if (currentWaypoint != null) {

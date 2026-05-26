@@ -76,11 +76,13 @@ export default function Dashboard() {
           positions={positions}
           zones={zones}
           breaches={breaches}
+          routes={state.lastValidatedRoute ? [state.lastValidatedRoute] : []}
           onVehicleClick={handleVehicleClick}
           onZoneClick={handleZoneClick}
           onBreachClick={handleBreachClick}
           selectedVehicleId={state.selectedVehicleId}
           selectedZoneId={state.selectedZoneId}
+          layers={state.mapLayers}
         />
 
         {/* Floating top controls */}

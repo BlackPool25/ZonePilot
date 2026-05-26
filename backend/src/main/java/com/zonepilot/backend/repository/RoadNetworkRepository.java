@@ -69,22 +69,28 @@ public class RoadNetworkRepository {
      * A value of -1 signals a one-way street — pgRouting will not traverse
      * that direction, correctly enforcing Bangalore's one-way network.
      *
-     * Returns rows of [seq, edge, cost_time_sec, geom_wkt].
+     * Returns rows of [seq, edge, cost_time_sec, geom_wkt, node, pt.source].
+     * node and pt.source are used by RoutingService to detect reversed edges.
+     * The last pgr_dijkstra row has edge=-1 (destination node); the WHERE clause
+     * filters it out so we only get real edge geometries.
      */
     public List<Object[]> computeDijkstraRoute(long sourceId, long targetId) {
         return jdbcTemplate.query(
-                "SELECT seq, edge, cost, ST_AsText(pt.the_geom) AS geom " +
+                "SELECT di.seq, di.edge, di.cost, ST_AsText(pt.the_geom) AS geom, di.node, pt.source " +
                 "FROM pgr_dijkstra(" +
                 "  'SELECT id, source, target, cost_time_sec AS cost, reverse_cost FROM blr_2po_4pgr'," +
                 "  ?, ?, directed := true" +
                 ") AS di " +
                 "JOIN blr_2po_4pgr pt ON pt.id = di.edge " +
-                "ORDER BY seq",
+                "WHERE di.edge <> -1 " +
+                "ORDER BY di.seq",
                 (rs, rowNum) -> new Object[]{
                         rs.getInt("seq"),
                         rs.getLong("edge"),
                         rs.getDouble("cost"),
-                        rs.getString("geom")
+                        rs.getString("geom"),
+                        rs.getLong("node"),
+                        rs.getLong("source")
                 },
                 sourceId, targetId);
     }
