@@ -13,15 +13,30 @@
   --brand-100: #dbeafe;
 
   /* Semantic */
-  --green-500: #16a34a;
   --green-50:  #f0fdf4;
   --green-100: #dcfce7;
-  --amber-500: #d97706;
+  --green-200: #bbf7d0;
+  --green-300: #86efac;
+  --green-500: #16a34a;
+  --green-600: #15803d;
+  --green-700: #166534;
+  --green-800: #14532d;
   --amber-50:  #fffbeb;
   --amber-100: #fef3c7;
-  --red-500:   #dc2626;
+  --amber-200: #fde68a;
+  --amber-300: #fcd34d;
+  --amber-500: #d97706;
+  --amber-600: #b45309;
+  --amber-700: #92400e;
+  --amber-800: #78350f;
   --red-50:    #fef2f2;
   --red-100:   #fee2e2;
+  --red-200:   #fecaca;
+  --red-300:   #fca5a5;
+  --red-500:   #dc2626;
+  --red-600:   #b91c1c;
+  --red-700:   #991b1b;
+  --red-800:   #7f1d1d;
 
   /* Text */
   --text-primary:   #0f172a;
