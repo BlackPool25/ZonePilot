@@ -35,10 +35,11 @@
 .presetBtn:hover { background: var(--brand-50); border-color: var(--brand-500); color: var(--brand-500); }
 
 .form { display: flex; flex-direction: column; gap: 14px; }
-.coordGroup { border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 12px; }
+.coordGroup { border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 12px; min-width: 0; }
 .coordLegend { font-size: 12px; font-weight: 600; color: var(--text-secondary); padding: 0 4px; }
-.coordRow { display: flex; gap: 10px; margin-top: 8px; }
-.coordRow > * { flex: 1; }
+.coordRow { display: flex; gap: 10px; margin-top: 8px; min-width: 0; }
+.coordRow > * { flex: 1; min-width: 0; }
+
 .submitBtn { width: 100%; }
 
 /* ─── Result ─────────────────────────────────────────────────────── */
