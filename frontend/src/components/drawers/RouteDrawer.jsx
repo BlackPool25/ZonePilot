@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { routesApi } from '../../api/client.js';
+import { useNavigate } from 'react-router-dom';
+import { routesApi, simulationApi } from '../../api/client.js';
 import Badge from '../atoms/Badge.jsx';
 import { Spinner } from '../atoms/Spinner.jsx';
 import { useApp } from '../../context/AppContext.jsx';
@@ -8,10 +9,28 @@ import styles from './RouteDrawer.module.css';
 
 export default function RouteDrawer({ entityId, data: initialData }) {
   const { closeDrawer, addToast } = useApp();
+  const navigate = useNavigate();
   const [route, setRoute] = useState(initialData ?? null);
   const [loading, setLoading] = useState(!initialData || (initialData && !initialData.vehicle));
   const [deleting, setDeleting] = useState(false);
+  const [simulating, setSimulating] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
+
+  async function handleSimulate() {
+    const routeId = route?.id ?? route?.dispatchRouteId ?? entityId;
+    if (!routeId) return;
+    setSimulating(true);
+    try {
+      await simulationApi.startFromRoute({ dispatchRouteId: routeId });
+      addToast('success', 'Simulation started — go to Simulation page');
+      closeDrawer();
+      navigate('/simulation');
+    } catch (err) {
+      addToast('danger', err.message || 'Failed to start simulation.');
+    } finally {
+      setSimulating(false);
+    }
+  }
 
   async function handleDelete() {
     const routeId = route?.id ?? route?.dispatchRouteId ?? entityId;
@@ -144,13 +163,23 @@ export default function RouteDrawer({ entityId, data: initialData }) {
       {/* Actions */}
       <div className={styles.actions}>
         {!showConfirm ? (
-          <button
-            className={styles.deleteBtn}
-            onClick={() => setShowConfirm(true)}
-            disabled={deleting}
-          >
-            🗑 Delete Route
-          </button>
+          <>
+            <button
+              className={styles.simulateBtn}
+              onClick={handleSimulate}
+              disabled={simulating || deleting}
+              type="button"
+            >
+              {simulating ? 'Starting...' : '▶ Simulate Route'}
+            </button>
+            <button
+              className={styles.deleteBtn}
+              onClick={() => setShowConfirm(true)}
+              disabled={simulating || deleting}
+            >
+              🗑 Delete Route
+            </button>
+          </>
         ) : (
           <div className={styles.confirmBox}>
             <p className={styles.confirmText}>Are you sure you want to delete this route? This will permanently purge the route records and automatically clear any active route assignment for vehicles.</p>
