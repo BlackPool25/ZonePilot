@@ -37,6 +37,21 @@ export default function Routes() {
     destLat: '', destLng: '',
   });
   const [errors, setErrors] = useState({});
+  const [pinMode, setPinMode] = useState(null); // 'origin' | 'dest' | null
+
+  const originPin = form.originLat && form.originLng ? { lat: Number(form.originLat), lng: Number(form.originLng) } : null;
+  const destPin = form.destLat && form.destLng ? { lat: Number(form.destLat), lng: Number(form.destLng) } : null;
+
+  const handleMapClick = (latlng) => {
+    if (pinMode === 'origin') {
+      setForm(f => ({ ...f, originLat: latlng.lat.toFixed(6), originLng: latlng.lng.toFixed(6) }));
+      setPinMode(null);
+    } else if (pinMode === 'dest') {
+      setForm(f => ({ ...f, destLat: latlng.lat.toFixed(6), destLng: latlng.lng.toFixed(6) }));
+      setPinMode(null);
+    }
+  };
+
 
   useEffect(() => {
     vehiclesApi.list({ isActive: true })
@@ -148,7 +163,16 @@ export default function Routes() {
           </Select>
 
           <fieldset className={styles.coordGroup}>
-            <legend className={styles.coordLegend}>Origin</legend>
+            <legend className={styles.coordLegend}>
+              <span>Origin</span>
+              <button
+                type="button"
+                className={`${styles.pinBtn} ${pinMode === 'origin' ? styles.pinActive : ''}`}
+                onClick={() => setPinMode(pinMode === 'origin' ? null : 'origin')}
+              >
+                {pinMode === 'origin' ? '📍 Clicking Map...' : '📍 Drop Pin'}
+              </button>
+            </legend>
             <div className={styles.coordRow}>
               <Input id="origin-lat" label="Latitude" type="number" step="0.0001" placeholder="12.9716" value={form.originLat} onChange={e => setField('originLat', e.target.value)} error={errors.origin} />
               <Input id="origin-lng" label="Longitude" type="number" step="0.0001" placeholder="77.5946" value={form.originLng} onChange={e => setField('originLng', e.target.value)} />
@@ -156,12 +180,22 @@ export default function Routes() {
           </fieldset>
 
           <fieldset className={styles.coordGroup}>
-            <legend className={styles.coordLegend}>Destination</legend>
+            <legend className={styles.coordLegend}>
+              <span>Destination</span>
+              <button
+                type="button"
+                className={`${styles.pinBtn} ${pinMode === 'dest' ? styles.pinActive : ''}`}
+                onClick={() => setPinMode(pinMode === 'dest' ? null : 'dest')}
+              >
+                {pinMode === 'dest' ? '📍 Clicking Map...' : '📍 Drop Pin'}
+              </button>
+            </legend>
             <div className={styles.coordRow}>
               <Input id="dest-lat" label="Latitude" type="number" step="0.0001" placeholder="12.9784" value={form.destLat} onChange={e => setField('destLat', e.target.value)} error={errors.dest} />
               <Input id="dest-lng" label="Longitude" type="number" step="0.0001" placeholder="77.6408" value={form.destLng} onChange={e => setField('destLng', e.target.value)} />
             </div>
           </fieldset>
+
 
           <Button variant="primary" type="submit" loading={validating} size="lg" className={styles.submitBtn}>
             Validate Route
@@ -246,7 +280,11 @@ export default function Routes() {
           breaches={[]}
           routes={selectedRoute ? [selectedRoute] : []}
           layers={{ vehicles: false, zones: true, breaches: false, routes: true, labels: true }}
+          onMapClick={handleMapClick}
+          originPin={originPin}
+          destPin={destPin}
         />
+
       </div>
     </div>
   );

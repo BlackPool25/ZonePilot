@@ -36,11 +36,60 @@
 
 .form { display: flex; flex-direction: column; gap: 14px; }
 .coordGroup { border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 12px; min-width: 0; }
-.coordLegend { font-size: 12px; font-weight: 600; color: var(--text-secondary); padding: 0 4px; }
+.coordLegend {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: calc(100% - 8px);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  padding: 0 4px;
+}
 .coordRow { display: flex; gap: 10px; margin-top: 8px; min-width: 0; }
 .coordRow > * { flex: 1; min-width: 0; }
 
+.pinBtn {
+  background: var(--surface-1);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  font-size: 10px;
+  padding: 2px 6px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-weight: 500;
+  transition: all 0.15s ease;
+}
+
+.pinBtn:hover {
+  background: var(--brand-50);
+  border-color: var(--brand-500);
+  color: var(--brand-500);
+}
+
+.pinActive {
+  background: var(--brand-500);
+  border-color: var(--brand-600);
+  color: #ffffff !important;
+  animation: pulsePin 1.5s infinite;
+}
+
+.pinActive:hover {
+  background: var(--brand-600);
+  color: #ffffff !important;
+}
+
+@keyframes pulsePin {
+  0% { opacity: 1; }
+  50% { opacity: 0.6; }
+  100% { opacity: 1; }
+}
+
 .submitBtn { width: 100%; }
+
 
 /* ─── Result ─────────────────────────────────────────────────────── */
 .result {

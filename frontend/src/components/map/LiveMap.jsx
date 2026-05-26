@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { MapContainer, TileLayer, Marker, Polygon, Polyline, Popup, useMap } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Polygon, Polyline, Popup, useMap, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import { useApp } from '../../context/AppContext.jsx';
 import {
@@ -54,6 +54,24 @@ function createBreachIcon() {
   });
 }
 
+function createPinIcon(label, color) {
+  return L.divIcon({
+    html: `<div style="
+      width:30px;height:30px;
+      background:${color};
+      border:2px solid #ffffff;
+      border-radius:50%;
+      display:flex;align-items:center;justify-content:center;
+      color:#ffffff;
+      font-size:13px;font-weight:700;
+      box-shadow:0 2px 6px rgba(0,0,0,0.3);
+    ">${label}</div>`,
+    className: '',
+    iconSize: [30, 30],
+    iconAnchor: [15, 15],
+  });
+}
+
 // Inner component to sync map center from context
 function MapController() {
   const { state } = useApp();
@@ -70,6 +88,15 @@ function MapController() {
   return null;
 }
 
+function MapClickHandler({ onMapClick }) {
+  useMapEvents({
+    click(e) {
+      onMapClick?.(e.latlng);
+    },
+  });
+  return null;
+}
+
 export default function LiveMap({
   vehicles = [],
   positions = {},
@@ -79,6 +106,9 @@ export default function LiveMap({
   onVehicleClick,
   onZoneClick,
   onBreachClick,
+  onMapClick,
+  originPin,
+  destPin,
   selectedVehicleId,
   selectedZoneId,
   layers,
@@ -181,6 +211,29 @@ export default function LiveMap({
           />
         );
       })}
+
+      {/* Origin Pin drop */}
+      {originPin && (
+        <Marker
+          position={[originPin.lat, originPin.lng]}
+          icon={createPinIcon('A', '#16a34a')}
+        >
+          <Popup><strong>Origin Location</strong></Popup>
+        </Marker>
+      )}
+
+      {/* Destination Pin drop */}
+      {destPin && (
+        <Marker
+          position={[destPin.lat, destPin.lng]}
+          icon={createPinIcon('B', '#dc2626')}
+        >
+          <Popup><strong>Destination Location</strong></Popup>
+        </Marker>
+      )}
+
+      <MapClickHandler onMapClick={onMapClick} />
     </MapContainer>
   );
 }
+
