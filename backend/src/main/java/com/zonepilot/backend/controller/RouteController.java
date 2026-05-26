@@ -56,4 +56,17 @@ public class RouteController {
         return ResponseEntity.ok(ApiResponse.success(
                 dispatchRouteRepository.findByVehicleIdOrderByCreatedAtDesc(vehicleId)));
     }
+
+    @DeleteMapping("/{id}")
+    @Operation(summary = "Delete dispatch route", description = "Deletes a dispatch route by ID. Automatically clears any active route assignment for vehicles.")
+    @jakarta.transaction.Transactional
+    public ResponseEntity<ApiResponse<Void>> deleteRoute(@PathVariable Long id) {
+        if (!dispatchRouteRepository.existsById(id)) {
+            return ResponseEntity.status(org.springframework.http.HttpStatus.NOT_FOUND)
+                    .body(ApiResponse.error("RESOURCE_NOT_FOUND", "Route not found with id: " + id));
+        }
+        dispatchRouteRepository.deleteById(id);
+        return ResponseEntity.ok(ApiResponse.success(null));
+    }
 }
+

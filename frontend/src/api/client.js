@@ -17,8 +17,9 @@ async function request(path, options = {}) {
 }
 
 const get = (path) => request(path);
-const post = (path, body) => request(path, { method: 'POST', body: JSON.stringify(body) });
+const post = (path, body) => request(path, { method: 'POST', body: body !== undefined ? JSON.stringify(body) : undefined });
 const put = (path, body) => request(path, { method: 'PUT', body: body !== undefined ? JSON.stringify(body) : undefined });
+const del = (path) => request(path, { method: 'DELETE' });
 
 // ─── Vehicles ────────────────────────────────────────────────────────
 export const vehiclesApi = {
@@ -38,6 +39,7 @@ export const vehiclesApi = {
     return get(`/vehicles/${id}/positions${q.toString() ? '?' + q : ''}`);
   },
   recordPosition: (id, body) => post(`/vehicles/${id}/positions`, body),
+  clearRoute: (id) => post(`/vehicles/${id}/clear-route`),
 };
 
 // ─── Depots ───────────────────────────────────────────────────────────
@@ -53,7 +55,9 @@ export const zonesApi = {
   get: (id) => get(`/zones/${id}`),
   active: () => get('/zones/active'),
   create: (body) => post('/zones', body),
+  delete: (id) => del(`/zones/${id}`),
 };
+
 
 // ─── Breaches ─────────────────────────────────────────────────────────
 export const breachesApi = {
