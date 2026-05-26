@@ -102,3 +102,36 @@
 .historyInfo { flex: 1; min-width: 0; }
 .historyId { display: block; font-size: 13px; font-weight: 600; color: var(--text-primary); }
 .historyDate { display: block; font-size: 11px; color: var(--text-tertiary); margin-top: 2px; }
+
+@media (max-width: 1200px) {
+  .formPanel {
+    width: 290px;
+    padding: 16px;
+    gap: 12px;
+  }
+  .historyPanel {
+    width: 250px;
+    padding: 16px;
+    gap: 12px;
+  }
+}
+
+@media (max-width: 900px) {
+  .page {
+    flex-direction: column;
+    overflow-y: auto;
+  }
+  .formPanel, .historyPanel {
+    width: 100%;
+    height: auto;
+    border-right: none;
+    border-bottom: 1px solid var(--border-subtle);
+    flex-shrink: 0;
+  }
+  .mapArea {
+    height: 480px;
+    width: 100%;
+    flex: none;
+  }
+}
+
