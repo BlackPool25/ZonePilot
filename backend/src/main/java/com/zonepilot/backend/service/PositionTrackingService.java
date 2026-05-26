@@ -279,9 +279,23 @@ public class PositionTrackingService {
     }
 
     public com.zonepilot.backend.dto.response.PositionResponse getLatestPosition(Long vehicleId) {
-        VehiclePositionLog posLog = positionLogRepository.findLatestByVehicleId(vehicleId)
-                .orElseThrow(() -> new ResourceNotFoundException("Position", "vehicleId", vehicleId));
-        return toPositionResponse(posLog);
+        return positionLogRepository.findLatestByVehicleId(vehicleId)
+                .map(this::toPositionResponse)
+                .orElseGet(() -> {
+                    Vehicle vehicle = vehicleRepository.findById(vehicleId)
+                            .orElseThrow(() -> new ResourceNotFoundException("Vehicle", "id", vehicleId));
+                    com.zonepilot.backend.dto.response.PositionResponse r = new com.zonepilot.backend.dto.response.PositionResponse();
+                    r.setVehicleId(vehicleId);
+                    if (vehicle.getDepot() != null && vehicle.getDepot().getLocation() != null) {
+                        r.setLatitude(vehicle.getDepot().getLocation().getY());
+                        r.setLongitude(vehicle.getDepot().getLocation().getX());
+                    }
+                    r.setRecordedAt(vehicle.getCreatedAt());
+                    r.setSpeedKmh(java.math.BigDecimal.ZERO);
+                    r.setHeadingDeg((short) 0);
+                    r.setSource("DEPOT");
+                    return r;
+                });
     }
 
     private com.zonepilot.backend.dto.response.PositionResponse toPositionResponse(VehiclePositionLog posLog) {
