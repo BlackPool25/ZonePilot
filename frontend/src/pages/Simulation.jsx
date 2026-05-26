@@ -5,7 +5,7 @@ import LiveMap from '../components/map/LiveMap.jsx';
 import Badge from '../components/atoms/Badge.jsx';
 import Button from '../components/atoms/Button.jsx';
 import { useApp } from '../context/AppContext.jsx';
-import { VEHICLE_CLASS_ICONS, BREACH_TYPE_LABELS, formatRelative } from '../utils/helpers.js';
+import { VEHICLE_CLASS_ICONS, BREACH_TYPE_LABELS, formatRelative, wktToLatLngs } from '../utils/helpers.js';
 import styles from './Simulation.module.css';
 
 const SCENARIOS = [
@@ -15,7 +15,7 @@ const SCENARIOS = [
 ];
 
 export default function Simulation() {
-  const { addToast } = useApp();
+  const { addToast, setMapCenter } = useApp();
   const [selectedScenarios, setSelectedScenarios] = useState(['A', 'B', 'C']);
   const [simState, setSimState] = useState([]);
   const [zones, setZones] = useState([]);
@@ -49,6 +49,18 @@ export default function Simulation() {
         if (s.latitude && s.longitude) posMap[s.vehicleId] = { latitude: s.latitude, longitude: s.longitude, speedKmh: 0, headingDeg: 0, source: 'SIMULATED' };
       });
       setPositions(posMap);
+
+      // Auto-center map on active routes
+      const allCoords = state
+        .filter(s => s.routeGeoJson)
+        .flatMap(s => wktToLatLngs(s.routeGeoJson));
+      if (allCoords.length > 0) {
+        const lats = allCoords.map(([lat]) => lat);
+        const lngs = allCoords.map(([, lng]) => lng);
+        const centerLat = (Math.min(...lats) + Math.max(...lats)) / 2;
+        const centerLng = (Math.min(...lngs) + Math.max(...lngs)) / 2;
+        setMapCenter([centerLat, centerLng], 12);
+      }
     } catch {
       setSimState(DEMO_SIMULATION_STATE);
     }
@@ -89,7 +101,7 @@ export default function Simulation() {
       });
       setPositions(posMap);
 
-      // Update sim state progress
+      // Update sim state progress — preserve routeGeoJson which is not in tick response
       setSimState(prev => prev.map(s => {
         const v = result.vehicles.find(rv => rv.vehicleId === s.vehicleId);
         if (!v) return s;

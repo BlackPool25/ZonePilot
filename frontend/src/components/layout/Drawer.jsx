@@ -36,14 +36,7 @@ export default function Drawer() {
 
   return (
     <>
-      {/* Backdrop */}
-      {isOpen && (
-        <div
-          className={styles.backdrop}
-          onClick={closeDrawer}
-          aria-hidden="true"
-        />
-      )}
+      {/* No backdrop — drawer slides in without blocking the map */}
 
       {/* Drawer panel */}
       <aside

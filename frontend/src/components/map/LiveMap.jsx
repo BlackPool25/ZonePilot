@@ -88,18 +88,34 @@ function createVertexIcon() {
   });
 }
 
-// Inner component to sync map center from context
+// Inner component to sync map center from context AND save user pan/zoom back
 function MapController() {
-  const { state } = useApp();
+  const { state, setMapCenter } = useApp();
   const map = useMap();
   const prevCenter = useRef(null);
+  const isUserInteracting = useRef(false);
 
+  // Apply context-driven center changes (e.g. from setMapCenter calls)
   useEffect(() => {
     const [lat, lng] = state.mapCenter;
     if (prevCenter.current && prevCenter.current[0] === lat && prevCenter.current[1] === lng) return;
     prevCenter.current = state.mapCenter;
     map.flyTo([lat, lng], state.mapZoom, { duration: 0.8 });
   }, [state.mapCenter, state.mapZoom, map]);
+
+  // Save user pan/zoom back to context so it persists across navigation
+  useMapEvents({
+    moveend() {
+      if (!isUserInteracting.current) return;
+      const c = map.getCenter();
+      const z = map.getZoom();
+      prevCenter.current = [c.lat, c.lng];
+      setMapCenter([c.lat, c.lng], z);
+    },
+    mousedown() { isUserInteracting.current = true; },
+    touchstart() { isUserInteracting.current = true; },
+    flyend() { isUserInteracting.current = false; },
+  });
 
   return null;
 }
