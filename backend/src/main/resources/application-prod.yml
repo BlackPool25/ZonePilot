@@ -1,0 +1,38 @@
+# Production profile — active on Render via SPRING_PROFILES_ACTIVE=prod
+# All sensitive values are injected as environment variables; no secrets here.
+spring:
+  datasource:
+    # Fly.io Postgres connection string includes ?sslmode=require
+    url: ${SPRING_DATASOURCE_URL}
+    username: ${SPRING_DATASOURCE_USERNAME}
+    password: ${SPRING_DATASOURCE_PASSWORD}
+    hikari:
+      maximum-pool-size: 5          # Render free tier: 512 MB RAM — keep pool small
+      minimum-idle: 2
+      connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+
+  jpa:
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: false
+
+  flyway:
+    enabled: true
+
+logging:
+  level:
+    root: WARN
+    com.zonepilot: INFO
+    org.flywaydb: INFO
+
+# CORS: set to your Vercel domain, e.g. https://zonepilot.vercel.app
+# Multiple origins: comma-separated, e.g. https://zonepilot.vercel.app,https://www.zonepilot.app
+cors:
+  allowed-origins: ${CORS_ALLOWED_ORIGINS}
+
+zonepilot:
+  simulation:
+    enabled: false   # disable dev seeder in production

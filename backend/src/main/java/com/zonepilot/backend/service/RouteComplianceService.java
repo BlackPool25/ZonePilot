@@ -67,7 +67,7 @@ public class RouteComplianceService {
         Long sourceNode = routingService.findNearestNode(originLat, originLng);
         Long targetNode = routingService.findNearestNode(destLat, destLng);
 
-        Instant departureTime = Instant.now();
+        Instant departureTime = Instant.now().plusSeconds(10);
 
         // Epic 4: 5-attempt recursive routing with zone penalty escalation
         RouteCandidate winner = computeBestRoute(

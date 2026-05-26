@@ -1,0 +1,38 @@
+# Fly.io configuration for ZonePilot PostGIS+pgRouting database
+# App name: zonepilot-db  (change to your chosen name)
+app = "zonepilot-db"
+primary_region = "sin"   # Singapore — closest to Bangalore; change to "bom" if available
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  POSTGRES_DB = "ZonePilot"
+  # POSTGRES_USER and POSTGRES_PASSWORD are set as Fly secrets:
+  #   fly secrets set POSTGRES_USER=zonepilot POSTGRES_PASSWORD=<strong-password>
+
+[[services]]
+  internal_port = 5432
+  protocol = "tcp"
+
+  [[services.ports]]
+    port = 5432
+
+[mounts]
+  source = "zonepilot_pgdata"
+  destination = "/var/lib/postgresql/data"
+
+[checks]
+  [checks.pg_ready]
+    type = "tcp"
+    port = 5432
+    interval = "15s"
+    timeout = "5s"
+    grace_period = "30s"
+
+# VM sizing: shared-cpu-1x with 1 GB RAM is sufficient for the OSM dataset.
+# Upgrade to performance-1x (2 GB) if pgRouting queries time out.
+[[vm]]
+  cpu_kind = "shared"
+  cpus = 1
+  memory_mb = 1024

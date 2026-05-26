@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: zonepilot-backend
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    # Render injects PORT automatically; Spring binds to ${PORT:8080}
+    healthCheckPath: /v3/api-docs
+    autoDeploy: true
+    envVars:
+      - key: SPRING_PROFILES_ACTIVE
+        value: prod
+      - key: SPRING_DATASOURCE_URL
+        sync: false   # set manually in Render dashboard — Fly.io Postgres URL with ?sslmode=require
+      - key: SPRING_DATASOURCE_USERNAME
+        sync: false
+      - key: SPRING_DATASOURCE_PASSWORD
+        sync: false
+      - key: CORS_ALLOWED_ORIGINS
+        sync: false   # e.g. https://zonepilot.vercel.app
+      - key: GOOGLE_ROUTES_API_KEY
+        sync: false   # optional; leave blank to disable predictive compliance

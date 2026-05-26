@@ -8,12 +8,12 @@
 
 DO $$
 BEGIN
-    -- Guard: only run if the road network table has been imported.
+    -- Guard: only run if the road network table has been imported as a base table.
     IF NOT EXISTS (
         SELECT 1 FROM information_schema.tables
-        WHERE table_name = 'blr_2po_4pgr'
+        WHERE table_name = 'blr_2po_4pgr' AND table_type = 'BASE TABLE'
     ) THEN
-        RAISE NOTICE 'blr_2po_4pgr not found — skipping cost_time_sec population. Re-run after OSM import.';
+        RAISE NOTICE 'blr_2po_4pgr physical table not found — skipping cost_time_sec population.';
         RETURN;
     END IF;
 
