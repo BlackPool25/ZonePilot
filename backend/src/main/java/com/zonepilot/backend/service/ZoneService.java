@@ -86,7 +86,16 @@ public class ZoneService {
 
         ZoneRestriction saved = zoneRestrictionRepository.save(zone);
 
-        if (request.getRules() != null) {
+        if (request.getRules() == null || request.getRules().isEmpty()) {
+            ZoneRestrictionRule defaultRule = new ZoneRestrictionRule();
+            defaultRule.setZone(saved);
+            defaultRule.setApplicableVehicleClass(null); // null means ALL classes
+            defaultRule.setRestrictionStartTime(null);  // null means active all day
+            defaultRule.setRestrictionEndTime(null);    // null means active all day
+            defaultRule.setDaysOfWeekBitmask((short) 127);      // 127 bitmask means all 7 days active
+            defaultRule.setIsActive(true);
+            zoneRestrictionRuleRepository.save(defaultRule);
+        } else {
             for (com.zonepilot.backend.dto.request.CreateZoneRequest.CreateZoneRuleRequest ruleReq : request.getRules()) {
                 ZoneRestrictionRule rule = new ZoneRestrictionRule();
                 rule.setZone(saved);
@@ -100,12 +109,16 @@ public class ZoneService {
                     rule.setRestrictionEndTime(java.time.LocalTime.parse(ruleReq.getRestrictionEndTime()));
                 }
                 if (ruleReq.getDaysOfWeekBitmask() != null) {
-                    rule.setDaysOfWeekBitmask(ruleReq.getDaysOfWeekBitmask());
+                    rule.setDaysOfWeekBitmask(ruleReq.getDaysOfWeekBitmask().shortValue());
+                } else {
+                    rule.setDaysOfWeekBitmask((short) 127);
                 }
                 rule.setIsActive(ruleReq.getIsActive() != null ? ruleReq.getIsActive() : true);
                 zoneRestrictionRuleRepository.save(rule);
             }
         }
+
+
 
         return toResponse(saved);
     }
