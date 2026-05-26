@@ -156,3 +156,17 @@
 }
 .dayBtn:hover { background: var(--surface-2); }
 .dayBtn.dayActive { background: var(--brand-500); border-color: var(--brand-500); color: white; }
+
+.drawBanner {
+  display: flex;
+  gap: 8px;
+  background: var(--brand-50);
+  border: 1px solid var(--brand-100);
+  border-radius: var(--radius-md);
+  padding: 10px;
+  margin-bottom: 8px;
+  font-size: 12px;
+  color: var(--brand-700);
+  text-align: left;
+}
+

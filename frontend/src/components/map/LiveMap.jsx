@@ -72,6 +72,22 @@ function createPinIcon(label, color) {
   });
 }
 
+function createVertexIcon() {
+  return L.divIcon({
+    html: `<div style="
+      width:14px;height:14px;
+      background:#3b82f6;
+      border:2px solid #ffffff;
+      border-radius:50%;
+      box-shadow:0 1px 4px rgba(0,0,0,0.3);
+      cursor:grab;
+    "></div>`,
+    className: '',
+    iconSize: [14, 14],
+    iconAnchor: [7, 7],
+  });
+}
+
 // Inner component to sync map center from context
 function MapController() {
   const { state } = useApp();
@@ -114,9 +130,21 @@ export default function LiveMap({
   layers,
   className = '',
   style = {},
+  isDrawingZone = false,
+  drawingPoints = [],
+  onDrawingPointsChange,
 }) {
   const { state } = useApp();
   const activeLayers = layers ?? state.mapLayers;
+
+  const handleMapClick = (latlng) => {
+    if (isDrawingZone) {
+      onDrawingPointsChange?.([...drawingPoints, [latlng.lat, latlng.lng]]);
+    } else {
+      onMapClick?.(latlng);
+    }
+  };
+
 
   return (
     <MapContainer
@@ -232,8 +260,56 @@ export default function LiveMap({
         </Marker>
       )}
 
-      <MapClickHandler onMapClick={onMapClick} />
+      {/* Interactive Zone drawing and editing layers */}
+      {isDrawingZone && drawingPoints.length > 0 && (
+        <>
+          {/* Draggable vertices control handles */}
+          {drawingPoints.map((point, index) => (
+            <Marker
+              key={`vertex-${index}-${point[0]}-${point[1]}`}
+              position={point}
+              draggable={true}
+              icon={createVertexIcon()}
+              eventHandlers={{
+                dragend(e) {
+                  const latlng = e.target.getLatLng();
+                  const newPoints = [...drawingPoints];
+                  newPoints[index] = [latlng.lat, latlng.lng];
+                  onDrawingPointsChange?.(newPoints);
+                },
+                click(e) {
+                  if (e.originalEvent) {
+                    e.originalEvent.stopPropagation();
+                  }
+                  // Click a vertex handle to remove it!
+                  const newPoints = drawingPoints.filter((_, i) => i !== index);
+                  onDrawingPointsChange?.(newPoints);
+                }
+              }}
+            />
+          ))}
+
+          {/* Dotted border line if >= 2 points */}
+          {drawingPoints.length >= 2 && (
+            <Polyline
+              positions={drawingPoints}
+              pathOptions={{ color: '#3b82f6', weight: 2, dashArray: '5 5' }}
+            />
+          )}
+
+          {/* Semicolored polygon fill if >= 3 points */}
+          {drawingPoints.length >= 3 && (
+            <Polygon
+              positions={drawingPoints}
+              pathOptions={{ color: '#3b82f6', fillColor: '#3b82f6', fillOpacity: 0.15, weight: 1 }}
+            />
+          )}
+        </>
+      )}
+
+      <MapClickHandler onMapClick={handleMapClick} />
     </MapContainer>
   );
 }
+
 

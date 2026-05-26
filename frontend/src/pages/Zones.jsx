@@ -17,6 +17,8 @@ export default function Zones() {
   const [selectedZone, setSelectedZone] = useState(null);
   const [showCreate, setShowCreate] = useState(false);
   const [typeFilter, setTypeFilter] = useState('');
+  const [drawingPoints, setDrawingPoints] = useState([]);
+
 
   async function load() {
     setLoading(true);
@@ -114,21 +116,27 @@ export default function Zones() {
           onZoneClick={handleZoneClick}
           selectedZoneId={selectedZone?.id}
           layers={{ vehicles: false, zones: true, breaches: false, routes: false, labels: true }}
+          isDrawingZone={showCreate}
+          drawingPoints={drawingPoints}
+          onDrawingPointsChange={setDrawingPoints}
         />
       </div>
 
       {/* Create zone form */}
       {showCreate && (
         <CreateZonePanel
-          onClose={() => setShowCreate(false)}
-          onSuccess={() => { setShowCreate(false); load(); addToast('success', 'Zone created'); }}
+          drawingPoints={drawingPoints}
+          setDrawingPoints={setDrawingPoints}
+          onClose={() => { setShowCreate(false); setDrawingPoints([]); }}
+          onSuccess={() => { setShowCreate(false); setDrawingPoints([]); load(); addToast('success', 'Zone created'); }}
         />
       )}
+
     </div>
   );
 }
 
-function CreateZonePanel({ onClose, onSuccess }) {
+function CreateZonePanel({ drawingPoints, setDrawingPoints, onClose, onSuccess }) {
   const [form, setForm] = useState({
     name: '', description: '', restrictionType: 'NO_ENTRY', isActive: true,
     boundaryGeoJson: '',
@@ -138,6 +146,24 @@ function CreateZonePanel({ onClose, onSuccess }) {
   });
   const [errors, setErrors] = useState({});
   const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (drawingPoints && drawingPoints.length >= 3) {
+      const coordinates = [...drawingPoints, drawingPoints[0]].map(p => [
+        Number(Number(p[1]).toFixed(6)),
+        Number(Number(p[0]).toFixed(6))
+      ]);
+      const geojson = {
+        type: 'Polygon',
+        coordinates: [coordinates]
+      };
+      setForm(f => ({ ...f, boundaryGeoJson: JSON.stringify(geojson) }));
+      setErrors(e => ({ ...e, boundaryGeoJson: undefined }));
+    } else {
+      setForm(f => ({ ...f, boundaryGeoJson: '' }));
+    }
+  }, [drawingPoints]);
+
 
   function set(field, value) {
     setForm(f => ({ ...f, [field]: value }));
@@ -204,20 +230,54 @@ function CreateZonePanel({ onClose, onSuccess }) {
         </Select>
 
         <div className={styles.field}>
-          <label htmlFor="zone-geojson" className={styles.fieldLabel}>Boundary GeoJSON <span className={styles.required}>*</span></label>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+            <label htmlFor="zone-geojson" className={styles.fieldLabel} style={{ margin: 0 }}>Boundary GeoJSON <span className={styles.required}>*</span></label>
+            {drawingPoints.length > 0 && (
+              <button
+                type="button"
+                className={styles.clearBtn}
+                onClick={() => setDrawingPoints([])}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: 'var(--red-500)',
+                  fontSize: '11px',
+                  cursor: 'pointer',
+                  fontWeight: 600,
+                  padding: '2px 4px'
+                }}
+              >
+                Clear Canvas
+              </button>
+            )}
+          </div>
+
+          <div className={styles.drawBanner}>
+            <span style={{ fontSize: '15px' }}>💡</span>
+            <div style={{ flex: 1 }}>
+              <strong style={{ display: 'block', color: 'var(--brand-700)', marginBottom: '3px' }}>Map Drawing Mode Active</strong>
+              <p style={{ margin: 0, fontSize: '11px', color: 'var(--brand-600)', lineHeight: '1.4' }}>
+                • Click on the map to add polygon corners.<br />
+                • Drag any vertex handle to adjust coordinates.<br />
+                • Click any vertex handle to delete it.
+              </p>
+            </div>
+          </div>
+
           <textarea
             id="zone-geojson"
             className={`${styles.textarea} ${errors.boundaryGeoJson ? styles.textareaError : ''}`}
             placeholder={'{"type":"Polygon","coordinates":[[[77.617,12.976],[77.623,12.976],[77.623,12.971],[77.617,12.971],[77.617,12.976]]]}'}
             value={form.boundaryGeoJson}
             onChange={e => set('boundaryGeoJson', e.target.value)}
-            rows={4}
+            rows={3}
             aria-describedby={errors.boundaryGeoJson ? 'geojson-err' : undefined}
             aria-invalid={!!errors.boundaryGeoJson}
           />
           {errors.boundaryGeoJson && <span id="geojson-err" className={styles.fieldError} role="alert">{errors.boundaryGeoJson}</span>}
-          <span className={styles.fieldHint}>Paste a valid GeoJSON Polygon. First and last coordinate must be identical.</span>
+          <span className={styles.fieldHint}>Coordinates automatically sync in real-time as you draw and edit on the map above.</span>
         </div>
+
 
         {/* Rule section — progressive disclosure */}
         <div className={styles.ruleToggle}>
