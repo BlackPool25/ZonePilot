@@ -16,12 +16,10 @@ export default function ZoneDrawer({ entityId }) {
   const [violations, setViolations] = useState(null);
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
 
   async function handleDelete() {
     if (!zone) return;
-    if (!window.confirm(`Are you sure you want to delete the zone "${zone.name}"? This will permanently remove all associated rules and logged breaches.`)) {
-      return;
-    }
     setDeleting(true);
     try {
       await zonesApi.delete(zone.id);
@@ -34,6 +32,7 @@ export default function ZoneDrawer({ entityId }) {
       setDeleting(false);
     }
   }
+
 
 
   useEffect(() => {
@@ -126,13 +125,37 @@ export default function ZoneDrawer({ entityId }) {
 
       {/* Actions */}
       <div className={styles.actions}>
-        <button
-          className={styles.deleteBtn}
-          onClick={handleDelete}
-          disabled={deleting}
-        >
-          {deleting ? 'Deleting...' : '🗑 Delete Zone'}
-        </button>
+        {!showConfirm ? (
+          <button
+            className={styles.deleteBtn}
+            onClick={() => setShowConfirm(true)}
+            disabled={deleting}
+          >
+            🗑 Delete Zone
+          </button>
+        ) : (
+          <div className={styles.confirmBox}>
+            <p className={styles.confirmText}>Are you sure you want to delete this zone? This will permanently remove all associated rules and logged breaches.</p>
+            <div className={styles.confirmActions}>
+              <button
+                className={styles.cancelConfirmBtn}
+                onClick={() => setShowConfirm(false)}
+                disabled={deleting}
+                type="button"
+              >
+                Cancel
+              </button>
+              <button
+                className={styles.dangerConfirmBtn}
+                onClick={handleDelete}
+                disabled={deleting}
+                type="button"
+              >
+                {deleting ? 'Deleting...' : 'Yes, Delete'}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

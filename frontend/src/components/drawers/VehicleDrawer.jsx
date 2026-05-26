@@ -22,12 +22,10 @@ export default function VehicleDrawer({ entityId }) {
   const [routes, setRoutes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [clearing, setClearing] = useState(false);
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
 
   async function handleClearRoute() {
     if (!vehicle) return;
-    if (!window.confirm("Are you sure you want to clear the active route for this vehicle?")) {
-      return;
-    }
     setClearing(true);
     try {
       await vehiclesApi.clearRoute(vehicle.id);
@@ -36,12 +34,14 @@ export default function VehicleDrawer({ entityId }) {
       setVehicle(updated);
       const updatedHistory = await routesApi.vehicleHistory(vehicle.id);
       setRoutes(updatedHistory);
+      setShowClearConfirm(false);
     } catch (err) {
       addToast('danger', err.message || 'Failed to clear active route.');
     } finally {
       setClearing(false);
     }
   }
+
 
   useEffect(() => {
     if (!entityId) return;
@@ -108,27 +108,52 @@ export default function VehicleDrawer({ entityId }) {
             <span>Active Dispatch Route</span>
             <span style={{ fontSize: 10, background: 'var(--brand-500)', color: 'white', padding: '2px 6px', borderRadius: 4, fontWeight: 700 }}>DISPATCHED</span>
           </p>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 10 }}>
-            <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--brand-900)' }}>Route #{vehicle.activeDispatchRouteId}</span>
-            <Button
-              size="xs"
-              variant="secondary"
-              onClick={handleClearRoute}
-              disabled={clearing}
-              style={{
-                background: 'var(--red-50)',
-                color: 'var(--red-600)',
-                border: '1px solid var(--red-200)',
-                fontSize: 11,
-                padding: '3px 8px',
-                fontWeight: 600
-              }}
-            >
-              {clearing ? 'Clearing...' : 'Clear Route'}
-            </Button>
-          </div>
+          {!showClearConfirm ? (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 10 }}>
+              <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--brand-900)' }}>Route #{vehicle.activeDispatchRouteId}</span>
+              <Button
+                size="xs"
+                variant="secondary"
+                onClick={() => setShowClearConfirm(true)}
+                disabled={clearing}
+                style={{
+                  background: 'var(--red-50)',
+                  color: 'var(--red-600)',
+                  border: '1px solid var(--red-200)',
+                  fontSize: 11,
+                  padding: '3px 8px',
+                  fontWeight: 600
+                }}
+              >
+                Clear Route
+              </Button>
+            </div>
+          ) : (
+            <div className={styles.confirmBox}>
+              <p className={styles.confirmText}>Are you sure you want to unassign and clear this active dispatch route?</p>
+              <div className={styles.confirmActions}>
+                <button
+                  className={styles.cancelConfirmBtn}
+                  onClick={() => setShowClearConfirm(false)}
+                  disabled={clearing}
+                  type="button"
+                >
+                  Cancel
+                </button>
+                <button
+                  className={styles.dangerConfirmBtn}
+                  onClick={handleClearRoute}
+                  disabled={clearing}
+                  type="button"
+                >
+                  {clearing ? 'Clearing...' : 'Yes, Clear'}
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
+
 
       {/* Live position */}
 

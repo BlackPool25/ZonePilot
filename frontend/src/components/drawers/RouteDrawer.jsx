@@ -11,13 +11,11 @@ export default function RouteDrawer({ entityId, data: initialData }) {
   const [route, setRoute] = useState(initialData ?? null);
   const [loading, setLoading] = useState(!initialData || (initialData && !initialData.vehicle));
   const [deleting, setDeleting] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
 
   async function handleDelete() {
     const routeId = route?.id ?? route?.dispatchRouteId ?? entityId;
     if (!routeId) return;
-    if (!window.confirm(`Are you sure you want to delete Route #${routeId}? This will permanently purge the route records and automatically clear any active route assignment for vehicles.`)) {
-      return;
-    }
     setDeleting(true);
     try {
       await routesApi.delete(routeId);
@@ -30,6 +28,7 @@ export default function RouteDrawer({ entityId, data: initialData }) {
       setDeleting(false);
     }
   }
+
 
 
   useEffect(() => {
@@ -144,13 +143,37 @@ export default function RouteDrawer({ entityId, data: initialData }) {
 
       {/* Actions */}
       <div className={styles.actions}>
-        <button
-          className={styles.deleteBtn}
-          onClick={handleDelete}
-          disabled={deleting}
-        >
-          {deleting ? 'Deleting...' : '🗑 Delete Route'}
-        </button>
+        {!showConfirm ? (
+          <button
+            className={styles.deleteBtn}
+            onClick={() => setShowConfirm(true)}
+            disabled={deleting}
+          >
+            🗑 Delete Route
+          </button>
+        ) : (
+          <div className={styles.confirmBox}>
+            <p className={styles.confirmText}>Are you sure you want to delete this route? This will permanently purge the route records and automatically clear any active route assignment for vehicles.</p>
+            <div className={styles.confirmActions}>
+              <button
+                className={styles.cancelConfirmBtn}
+                onClick={() => setShowConfirm(false)}
+                disabled={deleting}
+                type="button"
+              >
+                Cancel
+              </button>
+              <button
+                className={styles.dangerConfirmBtn}
+                onClick={handleDelete}
+                disabled={deleting}
+                type="button"
+              >
+                {deleting ? 'Deleting...' : 'Yes, Delete'}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
