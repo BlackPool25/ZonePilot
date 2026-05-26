@@ -123,7 +123,17 @@ public class ZoneService {
         return toResponse(saved);
     }
 
+    @Transactional
+    public void deleteZone(Long id) {
+        ZoneRestriction zone = zoneRestrictionRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("ZoneRestriction", "id", id));
+        zoneRestrictionRepository.deleteBreachLogsByZoneId(id);
+        zoneRestrictionRepository.deleteRulesByZoneId(id);
+        zoneRestrictionRepository.delete(zone);
+    }
+
     private ZoneResponse toResponse(ZoneRestriction z) {
+
         ZoneResponse r = new ZoneResponse();
         r.setId(z.getId());
         r.setName(z.getName());

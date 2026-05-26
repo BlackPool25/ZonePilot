@@ -15,4 +15,13 @@ public interface ZoneRestrictionRepository extends JpaRepository<ZoneRestriction
 
     @Query(value = "SELECT * FROM zone_restriction zr WHERE zr.is_active = true AND ST_Intersects(zr.boundary, ST_SetSRID(ST_Point(:lng, :lat), 4326))", nativeQuery = true)
     List<ZoneRestriction> findActiveZonesContainingPoint(@Param("lat") double lat, @Param("lng") double lng);
+
+    @org.springframework.data.jpa.repository.Modifying
+    @Query(value = "DELETE FROM zone_breach_log WHERE zone_id = :zoneId", nativeQuery = true)
+    void deleteBreachLogsByZoneId(@Param("zoneId") Long zoneId);
+
+    @org.springframework.data.jpa.repository.Modifying
+    @Query(value = "DELETE FROM zone_restriction_rule WHERE zone_id = :zoneId", nativeQuery = true)
+    void deleteRulesByZoneId(@Param("zoneId") Long zoneId);
 }
+

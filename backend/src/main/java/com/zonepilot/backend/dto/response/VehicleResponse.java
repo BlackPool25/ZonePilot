@@ -12,6 +12,8 @@ public class VehicleResponse {
     private String depotName;
     private Boolean isActive;
 
+    private Long activeDispatchRouteId;
+
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
     public String getRegistrationNumber() { return registrationNumber; }
@@ -26,4 +28,7 @@ public class VehicleResponse {
     public void setDepotName(String depotName) { this.depotName = depotName; }
     public Boolean getIsActive() { return isActive; }
     public void setIsActive(Boolean isActive) { this.isActive = isActive; }
+    public Long getActiveDispatchRouteId() { return activeDispatchRouteId; }
+    public void setActiveDispatchRouteId(Long activeDispatchRouteId) { this.activeDispatchRouteId = activeDispatchRouteId; }
 }
+

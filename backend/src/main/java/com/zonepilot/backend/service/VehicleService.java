@@ -118,6 +118,14 @@ public class VehicleService {
         return toResponse(vehicleRepository.save(vehicle));
     }
 
+    @Transactional
+    public com.zonepilot.backend.dto.response.VehicleResponse clearActiveRoute(Long id) {
+        Vehicle vehicle = vehicleRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Vehicle", "id", id));
+        vehicle.setActiveDispatchRouteId(null);
+        return toResponse(vehicleRepository.save(vehicle));
+    }
+
     public List<com.zonepilot.backend.dto.response.ZoneResponse> getActiveZonesAtPoint(double lat, double lng) {
         List<ZoneRestriction> zones = zoneRestrictionRepository.findActiveZonesContainingPoint(lat, lng);
         return zones.stream().map(this::toZoneResponse).collect(Collectors.toList());
@@ -132,8 +140,10 @@ public class VehicleService {
         r.setDepotId(v.getDepot().getId());
         r.setDepotName(v.getDepot().getName());
         r.setIsActive(v.getIsActive());
+        r.setActiveDispatchRouteId(v.getActiveDispatchRouteId());
         return r;
     }
+
 
     private com.zonepilot.backend.dto.response.ZoneResponse toZoneResponse(ZoneRestriction z) {
         com.zonepilot.backend.dto.response.ZoneResponse r = new com.zonepilot.backend.dto.response.ZoneResponse();

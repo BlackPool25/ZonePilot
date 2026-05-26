@@ -47,4 +47,12 @@ public class ZoneController {
             @Valid @RequestBody CreateZoneRequest request) {
         return ResponseEntity.ok(ApiResponse.success(zoneService.createZone(request)));
     }
+
+    @DeleteMapping("/{id}")
+    @Operation(summary = "Delete zone", description = "Deletes a zone restriction and its associated rules/breach logs")
+    public ResponseEntity<ApiResponse<Void>> deleteZone(@PathVariable Long id) {
+        zoneService.deleteZone(id);
+        return ResponseEntity.ok(ApiResponse.success(null));
+    }
 }
+

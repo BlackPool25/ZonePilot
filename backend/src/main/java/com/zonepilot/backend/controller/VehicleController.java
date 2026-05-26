@@ -54,6 +54,12 @@ public class VehicleController {
         return ResponseEntity.ok(ApiResponse.success(vehicleService.updateVehicle(id, request)));
     }
 
+    @PostMapping("/{id}/clear-route")
+    @Operation(summary = "Clear active route for vehicle", description = "Removes the active route assignment from the vehicle")
+    public ResponseEntity<ApiResponse<VehicleResponse>> clearActiveRoute(@PathVariable Long id) {
+        return ResponseEntity.ok(ApiResponse.success(vehicleService.clearActiveRoute(id)));
+    }
+
     @GetMapping("/{id}/zones-at-location")
     @Operation(summary = "Get active zones at a location", description = "Returns zones that contain a given point")
     public ResponseEntity<ApiResponse<List<ZoneResponse>>> getZonesAtLocation(
@@ -63,3 +69,4 @@ public class VehicleController {
         return ResponseEntity.ok(ApiResponse.success(vehicleService.getActiveZonesAtPoint(lat, lng)));
     }
 }
+
