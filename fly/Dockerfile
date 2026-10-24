@@ -1,6 +1,6 @@
-# PostGIS 3.4 + pgRouting 3.x on PostgreSQL 16
+# PostGIS 3.6 + pgRouting 3.x on PostgreSQL 16 (trixie; pgdg dropped bullseye)
 # Used for Fly.io database deployment
-FROM postgis/postgis:16-3.4
+FROM postgis/postgis:16-3.6
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \

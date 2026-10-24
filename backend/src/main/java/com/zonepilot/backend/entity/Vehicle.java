@@ -2,10 +2,15 @@ package com.zonepilot.backend.entity;
 
 import com.zonepilot.backend.enums.VehicleClass;
 import jakarta.persistence.*;
+import org.hibernate.annotations.Filter;
+import org.hibernate.annotations.FilterDef;
+import org.hibernate.annotations.ParamDef;
 import java.time.Instant;
 
 @Entity
 @Table(name = "vehicle")
+@FilterDef(name = "depotFilter", parameters = @ParamDef(name = "depotId", type = Long.class))
+@Filter(name = "depotFilter", condition = "depot_id = :depotId")
 public class Vehicle {
 
     @Id

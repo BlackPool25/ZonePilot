@@ -38,6 +38,27 @@ public class GlobalExceptionHandler {
                 .body(ApiResponse.error("VALIDATION_ERROR", ex.getMessage()));
     }
 
+    @ExceptionHandler(org.springframework.security.access.AccessDeniedException.class)
+    public ResponseEntity<ApiResponse<Void>> handleAccessDenied(
+            org.springframework.security.access.AccessDeniedException ex) {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                .body(ApiResponse.error("FORBIDDEN", ex.getMessage()));
+    }
+
+    @ExceptionHandler(com.zonepilot.backend.auth.BadTokenException.class)
+    public ResponseEntity<ApiResponse<Void>> handleBadToken(
+            com.zonepilot.backend.auth.BadTokenException ex) {
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                .body(ApiResponse.error("UNAUTHORIZED", "Authentication required"));
+    }
+
+    @ExceptionHandler(org.springframework.security.authentication.BadCredentialsException.class)
+    public ResponseEntity<ApiResponse<Void>> handleBadCredentials(
+            org.springframework.security.authentication.BadCredentialsException ex) {
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                .body(ApiResponse.error("INVALID_CREDENTIALS", "Invalid email or password"));
+    }
+
     @ExceptionHandler(RoutingException.class)
     public ResponseEntity<ApiResponse<Void>> handleRouting(RoutingException ex) {
         return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY)

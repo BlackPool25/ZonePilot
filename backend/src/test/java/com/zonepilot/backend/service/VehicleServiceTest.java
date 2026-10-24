@@ -11,6 +11,7 @@ import com.zonepilot.backend.repository.DepotRepository;
 import com.zonepilot.backend.repository.VehicleRepository;
 import com.zonepilot.backend.repository.ZoneRestrictionRepository;
 import com.zonepilot.backend.repository.ZoneRestrictionRuleRepository;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -31,6 +32,7 @@ class VehicleServiceTest {
     @Mock private DepotRepository depotRepository;
     @Mock private ZoneRestrictionRepository zoneRestrictionRepository;
     @Mock private ZoneRestrictionRuleRepository zoneRestrictionRuleRepository;
+    @Mock private com.zonepilot.backend.auth.DepotScope depotScope;
 
     private VehicleService vehicleService;
 
@@ -38,7 +40,12 @@ class VehicleServiceTest {
     void setUp() {
         vehicleService = new VehicleService(
                 vehicleRepository, depotRepository,
-                zoneRestrictionRepository, zoneRestrictionRuleRepository);
+                zoneRestrictionRepository, zoneRestrictionRuleRepository, depotScope);
+    }
+
+    @AfterEach
+    void clearAuth() {
+        org.springframework.security.core.context.SecurityContextHolder.clearContext();
     }
 
     @Test
@@ -123,6 +130,53 @@ class VehicleServiceTest {
     void getVehicleById_withNonExistentId_throwsResourceNotFoundException() {
         when(vehicleRepository.findById(999L)).thenReturn(Optional.empty());
         assertThrows(ResourceNotFoundException.class, () -> vehicleService.getVehicleById(999L));
+    }
+
+    @Test
+    void getVehicleById_crossDepot_throwsForbidden() {
+        Depot depotB = new Depot();
+        depotB.setId(2L);
+
+        Vehicle existing = new Vehicle();
+        existing.setId(1L);
+        existing.setRegistrationNumber("KA01-HCV-0001");
+        existing.setVehicleClass(VehicleClass.HCV);
+        existing.setOwnerName("Owner");
+        existing.setDepot(depotB);
+        existing.setIsActive(true);
+
+        when(vehicleRepository.findById(1L)).thenReturn(Optional.of(existing));
+        setPrincipal("dispatcher@hsr.test", 7L);
+
+        assertThrows(org.springframework.security.access.AccessDeniedException.class,
+                () -> vehicleService.getVehicleById(1L));
+    }
+
+    @Test
+    void createVehicle_crossDepot_throwsForbiddenAndNeverSaves() {
+        setPrincipal("dispatcher@hsr.test", 7L);
+
+        CreateVehicleRequest request = new CreateVehicleRequest();
+        request.setRegistrationNumber("KA01-LCV-0100");
+        request.setVehicleClass("LCV");
+        request.setOwnerName("Owner");
+        request.setDepotId(2L);
+
+        assertThrows(org.springframework.security.access.AccessDeniedException.class,
+                () -> vehicleService.createVehicle(request));
+        verify(vehicleRepository, never()).save(any());
+    }
+
+    private static void setPrincipal(String email, Long depotId) {
+        com.zonepilot.backend.auth.DepotPrincipal principal =
+                new com.zonepilot.backend.auth.DepotPrincipal(
+                        email, depotId, com.zonepilot.backend.auth.Role.DISPATCHER);
+        org.springframework.security.core.Authentication auth =
+                new org.springframework.security.authentication.UsernamePasswordAuthenticationToken(
+                        principal, null, java.util.List.of(
+                                new org.springframework.security.core.authority.SimpleGrantedAuthority(
+                                        "ROLE_DISPATCHER")));
+        org.springframework.security.core.context.SecurityContextHolder.getContext().setAuthentication(auth);
     }
 
     @Test

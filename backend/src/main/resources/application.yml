@@ -2,6 +2,12 @@ spring:
   application:
     name: zonepilot-backend
 
+app:
+  jwt:
+    secret: ${APP_JWT_SECRET:zonepilot-dev-secret-change-me-32bytes!!}
+    access-ttl: ${APP_JWT_ACCESS_TTL:PT15M}
+    refresh-ttl: ${APP_JWT_REFRESH_TTL:P7D}
+
   datasource:
     url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5434/ZonePilot}
     username: ${SPRING_DATASOURCE_USERNAME:zonepilot}
