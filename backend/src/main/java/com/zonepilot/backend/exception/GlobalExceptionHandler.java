@@ -52,6 +52,13 @@ public class GlobalExceptionHandler {
                 .body(ApiResponse.error("UNAUTHORIZED", "Authentication required"));
     }
 
+    @ExceptionHandler(com.zonepilot.backend.exception.EligibilityException.class)
+    public ResponseEntity<ApiResponse<Void>> handleEligibility(
+            com.zonepilot.backend.exception.EligibilityException ex) {
+        return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY)
+                .body(ApiResponse.error("ASSIGNMENT_BLOCKED", ex.getMessage()));
+    }
+
     @ExceptionHandler(org.springframework.security.authentication.BadCredentialsException.class)
     public ResponseEntity<ApiResponse<Void>> handleBadCredentials(
             org.springframework.security.authentication.BadCredentialsException ex) {

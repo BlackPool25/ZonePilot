@@ -7,6 +7,7 @@ import Routes from './pages/Routes.jsx';
 import Breaches from './pages/Breaches.jsx';
 import Reports from './pages/Reports.jsx';
 import Simulation from './pages/Simulation.jsx';
+import Driver from './pages/Driver.jsx';
 
 export const router = createBrowserRouter([
   {
@@ -20,6 +21,7 @@ export const router = createBrowserRouter([
       { path: 'breaches', element: <Breaches /> },
       { path: 'reports', element: <Reports /> },
       { path: 'simulation', element: <Simulation /> },
+      { path: 'driver', element: <Driver /> },
     ],
   },
 ]);

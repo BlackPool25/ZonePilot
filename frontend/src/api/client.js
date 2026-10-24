@@ -1,8 +1,19 @@
 const BASE = (import.meta.env.VITE_API_BASE_URL || 'https://zonepilot-backend.onrender.com') + '/api';
 
+const TOKEN_KEY = 'zp-access-token';
+export const tokenStore = {
+  get: () => localStorage.getItem(TOKEN_KEY),
+  set: (t) => (t ? localStorage.setItem(TOKEN_KEY, t) : localStorage.removeItem(TOKEN_KEY)),
+};
+
 async function request(path, options = {}) {
+  const token = tokenStore.get();
   const res = await fetch(`${BASE}${path}`, {
-    headers: { 'Content-Type': 'application/json', ...options.headers },
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...options.headers,
+    },
     ...options,
   });
   const json = await res.json();
@@ -84,6 +95,11 @@ export const reportsApi = {
   activeRestrictions: () => get('/reports/active-restrictions'),
 };
 
+// ─── Auth ─────────────────────────────────────────────────────────────
+export const authApi = {
+  login: (email, password) => post('/auth/login', { email, password }),
+};
+
 // ─── Simulation ───────────────────────────────────────────────────────
 export const simulationApi = {
   start: (scenarios) => post('/simulation/start', { scenarios }),
@@ -91,4 +107,13 @@ export const simulationApi = {
   tick: () => post('/simulation/tick'),
   state: () => get('/simulation/state'),
   reset: () => post('/simulation/reset'),
+};
+
+// ─── Driver app (Slice 2) ─────────────────────────────────────────────
+export const driverApi = {
+  myRoutes: () => get('/driver/routes'),
+  accept: (routeId) => post(`/driver/routes/${routeId}/accept`, {}),
+  start: (routeId) => post(`/driver/routes/${routeId}/start`, {}),
+  slip: (routeId, kind, amount) => post(`/driver/routes/${routeId}/slips`, { kind, amount }),
+  sos: (lat, lng, routeId) => post('/driver/sos', { lat, lng, routeId }),
 };

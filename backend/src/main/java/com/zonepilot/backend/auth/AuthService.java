@@ -38,8 +38,15 @@ public class AuthService {
     @Transactional
     public TokenPair register(String email, String rawPassword, Role role, Long depotId) {
         DepotPrincipal caller = DepotScope.current();
-        if (users.count() > 0 && (caller == null || !caller.isOwner())) {
-            throw new AccessDeniedException("Only OWNER can create users");
+        if (users.count() > 0) {
+            // OWNER manages everyone; DISPATCHER manages DRIVER logins in their own depot.
+            boolean ownerCall = caller != null && caller.isOwner();
+            boolean dispatcherDriverCall = caller != null && !caller.isOwner()
+                    && role == Role.DISPATCHER && caller.depotId() != null
+                    && caller.depotId().equals(depotId);
+            if (!ownerCall && !dispatcherDriverCall) {
+                throw new AccessDeniedException("Only OWNER can create users");
+            }
         }
         String normalized = email == null ? null : email.toLowerCase();
         if (normalized == null || normalized.isBlank()) {

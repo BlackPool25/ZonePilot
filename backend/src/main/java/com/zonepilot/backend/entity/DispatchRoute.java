@@ -1,6 +1,7 @@
 package com.zonepilot.backend.entity;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.zonepilot.backend.enums.AssignmentStatus;
 import com.zonepilot.backend.enums.RouteStatus;
 import jakarta.persistence.*;
 import org.locationtech.jts.geom.LineString;
@@ -50,6 +51,20 @@ public class DispatchRoute {
     @Column(name = "wait_duration_sec")
     private Integer waitDurationSec;
 
+    @ManyToOne(fetch = FetchType.EAGER)
+    @JoinColumn(name = "driver_id")
+    private Driver driver;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "assignment_status", nullable = false, length = 20)
+    private AssignmentStatus assignmentStatus = AssignmentStatus.UNASSIGNED;
+
+    @Column(name = "assigned_at")
+    private Instant assignedAt;
+
+    @Column(name = "started_at")
+    private Instant startedAt;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -88,6 +103,14 @@ public class DispatchRoute {
     public void setWaitUntil(Instant waitUntil) { this.waitUntil = waitUntil; }
     public Integer getWaitDurationSec() { return waitDurationSec; }
     public void setWaitDurationSec(Integer waitDurationSec) { this.waitDurationSec = waitDurationSec; }
+    public Driver getDriver() { return driver; }
+    public void setDriver(Driver driver) { this.driver = driver; }
+    public AssignmentStatus getAssignmentStatus() { return assignmentStatus; }
+    public void setAssignmentStatus(AssignmentStatus assignmentStatus) { this.assignmentStatus = assignmentStatus; }
+    public Instant getAssignedAt() { return assignedAt; }
+    public void setAssignedAt(Instant assignedAt) { this.assignedAt = assignedAt; }
+    public Instant getStartedAt() { return startedAt; }
+    public void setStartedAt(Instant startedAt) { this.startedAt = startedAt; }
     public Instant getCreatedAt() { return createdAt; }
     public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }
 }
