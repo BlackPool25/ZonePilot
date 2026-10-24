@@ -36,14 +36,16 @@ class PositionTrackingServiceTest {
     @Mock private DispatchRouteRepository dispatchRouteRepository;
     @Mock private BreachService breachService;
     @Mock private JdbcTemplate jdbcTemplate;
+    @Mock private TickBroadcaster broadcaster;
 
+    private final FakeIngestState state = new FakeIngestState();
     private PositionTrackingService service;
 
     @BeforeEach
     void setUp() {
         service = new PositionTrackingService(
                 vehicleRepository, positionLogRepository, breachLogRepository,
-                dispatchRouteRepository, breachService, jdbcTemplate);
+                dispatchRouteRepository, breachService, jdbcTemplate, state, broadcaster);
     }
 
     @Test

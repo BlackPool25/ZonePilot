@@ -59,6 +59,31 @@
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-actuator</artifactId>
 		</dependency>
+		<!-- Slice 3: Traccar MQTT ingest (Boot BOM manages spring-integration-mqtt + Paho, plan §8.2) -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-integration</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.integration</groupId>
+			<artifactId>spring-integration-mqtt</artifactId>
+		</dependency>
+		<!-- Paho v3 is NOT in the Boot BOM; 1.2.5 is what spring-integration-mqtt 7.x expects -->
+		<dependency>
+			<groupId>org.eclipse.paho</groupId>
+			<artifactId>org.eclipse.paho.client.mqttv3</artifactId>
+			<version>1.2.5</version>
+		</dependency>
+		<!-- Slice 3: Redis replaces ConcurrentHashMap ingest state (Lettuce via Boot BOM) -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-data-redis</artifactId>
+		</dependency>
+		<!-- Slice 3: STOMP tick broadcast /topic/depots/{id} (plan §8.4, no SockJS) -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-websocket</artifactId>
+		</dependency>
 		<!-- jjwt 0.12.6 pinned per plan §8.5 (BOM does not manage jjwt) -->
 		<dependency>
 			<groupId>io.jsonwebtoken</groupId>
@@ -151,6 +176,19 @@
 						<id>report</id>
 						<phase>verify</phase>
 						<goals><goal>report</goal></goals>
+					</execution>
+				</executions>
+			</plugin>
+			<!-- Slice 3: *IT (Testcontainers broker/DB/Redis) runs in verify, not test -->
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-failsafe-plugin</artifactId>
+				<executions>
+					<execution>
+						<goals>
+							<goal>integration-test</goal>
+							<goal>verify</goal>
+						</goals>
 					</execution>
 				</executions>
 			</plugin>

@@ -25,18 +25,12 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 @Service
 public class PositionTrackingService {
 
     private static final Logger log = LoggerFactory.getLogger(PositionTrackingService.class);
-
-    private static final double BANGALORE_MIN_LAT = 12.8;
-    private static final double BANGALORE_MAX_LAT = 13.2;
-    private static final double BANGALORE_MIN_LNG = 77.4;
-    private static final double BANGALORE_MAX_LNG = 77.8;
 
     // Cross-track thresholds (meters)
     // ≤ 30m: on-route (may be GPS glitch on opposite side of dual carriageway)
@@ -51,18 +45,17 @@ public class PositionTrackingService {
     private final BreachService breachService;
     private final JdbcTemplate jdbcTemplate;
     private final GeometryFactory geometryFactory;
-
-    // Tracks consecutive off-route ping count per vehicleId
-    private final ConcurrentHashMap<Long, Integer> offRoutePingCount = new ConcurrentHashMap<>();
-    // BUG-NEW-009: tracks the last known active route ID per vehicle to detect route changes
-    private final ConcurrentHashMap<Long, Long> lastKnownRouteId = new ConcurrentHashMap<>();
+    private final IngestState state;
+    private final TickBroadcaster broadcaster;
 
     public PositionTrackingService(VehicleRepository vehicleRepository,
                                    VehiclePositionLogRepository positionLogRepository,
                                    ZoneBreachLogRepository breachLogRepository,
                                    DispatchRouteRepository dispatchRouteRepository,
                                    BreachService breachService,
-                                   JdbcTemplate jdbcTemplate) {
+                                   JdbcTemplate jdbcTemplate,
+                                   IngestState state,
+                                   TickBroadcaster broadcaster) {
         this.vehicleRepository = vehicleRepository;
         this.positionLogRepository = positionLogRepository;
         this.breachLogRepository = breachLogRepository;
@@ -70,6 +63,8 @@ public class PositionTrackingService {
         this.breachService = breachService;
         this.jdbcTemplate = jdbcTemplate;
         this.geometryFactory = new GeometryFactory(new PrecisionModel(), 4326);
+        this.state = state;
+        this.broadcaster = broadcaster;
     }
 
     @Transactional
@@ -146,6 +141,12 @@ public class PositionTrackingService {
             response.setBreaches(breachDetails);
         }
 
+        // Slice 3: every accepted fix fans out as a derived tick frame.
+        if (vehicle.getDepot() != null) {
+            broadcaster.tick(vehicle.getDepot().getId(), vehicleId, finalLat, finalLng,
+                    speedKmh, recordedAt, Boolean.TRUE.equals(response.getBreachDetected()));
+        }
+
         return response;
     }
 
@@ -164,17 +165,18 @@ public class PositionTrackingService {
     private double[] applyRouteMapMatching(Vehicle vehicle, double lat, double lng, Short headingDeg) {
         Long routeId = vehicle.getActiveDispatchRouteId();
         if (routeId == null) {
-            offRoutePingCount.remove(vehicle.getId());
-            lastKnownRouteId.remove(vehicle.getId());
+            state.clearOffRoute(vehicle.getId());
+            state.clearRoute(vehicle.getId());
             return new double[]{lat, lng};
         }
 
         // BUG-NEW-009: reset off-route counter when the vehicle's active route changes
-        Long previousRouteId = lastKnownRouteId.put(vehicle.getId(), routeId);
+        Long previousRouteId = state.lastRouteId(vehicle.getId()).orElse(null);
+        state.saveRouteId(vehicle.getId(), routeId);
         if (previousRouteId != null && !previousRouteId.equals(routeId)) {
             log.debug("Vehicle {} active route changed ({} → {}) — resetting off-route counter",
                     vehicle.getId(), previousRouteId, routeId);
-            offRoutePingCount.remove(vehicle.getId());
+            state.clearOffRoute(vehicle.getId());
         }
 
         try {
@@ -206,7 +208,7 @@ public class PositionTrackingService {
             double routeAzRad  = (double) rows.get(0)[3]; // radians, 0=north
 
             if (distM <= GLITCH_SNAP_THRESHOLD_M) {
-                offRoutePingCount.remove(vehicle.getId());
+                state.clearOffRoute(vehicle.getId());
 
                 // Check if heading is reversed (GPS glitch on opposite carriageway)
                 if (headingDeg != null && headingDeg != 0) {
@@ -221,12 +223,12 @@ public class PositionTrackingService {
                 return new double[]{lat, lng};
 
             } else if (distM > OFF_ROUTE_THRESHOLD_M) {
-                int count = offRoutePingCount.merge(vehicle.getId(), 1, Integer::sum);
+                int count = state.incrOffRoute(vehicle.getId());
                 log.debug("Vehicle {} off-route by {}m (consecutive pings: {})", vehicle.getId(), distM, count);
 
                 if (count >= 2) {
                     // Two consecutive pings > 50m off-route → trigger reroute
-                    offRoutePingCount.remove(vehicle.getId());
+                    state.clearOffRoute(vehicle.getId());
                     log.info("Vehicle {} confirmed off-route ({}m) — triggering reroute", vehicle.getId(), distM);
                     triggerOffRouteReroute(vehicle.getId(), lat, lng);
                 }
@@ -234,7 +236,7 @@ public class PositionTrackingService {
 
             } else {
                 // 30m < dist ≤ 50m: tolerate, reset counter
-                offRoutePingCount.remove(vehicle.getId());
+                state.clearOffRoute(vehicle.getId());
                 return new double[]{lat, lng};
             }
 
@@ -260,8 +262,7 @@ public class PositionTrackingService {
     }
 
     private void validateBangaloreCoordinates(double lat, double lng) {
-        if (lat < BANGALORE_MIN_LAT || lat > BANGALORE_MAX_LAT
-                || lng < BANGALORE_MIN_LNG || lng > BANGALORE_MAX_LNG) {
+        if (!GeoBounds.inBounds(lat, lng)) {
             throw new ValidationException(
                     "Coordinates (" + lat + ", " + lng + ") are outside Bangalore bounding box");
         }

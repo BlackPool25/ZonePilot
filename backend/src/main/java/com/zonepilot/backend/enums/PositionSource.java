@@ -2,5 +2,7 @@ package com.zonepilot.backend.enums;
 
 public enum PositionSource {
     LIVE,
-    SIMULATED
+    SIMULATED,
+    /** Real Traccar feed via MQTT (slice 3). */
+    TRACCAR
 }

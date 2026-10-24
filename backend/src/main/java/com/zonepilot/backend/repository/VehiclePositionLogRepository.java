@@ -24,4 +24,7 @@ public interface VehiclePositionLogRepository extends JpaRepository<VehiclePosit
     Optional<VehiclePositionLog> findLatestByVehicleId(@Param("vehicleId") Long vehicleId);
 
     List<VehiclePositionLog> findByVehicleIdOrderByRecordedAtDesc(Long vehicleId);
+
+    @Query(value = "SELECT EXISTS(SELECT 1 FROM vehicle_position_log WHERE vehicle_id = :vehicleId AND recorded_at = :recordedAt)", nativeQuery = true)
+    boolean existsByVehicleIdAndRecordedAt(@Param("vehicleId") Long vehicleId, @Param("recordedAt") Instant recordedAt);
 }
