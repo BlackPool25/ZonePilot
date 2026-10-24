@@ -171,8 +171,11 @@ public class DriverService {
         SosAlert alert = new SosAlert();
         alert.setDriver(driver);
         alert.setRoute(route);
-        alert.setLocation(geometryFactory.createPoint(
-                new Coordinate(request.getLng(), request.getLat())));
+        // No GPS (offline queue, denied permission) => unknown location, never (0,0).
+        if (request.getLat() != null && request.getLng() != null) {
+            alert.setLocation(geometryFactory.createPoint(
+                    new Coordinate(request.getLng(), request.getLat())));
+        }
         return sosAlerts.save(alert);
     }
 

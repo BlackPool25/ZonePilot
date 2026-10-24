@@ -91,14 +91,19 @@ export default function Driver() {
   };
 
   const sendSos = (routeId) => {
-    if (!navigator.geolocation) return addToast('Geolocation unavailable', 'error');
+    // No GPS (unsupported/denied/timeout): the distress signal still goes out
+    // with unknown location — never (0,0).
+    const sosWithoutFix = () => guarded(routeId, 'sos',
+      () => driverApi.sos(null, null, routeId).then(() => addToast(t.sosSent, 'success')),
+      '/driver/sos', { lat: null, lng: null, routeId });
+    if (!navigator.geolocation) { sosWithoutFix(); return; }
     navigator.geolocation.getCurrentPosition(
       (pos) => guarded(routeId, 'sos',
         () => driverApi.sos(pos.coords.latitude, pos.coords.longitude, routeId).then(() => addToast(t.sosSent, 'success')),
-        '/driver/sos', { routeId }), // coords resolved at sync time note: offline SOS replays without coords
+        '/driver/sos', { routeId }), // offline SOS replays without coords => unknown location
       () => guarded(routeId, 'sos',
-        () => driverApi.sos(0, 0, routeId).then(() => addToast(t.sosSent, 'success')),
-        '/driver/sos', { lat: 0, lng: 0, routeId }),
+        () => driverApi.sos(null, null, routeId).then(() => addToast(t.sosSent, 'success')),
+        '/driver/sos', { lat: null, lng: null, routeId }),
       { timeout: 8000 });
   };
 

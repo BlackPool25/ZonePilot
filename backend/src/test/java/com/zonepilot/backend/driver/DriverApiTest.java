@@ -22,6 +22,9 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.http.*;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
+import org.springframework.web.client.HttpClientErrorException;
+import org.springframework.web.client.RestTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.GenericContainer;
@@ -35,6 +38,7 @@ import java.time.LocalDate;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.fail;
 
 /**
  * Slice 2: driver roster + assignment Accept/Start + slips + SOS + doc wall,
@@ -214,14 +218,31 @@ class DriverApiTest {
     }
 
     @Test
+    void sos_withoutLocation_is201NullLocation() {
+        String tag = "n" + System.nanoTime();
+        Map<String, Object> driver = createDriver(tag, depotA.getId(), LocalDate.now().plusYears(2).toString());
+        Map<String, Object> res = post("/api/driver/sos", Map.of(), (String) driver.get("token"));
+        assertThat(res.get("status")).isEqualTo(200);
+        assertThat(data(res).get("location")).isNull();
+    }
+
+    @Test
     void noToken_is401() {
-        // NOTE: only GETs here. The JDK test client cannot read a 401 that
-        // the server sends (and closes after) for an unauthenticated POST —
-        // ResourceAccessException, deterministic. curl against a live server
-        // confirms POST /api/driver/sos, /api/drivers, /api/routes/{id}/assign
-        // with no token all return 401 with the standard error body.
         assertThat(get("/api/drivers", null).getStatusCode().value()).isEqualTo(401);
         assertThat(get("/api/driver/routes", null).getStatusCode().value()).isEqualTo(401);
+        // The 401 envelope itself is covered on GET (body survives there).
+        assertThat(get("/api/drivers", null).getBody()).contains("\"code\":\"UNAUTHORIZED\"");
+        // POST too: the default JDK test client drops 401s that arrive while
+        // the request body is still unsent (server closes first), so this one
+        // uses a fully-buffering client — same rejection curl sees live.
+        RestTemplate buffering = new RestTemplate(new SimpleClientHttpRequestFactory());
+        try {
+            buffering.exchange(url("/api/driver/sos"), HttpMethod.POST,
+                    new HttpEntity<>(Map.of("lat", 12.9, "lng", 77.6), jsonHeaders()), Map.class);
+            fail("expected 401");
+        } catch (HttpClientErrorException.Unauthorized e) {
+            assertThat(e.getStatusCode().value()).isEqualTo(401);
+        }
     }
 
     private static HttpHeaders jsonHeaders() {

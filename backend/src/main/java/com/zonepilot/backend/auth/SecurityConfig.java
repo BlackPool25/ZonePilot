@@ -14,9 +14,11 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 public class SecurityConfig {
 
     private final JwtAuthFilter jwtAuthFilter;
+    private final AuthErrorBody authErrorBody;
 
-    public SecurityConfig(JwtAuthFilter jwtAuthFilter) {
+    public SecurityConfig(JwtAuthFilter jwtAuthFilter, AuthErrorBody authErrorBody) {
         this.jwtAuthFilter = jwtAuthFilter;
+        this.authErrorBody = authErrorBody;
     }
 
     @Bean
@@ -31,9 +33,9 @@ public class SecurityConfig {
                 .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .exceptionHandling(e -> e
                         .authenticationEntryPoint((req, res, ex) ->
-                                AuthErrorBody.write(res, 401, "UNAUTHORIZED", "Authentication required"))
+                                authErrorBody.write(res, 401, "UNAUTHORIZED", "Authentication required"))
                         .accessDeniedHandler((req, res, ex) ->
-                                AuthErrorBody.write(res, 403, "FORBIDDEN", "Access denied")))
+                                authErrorBody.write(res, 403, "FORBIDDEN", "Access denied")))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/api/auth/register", "/api/auth/login",
                                 "/api/auth/refresh").permitAll()

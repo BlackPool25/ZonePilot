@@ -25,7 +25,7 @@ public class SosAlert {
     @JsonIgnore
     private DispatchRoute route;
 
-    @Column(nullable = false, columnDefinition = "geometry(Point,4326)")
+    @Column(nullable = true, columnDefinition = "geometry(Point,4326)")
     @JsonIgnore
     private Point location;
 
