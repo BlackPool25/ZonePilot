@@ -53,11 +53,17 @@ export const vehiclesApi = {
   clearRoute: (id) => post(`/vehicles/${id}/clear-route`),
 };
 
-// ─── Depots ───────────────────────────────────────────────────────────
-export const depotsApi = {
-  list: () => get('/depots'),
-  get: (id) => get(`/depots/${id}`),
-  create: (body) => post('/depots', body),
+// ─── Groups ──────────────────────────────────────────────────────────
+export const groupsApi = {
+  list: () => get('/groups'),
+  create: (name) => post('/groups', { name }),
+  detail: (id) => get(`/groups/${id}`),
+  addVehicle: (id, vehicleId) => post(`/groups/${id}/vehicles/${vehicleId}`),
+  addDriver: (id, driverId) => post(`/groups/${id}/drivers/${driverId}`),
+  removeVehicle: (id, vehicleId) => del(`/groups/${id}/vehicles/${vehicleId}`),
+  removeDriver: (id, driverId) => del(`/groups/${id}/drivers/${driverId}`),
+  dispatch: (id, body) => post(`/groups/${id}/dispatch`, body),
+  dispatchSolo: (id, body) => post(`/groups/${id}/dispatch-solo`, body),
 };
 
 // ─── Zones ────────────────────────────────────────────────────────────

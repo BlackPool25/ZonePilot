@@ -58,8 +58,9 @@ public class TraccarIngestService {
     @Transactional
     public void handle(String topic, String payload) {
         String[] seg = topic.split("/");
-        // zonepilot/{depot}/vehicles/{id}/{position|event|status}
-        if (seg.length != 5 || !"zonepilot".equals(seg[0]) || !"vehicles".equals(seg[2])) {
+        // zonepilot/fleet/vehicles/{id}/{position|event|status}
+        if (seg.length != 5 || !"zonepilot".equals(seg[0]) || !"fleet".equals(seg[1])
+                || !"vehicles".equals(seg[2])) {
             log.warn("ingest.reject reason=MALFORMED_TOPIC topic={}", topic);
             return;
         }
@@ -130,13 +131,10 @@ public class TraccarIngestService {
                     PositionSource.TRACCAR);
             state.saveFix(vehicleId, response.getPosition().getLatitude(),
                     response.getPosition().getLongitude(), response.getPosition().getRecordedAt());
-            Vehicle v = vehicle.get();
-            if (v.getDepot() != null) {
-                broadcaster.tick(v.getDepot().getId(), vehicleId,
-                        response.getPosition().getLatitude(), response.getPosition().getLongitude(),
-                        speed, response.getPosition().getRecordedAt(),
-                        Boolean.TRUE.equals(response.getBreachDetected()));
-            }
+            broadcaster.tick(vehicleId,
+                    response.getPosition().getLatitude(), response.getPosition().getLongitude(),
+                    speed, response.getPosition().getRecordedAt(),
+                    Boolean.TRUE.equals(response.getBreachDetected()));
         } catch (DataIntegrityViolationException dup) {
             // QoS1 redelivery of an already-stored (vehicle, recorded_at): benign, ack and move on.
             log.debug("ingest.duplicate vehicle={} ts={}", vehicleId, ts);

@@ -30,7 +30,7 @@ import java.util.List;
 
 /**
  * Slice 2: driver roster, assignment gate (Accept/Start), slips, SOS, doc wall.
- * Client-sent depot ids are untrusted: everything is confined to the JWT depot.
+ * Single-fleet model; group ownership scoping lives in GroupScope.
  */
 @Service
 public class DriverService {
@@ -40,7 +40,6 @@ public class DriverService {
             List.of(AssignmentStatus.ASSIGNED, AssignmentStatus.ACCEPTED, AssignmentStatus.IN_TRANSIT);
 
     private final DriverRepository drivers;
-    private final DepotRepository depots;
     private final DispatchRouteRepository routes;
     private final VehicleDocumentRepository documents;
     private final TripSlipRepository slips;
@@ -48,17 +47,15 @@ public class DriverService {
     private final AppUserRepository users;
     private final VehicleRepository vehicleRepository;
     private final AuthService authService;
-    private final DepotScope depotScope;
     private final GeometryFactory geometryFactory =
             new GeometryFactory(new PrecisionModel(), 4326);
 
-    public DriverService(DriverRepository drivers, DepotRepository depots,
+    public DriverService(DriverRepository drivers,
                          DispatchRouteRepository routes, VehicleDocumentRepository documents,
                          TripSlipRepository slips, SosAlertRepository sosAlerts,
                          AppUserRepository users, VehicleRepository vehicleRepository,
-                         AuthService authService, DepotScope depotScope) {
+                         AuthService authService) {
         this.drivers = drivers;
-        this.depots = depots;
         this.routes = routes;
         this.documents = documents;
         this.slips = slips;
@@ -66,33 +63,27 @@ public class DriverService {
         this.users = users;
         this.vehicleRepository = vehicleRepository;
         this.authService = authService;
-        this.depotScope = depotScope;
     }
 
     @Transactional
     public DriverResponse createDriver(String name, String phone, String licenceNo, LocalDate licenceExpiry,
-                               SalaryMode salaryMode, Long depotId, String email, String password) {
-        requireDepotAccess(depotId);
+                               SalaryMode salaryMode, String email, String password) {
         if (drivers.existsByLicenceNo(licenceNo)) {
             throw new ValidationException("Driver with licence number " + licenceNo + " already exists");
         }
-        Depot depot = depots.findById(depotId)
-                .orElseThrow(() -> new ResourceNotFoundException("Depot", "id", depotId));
-        authService.register(email, password, Role.DRIVER, depotId);
+        authService.register(email, password, Role.DRIVER);
         Driver driver = new Driver();
         driver.setName(name);
         driver.setPhone(phone);
         driver.setLicenceNo(licenceNo);
         driver.setLicenceExpiry(licenceExpiry);
         driver.setSalaryMode(salaryMode);
-        driver.setDepot(depot);
         driver.setUser(users.findByEmail(email.toLowerCase()).orElseThrow());
         return DriverResponse.from(drivers.save(driver));
     }
 
     @Transactional(readOnly = true)
     public List<DriverResponse> listDrivers() {
-        depotScope.apply();
         return drivers.findAll().stream().map(DriverResponse::from).toList();
     }
 
@@ -102,8 +93,6 @@ public class DriverService {
                 .orElseThrow(() -> new ResourceNotFoundException("DispatchRoute", "id", routeId));
         Driver driver = drivers.findById(driverId)
                 .orElseThrow(() -> new ResourceNotFoundException("Driver", "id", driverId));
-        requireDepotAccess(driver);
-        requireDepotAccess(route.getVehicle());
         if (route.getAssignmentStatus() != AssignmentStatus.UNASSIGNED) {
             throw new EligibilityException("Route is already " + route.getAssignmentStatus().name().toLowerCase()
                     + "; unassign before reassigning");
@@ -183,7 +172,6 @@ public class DriverService {
     public DocumentResponse saveDocument(Long vehicleId, DocType type, String docNo, LocalDate expiryDate) {
         Vehicle vehicle = vehicleRepository.findById(vehicleId)
                 .orElseThrow(() -> new ResourceNotFoundException("Vehicle", "id", vehicleId));
-        requireDepotAccess(vehicle);
         VehicleDocument doc = documents.findByVehicleIdAndType(vehicleId, type).orElseGet(VehicleDocument::new);
         doc.setVehicle(vehicle);
         doc.setType(type);
@@ -195,11 +183,7 @@ public class DriverService {
     @Transactional(readOnly = true)
     public List<DocumentResponse> expiringDocs(int days) {
         LocalDate today = LocalDate.now(IST);
-        DepotPrincipal p = DepotScope.current();
         return documents.findExpiringBetween(today, today.plusDays(days)).stream()
-                .filter(d -> p == null || p.isOwner()
-                        || (d.getVehicle().getDepot() != null
-                                && d.getVehicle().getDepot().getId().equals(p.depotId())))
                 .map(DocumentResponse::from)
                 .toList();
     }
@@ -245,23 +229,5 @@ public class DriverService {
                 .orElseThrow(() -> new AccessDeniedException("Unknown driver login")).getId();
         return drivers.findByUserId(userId)
                 .orElseThrow(() -> new AccessDeniedException("No driver profile linked to this login"));
-    }
-
-    private void requireDepotAccess(Driver driver) {
-        requireDepotAccess(driver.getDepot() == null ? null : driver.getDepot().getId());
-    }
-
-    private void requireDepotAccess(Vehicle vehicle) {
-        requireDepotAccess(vehicle.getDepot() == null ? null : vehicle.getDepot().getId());
-    }
-
-    private void requireDepotAccess(Long depotId) {
-        DepotPrincipal p = DepotScope.current();
-        if (p == null || p.isOwner()) {
-            return;
-        }
-        if (depotId == null || !depotId.equals(p.depotId())) {
-            throw new AccessDeniedException("Cross-depot access denied");
-        }
     }
 }

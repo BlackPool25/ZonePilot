@@ -16,9 +16,6 @@ public class CreateVehicleRequest {
     @NotBlank(message = "Owner name is required")
     private String ownerName;
 
-    @NotNull(message = "Depot ID is required")
-    private Long depotId;
-
     private Boolean isActive = true;
 
     public String getRegistrationNumber() { return registrationNumber; }
@@ -27,8 +24,6 @@ public class CreateVehicleRequest {
     public void setVehicleClass(String vehicleClass) { this.vehicleClass = vehicleClass; }
     public String getOwnerName() { return ownerName; }
     public void setOwnerName(String ownerName) { this.ownerName = ownerName; }
-    public Long getDepotId() { return depotId; }
-    public void setDepotId(Long depotId) { this.depotId = depotId; }
     public Boolean getIsActive() { return isActive; }
     public void setIsActive(Boolean isActive) { this.isActive = isActive; }
 }

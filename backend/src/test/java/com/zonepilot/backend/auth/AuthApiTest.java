@@ -1,12 +1,7 @@
 package com.zonepilot.backend.auth;
 
-import com.zonepilot.backend.entity.Depot;
-import com.zonepilot.backend.repository.DepotRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.locationtech.jts.geom.Coordinate;
-import org.locationtech.jts.geom.GeometryFactory;
-import org.locationtech.jts.geom.PrecisionModel;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.client.TestRestTemplate;
@@ -27,8 +22,8 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Slice 1 integration: Flyway V1–V22 migrate for real on our
- * PostGIS/pgRouting image; auth + depot RBAC end to end.
+ * Slice 1 integration: Flyway migrations run for real on our
+ * PostGIS/pgRouting image; auth + single-fleet access end to end.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @Testcontainers
@@ -60,31 +55,12 @@ class AuthApiTest {
     TestRestTemplate rest;
 
     @Autowired
-    DepotRepository depots;
-
-    @Autowired
     AppUserRepository users;
 
-    private final GeometryFactory gf = new GeometryFactory(new PrecisionModel(), 4326);
-
-    private Depot depotA;
-    private Depot depotB;
-
     @BeforeEach
-    void seedDepots() {
+    void seedUsers() {
         // app_user has no child FKs: reset so each test can bootstrap its OWNER.
-        // (Depots/vehicles persist: vehicle + app_user rows FK-reference depots.)
         users.deleteAll();
-        depotA = saveDepot("Depot A HSR " + System.nanoTime(), 12.91, 77.64);
-        depotB = saveDepot("Depot B Peenya " + System.nanoTime(), 13.03, 77.52);
-    }
-
-    private Depot saveDepot(String name, double lat, double lng) {
-        Depot d = new Depot();
-        d.setName(name);
-        d.setAddress(name + " address");
-        d.setLocation(gf.createPoint(new Coordinate(lng, lat)));
-        return depots.save(d);
     }
 
     private String url(String path) {
@@ -130,10 +106,10 @@ class AuthApiTest {
         Map<String, Object> me = Map.of("status", get("/api/auth/me", ownerAccess).getStatusCode().value());
         assertThat(me.get("status")).isEqualTo(200);
 
-        // OWNER creates a dispatcher in depot A
+        // OWNER creates a dispatcher (single fleet, no depot assignment)
         Map<String, Object> regDisp = post("/api/auth/register",
                 Map.of("email", "disp@hsr.test", "password", "disp-pass-1",
-                        "role", "DISPATCHER", "depotId", depotA.getId()), ownerAccess);
+                        "role", "DISPATCHER"), ownerAccess);
         assertThat(regDisp.get("status")).isEqualTo(200);
 
         // wrong password -> 401, not 403
@@ -158,46 +134,32 @@ class AuthApiTest {
 
     @Test
     @SuppressWarnings("unchecked")
-    void crossDepot_is403_andListIsScoped() {
+    void dispatcher_seesWholeFleet() {
         Map<String, Object> regOwner = post("/api/auth/register",
                 Map.of("email", "owner2@zonepilot.io", "password", "owner-pass-1", "role", "OWNER"), null);
         String ownerAccess = dataField(regOwner, "accessToken");
 
         Map<String, Object> regDisp = post("/api/auth/register",
                 Map.of("email", "disp2@hsr.test", "password", "disp-pass-1",
-                        "role", "DISPATCHER", "depotId", depotA.getId()), ownerAccess);
+                        "role", "DISPATCHER"), ownerAccess);
         String dispAccess = dataField(regDisp, "accessToken");
 
-        // OWNER creates one vehicle per depot
         Map<String, Object> vehA = post("/api/auth/register", Map.of(), ownerAccess); // placeholder, replaced below
         assertThat(vehA.get("status")).isEqualTo(400); // validation error path (empty body)
 
         Map<String, Object> createdA = post("/api/vehicles",
                 Map.of("registrationNumber", "KA05-AA-1001", "vehicleClass", "LCV",
-                        "ownerName", "Owner A", "depotId", depotA.getId()), ownerAccess);
+                        "ownerName", "Owner A"), ownerAccess);
         assertThat(createdA.get("status")).isEqualTo(200);
         Map<String, Object> createdB = post("/api/vehicles",
                 Map.of("registrationNumber", "KA05-AA-1002", "vehicleClass", "HCV",
-                        "ownerName", "Owner B", "depotId", depotB.getId()), ownerAccess);
+                        "ownerName", "Owner B"), ownerAccess);
         assertThat(createdB.get("status")).isEqualTo(200);
 
-        Map<String, Object> bodyB = (Map<String, Object>) createdB.get("body");
-        Map<String, Object> dataB = (Map<String, Object>) bodyB.get("data");
-        long vehBId = ((Number) dataB.get("id")).longValue();
-
-        // dispatcher of A reads vehicle of B -> 403
-        assertThat(get("/api/vehicles/" + vehBId, dispAccess).getStatusCode().value()).isEqualTo(403);
-
-        // dispatcher of A creates vehicle in B -> 403, client depot id untrusted
-        Map<String, Object> crossCreate = post("/api/vehicles",
-                Map.of("registrationNumber", "KA05-AA-1003", "vehicleClass", "LCV",
-                        "ownerName", "Sneaky", "depotId", depotB.getId()), dispAccess);
-        assertThat(crossCreate.get("status")).isEqualTo(403);
-
-        // list as dispatcher A is depot-scoped (only A's vehicle visible)
+        // single fleet: dispatcher sees every vehicle
         ResponseEntity<String> list = get("/api/vehicles", dispAccess);
         assertThat(list.getStatusCode().value()).isEqualTo(200);
         assertThat(list.getBody()).contains("KA05-AA-1001");
-        assertThat(list.getBody()).doesNotContain("KA05-AA-1002");
+        assertThat(list.getBody()).contains("KA05-AA-1002");
     }
 }

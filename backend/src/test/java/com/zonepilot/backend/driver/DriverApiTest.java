@@ -1,11 +1,9 @@
 package com.zonepilot.backend.driver;
 
-import com.zonepilot.backend.entity.Depot;
 import com.zonepilot.backend.entity.DispatchRoute;
 import com.zonepilot.backend.entity.Vehicle;
 import com.zonepilot.backend.enums.RouteStatus;
 import com.zonepilot.backend.auth.AppUserRepository;
-import com.zonepilot.backend.repository.DepotRepository;
 import com.zonepilot.backend.repository.DispatchRouteRepository;
 import com.zonepilot.backend.repository.DriverRepository;
 import com.zonepilot.backend.repository.SosAlertRepository;
@@ -73,8 +71,6 @@ class DriverApiTest {
     @Autowired
     TestRestTemplate rest;
     @Autowired
-    DepotRepository depots;
-    @Autowired
     VehicleRepository vehicles;
     @Autowired
     DispatchRouteRepository routes;
@@ -90,34 +86,23 @@ class DriverApiTest {
     private final GeometryFactory gf = new GeometryFactory(new PrecisionModel(), 4326);
 
     private String ownerToken;
-    private Depot depotA;
     private Vehicle vehicleA;
 
     @BeforeEach
     void setup() {
-        // FK order: sos/slips -> routes -> drivers -> users. Depots/vehicles accumulate.
+        // FK order: sos/slips -> routes -> drivers -> users.
         sosAlertRepository.deleteAll();
         slipRepository.deleteAll();
         routes.deleteAll();
         driverRepository.deleteAll();
         userRepository.deleteAll();
-        saveDepot("DriverSpec B " + System.nanoTime()); // second depot exists for cross-depot tests
-        depotA = saveDepot("DriverSpec A " + System.nanoTime());
         ownerToken = registerOwner("owner-drv-" + System.nanoTime() + "@test.io");
 
         Map<String, Object> created = post("/api/vehicles",
                 Map.of("registrationNumber", "KA09-DRV-" + (System.nanoTime() % 100000),
-                        "vehicleClass", "LCV", "ownerName", "Owner", "depotId", depotA.getId()), ownerToken);
+                        "vehicleClass", "LCV", "ownerName", "Owner"), ownerToken);
         assertThat(created.get("status")).isEqualTo(200);
         vehicleA = vehicles.findById(dataId(created)).orElseThrow();
-    }
-
-    private Depot saveDepot(String name) {
-        Depot d = new Depot();
-        d.setName(name);
-        d.setAddress(name);
-        d.setLocation(gf.createPoint(new Coordinate(77.64, 12.91)));
-        return depots.save(d);
     }
 
     private String url(String path) {
@@ -166,7 +151,7 @@ class DriverApiTest {
     }
 
     /** Creates driver + login; returns {driverId, token}. */
-    private Map<String, Object> createDriver(String tag, Long depotId, String licenceExpiry) {
+    private Map<String, Object> createDriver(String tag, String licenceExpiry) {
         String email = "drv-" + tag + "@test.io";
         Map<String, Object> res = post("/api/drivers", Map.of(
                 "name", "Driver " + tag,
@@ -174,7 +159,6 @@ class DriverApiTest {
                 "licenceNo", "LIC-" + tag,
                 "licenceExpiry", licenceExpiry,
                 "salaryMode", "PER_TRIP",
-                "depotId", depotId,
                 "email", email,
                 "password", "driver-pass-1"), ownerToken);
         assertThat(res.get("status")).isEqualTo(200);
@@ -198,7 +182,7 @@ class DriverApiTest {
     @Test
     void assign_accept_start_slip_sos_happyPath() throws Exception {
         String tag = "a" + System.nanoTime();
-        Map<String, Object> driver = createDriver(tag, depotA.getId(), LocalDate.now().plusYears(2).toString());
+        Map<String, Object> driver = createDriver(tag, LocalDate.now().plusYears(2).toString());
         DispatchRoute route = saveRoute(vehicleA);
 
         Map<String, Object> assigned = post("/api/routes/" + route.getId() + "/assign",
@@ -220,7 +204,7 @@ class DriverApiTest {
     @Test
     void sos_withoutLocation_is201NullLocation() {
         String tag = "n" + System.nanoTime();
-        Map<String, Object> driver = createDriver(tag, depotA.getId(), LocalDate.now().plusYears(2).toString());
+        Map<String, Object> driver = createDriver(tag, LocalDate.now().plusYears(2).toString());
         Map<String, Object> res = post("/api/driver/sos", Map.of(), (String) driver.get("token"));
         assertThat(res.get("status")).isEqualTo(200);
         assertThat(data(res).get("location")).isNull();
@@ -254,9 +238,9 @@ class DriverApiTest {
     @Test
     void strangerDriver_accept_is403() throws Exception {
         Map<String, Object> driverA = createDriver("d" + System.nanoTime(),
-                depotA.getId(), LocalDate.now().plusYears(2).toString());
+                LocalDate.now().plusYears(2).toString());
         Map<String, Object> driverB = createDriver("e" + System.nanoTime(),
-                depotA.getId(), LocalDate.now().plusYears(2).toString());
+                LocalDate.now().plusYears(2).toString());
         DispatchRoute route = saveRoute(vehicleA);
         assertThat(post("/api/routes/" + route.getId() + "/assign",
                 Map.of("driverId", driverA.get("driverId")), ownerToken).get("status")).isEqualTo(200);
@@ -269,7 +253,7 @@ class DriverApiTest {
     @Test
     void expiredLicence_blocksAssign_withReason() throws Exception {
         Map<String, Object> driver = createDriver("c" + System.nanoTime(),
-                depotA.getId(), LocalDate.now().minusDays(10).toString());
+                LocalDate.now().minusDays(10).toString());
         DispatchRoute route = saveRoute(vehicleA);
 
         Map<String, Object> assigned = post("/api/routes/" + route.getId() + "/assign",

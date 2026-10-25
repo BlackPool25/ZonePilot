@@ -8,6 +8,7 @@ import Breaches from './pages/Breaches.jsx';
 import Reports from './pages/Reports.jsx';
 import Simulation from './pages/Simulation.jsx';
 import Driver from './pages/Driver.jsx';
+import Groups from './pages/Groups.jsx';
 
 export const router = createBrowserRouter([
   {
@@ -22,6 +23,7 @@ export const router = createBrowserRouter([
       { path: 'reports', element: <Reports /> },
       { path: 'simulation', element: <Simulation /> },
       { path: 'driver', element: <Driver /> },
+      { path: 'groups', element: <Groups /> },
     ],
   },
 ]);

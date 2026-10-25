@@ -32,7 +32,7 @@ public class AuthController {
     public ResponseEntity<ApiResponse<TokenResponse>> register(@Valid @RequestBody RegisterRequest request) {
         AuthService.TokenPair pair = authService.register(
                 request.getEmail(), request.getPassword(),
-                Role.valueOf(request.getRole()), request.getDepotId());
+                Role.valueOf(request.getRole()));
         return ResponseEntity.ok(ApiResponse.success(new TokenResponse(pair.accessToken(), pair.refreshToken())));
     }
 
@@ -57,7 +57,6 @@ public class AuthController {
         MeResponse me = new MeResponse();
         me.setEmail(p.username());
         me.setRole(p.role().name());
-        me.setDepotId(p.depotId());
         return ResponseEntity.ok(ApiResponse.success(me));
     }
 }

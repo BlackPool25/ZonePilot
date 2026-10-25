@@ -142,10 +142,8 @@ public class PositionTrackingService {
         }
 
         // Slice 3: every accepted fix fans out as a derived tick frame.
-        if (vehicle.getDepot() != null) {
-            broadcaster.tick(vehicle.getDepot().getId(), vehicleId, finalLat, finalLng,
-                    speedKmh, recordedAt, Boolean.TRUE.equals(response.getBreachDetected()));
-        }
+        broadcaster.tick(vehicleId, finalLat, finalLng,
+                speedKmh, recordedAt, Boolean.TRUE.equals(response.getBreachDetected()));
 
         return response;
     }
@@ -287,14 +285,10 @@ public class PositionTrackingService {
                             .orElseThrow(() -> new ResourceNotFoundException("Vehicle", "id", vehicleId));
                     com.zonepilot.backend.dto.response.PositionResponse r = new com.zonepilot.backend.dto.response.PositionResponse();
                     r.setVehicleId(vehicleId);
-                    if (vehicle.getDepot() != null && vehicle.getDepot().getLocation() != null) {
-                        r.setLatitude(vehicle.getDepot().getLocation().getY());
-                        r.setLongitude(vehicle.getDepot().getLocation().getX());
-                    }
                     r.setRecordedAt(vehicle.getCreatedAt());
                     r.setSpeedKmh(java.math.BigDecimal.ZERO);
                     r.setHeadingDeg((short) 0);
-                    r.setSource("DEPOT");
+                    r.setSource("NONE");
                     return r;
                 });
     }

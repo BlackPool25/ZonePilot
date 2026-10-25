@@ -2,12 +2,10 @@ package com.zonepilot.backend.entity;
 
 import com.zonepilot.backend.enums.VehicleClass;
 import jakarta.persistence.*;
-import org.hibernate.annotations.Filter;
 import java.time.Instant;
 
 @Entity
 @Table(name = "vehicle")
-@Filter(name = "depotFilter", condition = "depot_id = :depotId")
 public class Vehicle {
 
     @Id
@@ -23,10 +21,6 @@ public class Vehicle {
 
     @Column(name = "owner_name", nullable = false, length = 100)
     private String ownerName;
-
-    @ManyToOne(fetch = FetchType.EAGER)
-    @JoinColumn(name = "depot_id", nullable = false)
-    private Depot depot;
 
     @Column(name = "is_active", nullable = false)
     private Boolean isActive = true;
@@ -50,8 +44,6 @@ public class Vehicle {
     public void setVehicleClass(VehicleClass vehicleClass) { this.vehicleClass = vehicleClass; }
     public String getOwnerName() { return ownerName; }
     public void setOwnerName(String ownerName) { this.ownerName = ownerName; }
-    public Depot getDepot() { return depot; }
-    public void setDepot(Depot depot) { this.depot = depot; }
     public Boolean getIsActive() { return isActive; }
     public void setIsActive(Boolean isActive) { this.isActive = isActive; }
     public Long getActiveDispatchRouteId() { return activeDispatchRouteId; }

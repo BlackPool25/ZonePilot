@@ -14,7 +14,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
-/** Slice 2 dispatcher/owner roster endpoints. Depot-scoping is enforced in the service. */
+/** Slice 2 dispatcher/owner roster endpoints. */
 @RestController
 @RequestMapping("/api/drivers")
 @Tag(name = "Drivers", description = "Slice 2 driver roster endpoints")
@@ -33,11 +33,11 @@ public class DriverController {
         return ResponseEntity.ok(ApiResponse.success(driverService.createDriver(
                 request.getName(), request.getPhone(), request.getLicenceNo(),
                 request.getLicenceExpiry(), SalaryMode.valueOf(request.getSalaryMode()),
-                request.getDepotId(), request.getEmail(), request.getPassword())));
+                request.getEmail(), request.getPassword())));
     }
 
     @GetMapping
-    @Operation(summary = "List drivers in the caller's depot")
+    @Operation(summary = "List all drivers")
     public ResponseEntity<ApiResponse<List<DriverResponse>>> listDrivers() {
         return ResponseEntity.ok(ApiResponse.success(driverService.listDrivers()));
     }

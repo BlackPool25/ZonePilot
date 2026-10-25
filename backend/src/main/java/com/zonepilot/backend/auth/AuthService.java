@@ -1,9 +1,7 @@
 package com.zonepilot.backend.auth;
 
-import com.zonepilot.backend.entity.Depot;
 import com.zonepilot.backend.exception.ResourceNotFoundException;
 import com.zonepilot.backend.exception.ValidationException;
-import com.zonepilot.backend.repository.DepotRepository;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -23,27 +21,24 @@ import java.util.HexFormat;
 public class AuthService {
 
     private final AppUserRepository users;
-    private final DepotRepository depots;
     private final PasswordEncoder passwords;
     private final JwtService jwt;
 
-    public AuthService(AppUserRepository users, DepotRepository depots,
+    public AuthService(AppUserRepository users,
                        PasswordEncoder passwords, JwtService jwt) {
         this.users = users;
-        this.depots = depots;
         this.passwords = passwords;
         this.jwt = jwt;
     }
 
     @Transactional
-    public TokenPair register(String email, String rawPassword, Role role, Long depotId) {
+    public TokenPair register(String email, String rawPassword, Role role) {
         DepotPrincipal caller = DepotScope.current();
         if (users.count() > 0) {
-            // OWNER manages everyone; DISPATCHER manages DRIVER logins in their own depot.
+            // OWNER manages everyone; DISPATCHER manages DRIVER logins only.
             boolean ownerCall = caller != null && caller.isOwner();
             boolean dispatcherDriverCall = caller != null && !caller.isOwner()
-                    && role == Role.DISPATCHER && caller.depotId() != null
-                    && caller.depotId().equals(depotId);
+                    && role == Role.DRIVER;
             if (!ownerCall && !dispatcherDriverCall) {
                 throw new AccessDeniedException("Only OWNER can create users");
             }
@@ -58,16 +53,10 @@ public class AuthService {
         if (users.existsByEmail(normalized)) {
             throw new ValidationException("Email already registered");
         }
-        Depot depot = null;
-        if (role != Role.OWNER) {
-            depot = depots.findById(depotId)
-                    .orElseThrow(() -> new ResourceNotFoundException("Depot", "id", depotId));
-        }
         AppUser user = new AppUser();
         user.setEmail(normalized);
         user.setPasswordHash(passwords.encode(rawPassword));
         user.setRole(role);
-        user.setDepot(depot);
         users.save(user);
         return issueTokens(user);
     }
@@ -101,9 +90,8 @@ public class AuthService {
     }
 
     private TokenPair issueTokens(AppUser user) {
-        Long depotId = user.getDepot() == null ? null : user.getDepot().getId();
-        String access = jwt.generateAccessToken(user.getEmail(), depotId, user.getRole().name());
-        String refresh = jwt.generateRefreshToken(user.getEmail(), depotId);
+        String access = jwt.generateAccessToken(user.getEmail(), null, user.getRole().name());
+        String refresh = jwt.generateRefreshToken(user.getEmail(), null);
         user.setRefreshTokenHash(sha256(refresh));
         user.setRefreshExpiresAt(jwt.expiryOf(refresh));
         users.save(user);

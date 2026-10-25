@@ -1,6 +1,6 @@
 import { Client } from '@stomp/stompjs';
 
-// Slice 3: live position ticks over STOMP (/topic/depots/{id}).
+// Slice 3: live position ticks over STOMP (/topic/fleet).
 // Falls back to HTTP polling when the socket is unreachable.
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'https://zonepilot-backend.onrender.com';
 
@@ -12,7 +12,7 @@ function brokerUrl() {
   return u.toString();
 }
 
-export function connectTicks(depotId, onTick) {
+export function connectTicks(onTick) {
   const client = new Client({
     brokerURL: brokerUrl(),
     reconnectDelay: 5000,
@@ -20,7 +20,7 @@ export function connectTicks(depotId, onTick) {
     heartbeatOutgoing: 10000,
   });
   client.onConnect = () => {
-    client.subscribe(`/topic/depots/${depotId}`, (msg) => {
+    client.subscribe('/topic/fleet', (msg) => {
       try {
         onTick(JSON.parse(msg.body));
       } catch {

@@ -105,12 +105,6 @@ export default function RouteDrawer({ entityId, data: initialData }) {
             <span className="drawer-row-label">Owner</span>
             <span className="drawer-row-value">{vehicle.ownerName}</span>
           </div>
-          {vehicle.depot && (
-            <div className="drawer-row">
-              <span className="drawer-row-label">Depot</span>
-              <span className="drawer-row-value">{vehicle.depot.name}</span>
-            </div>
-          )}
         </div>
       )}
 

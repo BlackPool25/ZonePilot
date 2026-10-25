@@ -8,7 +8,7 @@ import org.springframework.stereotype.Service;
 
 /**
  * Slice 3: broadcasts derived state (never raw echo) to the ops board and
- * driver app on {@code /topic/depots/{depotId}}.
+ * driver app on the single fleet-wide topic {@code /topic/fleet}.
  */
 @Service
 public class TickBroadcaster {
@@ -19,9 +19,9 @@ public class TickBroadcaster {
         this.messaging = messaging;
     }
 
-    public void tick(long depotId, long vehicleId, double lat, double lng,
+    public void tick(long vehicleId, double lat, double lng,
                      BigDecimal speedKmh, Instant recordedAt, boolean breachDetected) {
-        messaging.convertAndSend("/topic/depots/" + depotId, Map.of(
+        messaging.convertAndSend("/topic/fleet", Map.of(
                 "type", "tick",
                 "vehicleId", vehicleId,
                 "lat", lat,

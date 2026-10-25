@@ -1,10 +1,8 @@
 package com.zonepilot.backend.it;
 
 import com.zonepilot.backend.auth.AppUserRepository;
-import com.zonepilot.backend.entity.Depot;
 import com.zonepilot.backend.entity.Vehicle;
 import com.zonepilot.backend.enums.VehicleClass;
-import com.zonepilot.backend.repository.DepotRepository;
 import com.zonepilot.backend.repository.VehicleRepository;
 import java.nio.file.Paths;
 import java.util.Map;
@@ -70,8 +68,6 @@ public abstract class SliceIT {
     @Autowired
     protected TestRestTemplate rest;
     @Autowired
-    protected DepotRepository depots;
-    @Autowired
     protected VehicleRepository vehicles;
     @Autowired
     protected AppUserRepository users;
@@ -118,20 +114,11 @@ public abstract class SliceIT {
         return String.valueOf(data(reg).get("accessToken"));
     }
 
-    protected Depot saveDepot(String name) {
-        Depot d = new Depot();
-        d.setName(name);
-        d.setAddress(name);
-        d.setLocation(gf.createPoint(new Coordinate(77.64, 12.91)));
-        return depots.save(d);
-    }
-
-    protected Vehicle saveVehicle(Depot depot, String reg) {
+    protected Vehicle saveVehicle(String reg) {
         Vehicle v = new Vehicle();
         v.setRegistrationNumber(reg);
         v.setVehicleClass(VehicleClass.LCV);
         v.setOwnerName("IT Owner");
-        v.setDepot(depot);
         v.setIsActive(true);
         return vehicles.save(v);
     }

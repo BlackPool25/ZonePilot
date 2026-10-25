@@ -17,8 +17,6 @@ public class CreateDriverRequest {
     private LocalDate licenceExpiry;
     @Pattern(regexp = "PER_TRIP|MONTHLY")
     private String salaryMode = "PER_TRIP";
-    @NotNull
-    private Long depotId;
     @Email
     @NotBlank
     private String email;
@@ -35,8 +33,6 @@ public class CreateDriverRequest {
     public void setLicenceExpiry(LocalDate licenceExpiry) { this.licenceExpiry = licenceExpiry; }
     public String getSalaryMode() { return salaryMode; }
     public void setSalaryMode(String salaryMode) { this.salaryMode = salaryMode; }
-    public Long getDepotId() { return depotId; }
-    public void setDepotId(Long depotId) { this.depotId = depotId; }
     public String getEmail() { return email; }
     public void setEmail(String email) { this.email = email; }
     public String getPassword() { return password; }

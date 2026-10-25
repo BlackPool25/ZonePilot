@@ -77,6 +77,7 @@ const NAV_ITEMS = [
   { to: '/reports',    icon: ICONS.reports,    label: 'Reports'    },
   { to: '/simulation', icon: ICONS.simulation, label: 'Simulation' },
   { to: '/driver', icon: ICONS.vehicles, label: 'Driver' },
+  { to: '/groups', icon: ICONS.vehicles, label: 'Groups' },
 ];
 
 export default function AppShell() {

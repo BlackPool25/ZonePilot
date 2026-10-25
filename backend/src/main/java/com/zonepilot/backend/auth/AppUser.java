@@ -1,6 +1,5 @@
 package com.zonepilot.backend.auth;
 
-import com.zonepilot.backend.entity.Depot;
 import jakarta.persistence.*;
 import java.time.Instant;
 
@@ -21,10 +20,6 @@ public class AppUser {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     private Role role;
-
-    @ManyToOne(fetch = FetchType.EAGER)
-    @JoinColumn(name = "depot_id")
-    private Depot depot;
 
     @Column(name = "is_active", nullable = false)
     private Boolean isActive = true;
@@ -52,8 +47,6 @@ public class AppUser {
     public void setPasswordHash(String passwordHash) { this.passwordHash = passwordHash; }
     public Role getRole() { return role; }
     public void setRole(Role role) { this.role = role; }
-    public Depot getDepot() { return depot; }
-    public void setDepot(Depot depot) { this.depot = depot; }
     public Boolean getIsActive() { return isActive; }
     public void setIsActive(Boolean isActive) { this.isActive = isActive; }
     public String getRefreshTokenHash() { return refreshTokenHash; }

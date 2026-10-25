@@ -5,28 +5,21 @@ import com.zonepilot.backend.auth.AppUser;
 import com.zonepilot.backend.auth.Role;
 import com.zonepilot.backend.enums.SalaryMode;
 import jakarta.persistence.*;
-import org.hibernate.annotations.Filter;
 import java.time.Instant;
 import java.time.LocalDate;
 
 /**
- * Slice 2 driver roster. Depot-scoped via {@code depotFilter}; login optional
+ * Slice 2 driver roster. Single-fleet model: login optional
  * (record-only drivers cannot use driver endpoints until linked).
  */
 @Entity
 @Table(name = "driver",
         uniqueConstraints = @UniqueConstraint(columnNames = "licence_no"))
-@Filter(name = "depotFilter", condition = "depot_id = :depotId")
 public class Driver {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
-
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "depot_id", nullable = false)
-    @JsonIgnore
-    private Depot depot;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "user_id")
@@ -69,8 +62,6 @@ public class Driver {
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
-    public Depot getDepot() { return depot; }
-    public void setDepot(Depot depot) { this.depot = depot; }
     public AppUser getUser() { return user; }
     public void setUser(AppUser user) { this.user = user; }
     public String getName() { return name; }

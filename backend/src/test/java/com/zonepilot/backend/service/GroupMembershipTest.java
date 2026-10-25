@@ -1,6 +1,5 @@
 package com.zonepilot.backend.service;
 
-import com.zonepilot.backend.entity.Depot;
 import com.zonepilot.backend.entity.Driver;
 import com.zonepilot.backend.entity.FleetGroup;
 import com.zonepilot.backend.entity.GroupDriver;
@@ -13,7 +12,6 @@ import com.zonepilot.backend.repository.FleetGroupRepository;
 import com.zonepilot.backend.repository.GroupDriverRepository;
 import com.zonepilot.backend.repository.GroupVehicleRepository;
 import org.junit.jupiter.api.Test;
-import org.locationtech.jts.geom.Coordinate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
 
@@ -34,23 +32,16 @@ public class GroupMembershipTest extends SliceIT {
     private DriverRepository drivers;
 
     private Vehicle mkVehicle() {
-        Depot depot = new Depot();
-        depot.setName("Test Depot");
-        depot.setAddress("Test Address");
-        depot.setLocation(gf.createPoint(new Coordinate(77.6, 12.9)));
-        depots.save(depot);
         Vehicle v = new Vehicle();
         v.setRegistrationNumber("KA01-GRP-" + Math.abs(System.nanoTime() % 100000));
         v.setVehicleClass(VehicleClass.LCV);
         v.setOwnerName("Owner");
-        v.setDepot(depot);
         v.setIsActive(true);
         return vehicles.save(v);
     }
 
-    private Driver mkDriver(Depot depot) {
+    private Driver mkDriver() {
         Driver d = new Driver();
-        d.setDepot(depot);
         d.setName("Driver");
         d.setLicenceNo("LIC-" + Math.abs(System.nanoTime()));
         return drivers.save(d);
@@ -76,7 +67,7 @@ public class GroupMembershipTest extends SliceIT {
     void duplicateDriverMembership_rejected() {
         FleetGroup g = mkGroup();
         Vehicle v = mkVehicle();
-        Driver d = mkDriver(v.getDepot());
+        Driver d = mkDriver();
         groupDrivers.save(new GroupDriver(g, d));
         assertThrows(DataIntegrityViolationException.class,
                 () -> groupDrivers.saveAndFlush(new GroupDriver(g, d)));

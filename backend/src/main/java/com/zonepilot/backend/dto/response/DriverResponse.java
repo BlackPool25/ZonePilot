@@ -10,7 +10,6 @@ public class DriverResponse {
     private String licenceNo;
     private String licenceExpiry;
     private String salaryMode;
-    private Long depotId;
     private Boolean isActive;
 
     public static DriverResponse from(Driver d) {
@@ -21,7 +20,6 @@ public class DriverResponse {
         r.licenceNo = d.getLicenceNo();
         r.licenceExpiry = d.getLicenceExpiry() == null ? null : d.getLicenceExpiry().toString();
         r.salaryMode = d.getSalaryMode().name();
-        r.depotId = d.getDepot() == null ? null : d.getDepot().getId();
         r.isActive = d.getIsActive();
         return r;
     }
@@ -32,6 +30,5 @@ public class DriverResponse {
     public String getLicenceNo() { return licenceNo; }
     public String getLicenceExpiry() { return licenceExpiry; }
     public String getSalaryMode() { return salaryMode; }
-    public Long getDepotId() { return depotId; }
     public Boolean getIsActive() { return isActive; }
 }

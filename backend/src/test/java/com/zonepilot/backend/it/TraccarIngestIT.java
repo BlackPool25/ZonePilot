@@ -94,9 +94,8 @@ class TraccarIngestIT extends SliceIT {
 
     @Test
     void traccarPosition_reachesDb_eventSurvives_redeliveryDedupes_teleportQuarantines() throws Exception {
-        var depot = saveDepot("Ingest Depot " + System.nanoTime());
-        Vehicle vehicle = saveVehicle(depot, "KA09- mqtt-" + (System.nanoTime() % 100000));
-        String topic = "zonepilot/" + depot.getId() + "/vehicles/" + vehicle.getId() + "/position";
+        Vehicle vehicle = saveVehicle("KA09- mqtt-" + (System.nanoTime() % 100000));
+        String topic = "zonepilot/fleet/vehicles/" + vehicle.getId() + "/position";
 
         // 1. fixture position (ts = now, so quality + blind-box pass)
         long ts = Instant.now().toEpochMilli();
@@ -132,7 +131,7 @@ class TraccarIngestIT extends SliceIT {
         // 4. contract event fixture: accepted without breaking the pipeline
         String event = fixture("event", vehicle.getId())
                 .replaceAll("\"ts\":\\s*\\d+", "\"ts\": " + (ts2 + 1000));
-        publish("zonepilot/" + depot.getId() + "/vehicles/" + vehicle.getId() + "/event", event);
+        publish("zonepilot/fleet/vehicles/" + vehicle.getId() + "/event", event);
         Thread.sleep(2000);
         assertThat(positionLogs.findByVehicleIdAndRecordedAtBetween(
                 vehicle.getId(), Instant.ofEpochMilli(0), Instant.ofEpochMilli(ts2 + 60_000))).hasSize(1);
@@ -169,9 +168,8 @@ class TraccarIngestIT extends SliceIT {
 
     @Test
     void malformedPayload_quarantinesInsteadOfBreaking() throws Exception {
-        var depot = saveDepot("Ingest Depot " + System.nanoTime());
-        Vehicle vehicle = saveVehicle(depot, "KA09-MAL-" + (System.nanoTime() % 100000));
-        publish("zonepilot/" + depot.getId() + "/vehicles/" + vehicle.getId() + "/position", "{not json");
+        Vehicle vehicle = saveVehicle("KA09-MAL-" + (System.nanoTime() % 100000));
+        publish("zonepilot/fleet/vehicles/" + vehicle.getId() + "/position", "{not json");
         awaitCondition("quarantine row", () -> quarantine.countByVehicleId(vehicle.getId()) == 1);
         assertThat(quarantine.findByVehicleIdOrderByCreatedAtDesc(vehicle.getId()).get(0).getReason())
                 .isEqualTo("MALFORMED_JSON");

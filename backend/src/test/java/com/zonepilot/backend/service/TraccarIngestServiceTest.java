@@ -1,7 +1,6 @@
 package com.zonepilot.backend.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.zonepilot.backend.entity.Depot;
 import com.zonepilot.backend.entity.Vehicle;
 import com.zonepilot.backend.enums.PositionSource;
 import com.zonepilot.backend.dto.response.PositionRecordResponse;
@@ -13,9 +12,6 @@ import java.time.Instant;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.locationtech.jts.geom.Coordinate;
-import org.locationtech.jts.geom.GeometryFactory;
-import org.locationtech.jts.geom.PrecisionModel;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
@@ -42,18 +38,12 @@ class TraccarIngestServiceTest {
 
     @InjectMocks TraccarIngestService ingest;
 
-    private static final String TOPIC = "zonepilot/9/vehicles/7/position";
+    private static final String TOPIC = "zonepilot/fleet/vehicles/7/position";
 
     private Vehicle vehicleWithDepot() {
         Vehicle v = new Vehicle();
+        v.setId(7L);
         v.setIsActive(true);
-        Depot d = new Depot();
-        d.setName("D");
-        d.setAddress("D");
-        d.setLocation(new GeometryFactory(new PrecisionModel(), 4326)
-                .createPoint(new Coordinate(77.64, 12.91)));
-        d.setId(9L);
-        v.setDepot(d);
         return v;
     }
 
@@ -71,16 +61,16 @@ class TraccarIngestServiceTest {
 
     @Test
     void malformedTopic_isIgnored() {
-        ingest.handle("zonepilot/9/vehicles", "{}");
+        ingest.handle("zonepilot/fleet/vehicles", "{}");
         ingest.handle("other/9/vehicles/7/position", "{}");
-        ingest.handle("zonepilot/9/vehicles/abc/position", "{}");
-        ingest.handle("zonepilot/9/vehicles/7/ping", "{}");
+        ingest.handle("zonepilot/fleet/vehicles/abc/position", "{}");
+        ingest.handle("zonepilot/fleet/vehicles/7/ping", "{}");
         verifyNoInteractions(vehicles, positions, quarantine, broadcaster);
     }
 
     @Test
     void statusEvent_isLoggedNotStored() {
-        ingest.handle("zonepilot/9/vehicles/7/status", "{\"ignition\":true}");
+        ingest.handle("zonepilot/fleet/vehicles/7/status", "{\"ignition\":true}");
         verifyNoInteractions(vehicles, positions, quarantine, broadcaster);
     }
 
@@ -147,7 +137,7 @@ class TraccarIngestServiceTest {
         ingest.handle(TOPIC,
                 "{\"vehicleId\":7,\"lat\":12.9352,\"lon\":77.6245,\"ts\":1700000000000,\"speedKmh\":11.1}");
         verify(state).saveFix(7L, 12.9352, 77.6245, ts);
-        verify(broadcaster).tick(eq(9L), eq(7L), eq(12.9352), eq(77.6245),
+        verify(broadcaster).tick(eq(7L), eq(12.9352), eq(77.6245),
                 eq(new BigDecimal("11.1")), eq(ts), eq(false));
         verify(quarantine, never()).save(any());
     }

@@ -53,9 +53,8 @@ export default function Dashboard() {
   // Slice 3: live ticks merge into the same positions map the map renders;
   // the 10s HTTP poll above stays as the reconnect-gap fallback.
   useEffect(() => {
-    const depotIds = [...new Set(vehicles.map(v => v.depotId).filter(Boolean))];
-    if (depotIds.length === 0) return undefined;
-    const disconnects = depotIds.map(depotId => connectTicks(depotId, (tick) => {
+    if (vehicles.length === 0) return undefined;
+    const disconnect = connectTicks((tick) => {
       if (tick.type !== 'tick' || tick.vehicleId == null) return;
       setPositions(prev => ({
         ...prev,
@@ -67,8 +66,8 @@ export default function Dashboard() {
           recordedAt: tick.recordedAt,
         },
       }));
-    }));
-    return () => disconnects.forEach(d => d());
+    });
+    return () => disconnect();
   }, [vehicles]);
 
   function handleVehicleClick(vehicle) {

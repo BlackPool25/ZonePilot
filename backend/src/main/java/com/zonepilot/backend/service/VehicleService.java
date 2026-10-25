@@ -2,16 +2,11 @@ package com.zonepilot.backend.service;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.zonepilot.backend.auth.DepotPrincipal;
-import com.zonepilot.backend.auth.DepotScope;
-import com.zonepilot.backend.entity.Depot;
 import com.zonepilot.backend.entity.Vehicle;
 import com.zonepilot.backend.entity.ZoneRestriction;
 import com.zonepilot.backend.entity.ZoneRestrictionRule;
 import com.zonepilot.backend.enums.VehicleClass;
 import com.zonepilot.backend.exception.ResourceNotFoundException;
-import com.zonepilot.backend.repository.DepotRepository;
-import org.springframework.security.access.AccessDeniedException;
 import com.zonepilot.backend.repository.VehicleRepository;
 import com.zonepilot.backend.repository.ZoneRestrictionRepository;
 import com.zonepilot.backend.repository.ZoneRestrictionRuleRepository;
@@ -33,24 +28,18 @@ import java.util.stream.Collectors;
 public class VehicleService {
 
     private final VehicleRepository vehicleRepository;
-    private final DepotRepository depotRepository;
     private final ZoneRestrictionRepository zoneRestrictionRepository;
     private final ZoneRestrictionRuleRepository zoneRestrictionRuleRepository;
-    private final DepotScope depotScope;
     private final GeometryFactory geometryFactory;
     private final GeoJsonWriter geoJsonWriter;
     private final ObjectMapper objectMapper;
 
     public VehicleService(VehicleRepository vehicleRepository,
-                          DepotRepository depotRepository,
                           ZoneRestrictionRepository zoneRestrictionRepository,
-                          ZoneRestrictionRuleRepository zoneRestrictionRuleRepository,
-                          DepotScope depotScope) {
+                          ZoneRestrictionRuleRepository zoneRestrictionRuleRepository) {
         this.vehicleRepository = vehicleRepository;
-        this.depotRepository = depotRepository;
         this.zoneRestrictionRepository = zoneRestrictionRepository;
         this.zoneRestrictionRuleRepository = zoneRestrictionRuleRepository;
-        this.depotScope = depotScope;
         this.geometryFactory = new GeometryFactory(new PrecisionModel(), 4326);
         this.geoJsonWriter = new GeoJsonWriter();
         this.objectMapper = new ObjectMapper();
@@ -58,7 +47,6 @@ public class VehicleService {
 
     public List<com.zonepilot.backend.dto.response.VehicleResponse> getAllVehicles(
             VehicleClass vehicleClass, Boolean isActive) {
-        depotScope.apply();
         List<Vehicle> vehicles;
         if (vehicleClass != null && isActive != null) {
             vehicles = vehicleRepository.findByVehicleClassAndIsActive(vehicleClass, isActive);
@@ -73,27 +61,21 @@ public class VehicleService {
     public com.zonepilot.backend.dto.response.VehicleResponse getVehicleById(Long id) {
         Vehicle vehicle = vehicleRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Vehicle", "id", id));
-        requireDepotAccess(vehicle);
         return toResponse(vehicle);
     }
 
     @Transactional
     public com.zonepilot.backend.dto.response.VehicleResponse createVehicle(
             com.zonepilot.backend.dto.request.CreateVehicleRequest request) {
-        requireDepotAccess(request.getDepotId());
         if (vehicleRepository.existsByRegistrationNumber(request.getRegistrationNumber())) {
             throw new com.zonepilot.backend.exception.ValidationException(
                     "Vehicle with registration number " + request.getRegistrationNumber() + " already exists");
         }
 
-        Depot depot = depotRepository.findById(request.getDepotId())
-                .orElseThrow(() -> new ResourceNotFoundException("Depot", "id", request.getDepotId()));
-
         Vehicle vehicle = new Vehicle();
         vehicle.setRegistrationNumber(request.getRegistrationNumber());
         vehicle.setVehicleClass(VehicleClass.valueOf(request.getVehicleClass()));
         vehicle.setOwnerName(request.getOwnerName());
-        vehicle.setDepot(depot);
         vehicle.setIsActive(request.getIsActive() != null ? request.getIsActive() : true);
 
         Vehicle saved = vehicleRepository.save(vehicle);
@@ -105,8 +87,6 @@ public class VehicleService {
             Long id, com.zonepilot.backend.dto.request.CreateVehicleRequest request) {
         Vehicle vehicle = vehicleRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Vehicle", "id", id));
-        requireDepotAccess(vehicle);
-        requireDepotAccess(request.getDepotId());
 
         // Check uniqueness only if the registration number is being changed
         if (!vehicle.getRegistrationNumber().equals(request.getRegistrationNumber())
@@ -115,13 +95,9 @@ public class VehicleService {
                     "Vehicle with registration number " + request.getRegistrationNumber() + " already exists");
         }
 
-        Depot depot = depotRepository.findById(request.getDepotId())
-                .orElseThrow(() -> new ResourceNotFoundException("Depot", "id", request.getDepotId()));
-
         vehicle.setRegistrationNumber(request.getRegistrationNumber());
         vehicle.setVehicleClass(VehicleClass.valueOf(request.getVehicleClass()));
         vehicle.setOwnerName(request.getOwnerName());
-        vehicle.setDepot(depot);
         if (request.getIsActive() != null) {
             vehicle.setIsActive(request.getIsActive());
         }
@@ -133,7 +109,6 @@ public class VehicleService {
     public com.zonepilot.backend.dto.response.VehicleResponse clearActiveRoute(Long id) {
         Vehicle vehicle = vehicleRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Vehicle", "id", id));
-        requireDepotAccess(vehicle);
         vehicle.setActiveDispatchRouteId(null);
         return toResponse(vehicleRepository.save(vehicle));
     }
@@ -142,29 +117,12 @@ public class VehicleService {
         return zones.stream().map(this::toZoneResponse).collect(Collectors.toList());
     }
 
-    /** Client-sent depot ids are untrusted: non-OWNER callers are confined to their JWT depot. */
-    private void requireDepotAccess(Vehicle vehicle) {
-        requireDepotAccess(vehicle.getDepot() == null ? null : vehicle.getDepot().getId());
-    }
-
-    private void requireDepotAccess(Long depotId) {
-        DepotPrincipal p = DepotScope.current();
-        if (p == null || p.isOwner()) {
-            return;
-        }
-        if (depotId == null || !depotId.equals(p.depotId())) {
-            throw new AccessDeniedException("Cross-depot access denied");
-        }
-    }
-
     private com.zonepilot.backend.dto.response.VehicleResponse toResponse(Vehicle v) {
         com.zonepilot.backend.dto.response.VehicleResponse r = new com.zonepilot.backend.dto.response.VehicleResponse();
         r.setId(v.getId());
         r.setRegistrationNumber(v.getRegistrationNumber());
         r.setVehicleClass(v.getVehicleClass());
         r.setOwnerName(v.getOwnerName());
-        r.setDepotId(v.getDepot().getId());
-        r.setDepotName(v.getDepot().getName());
         r.setIsActive(v.getIsActive());
         r.setActiveDispatchRouteId(v.getActiveDispatchRouteId());
         return r;

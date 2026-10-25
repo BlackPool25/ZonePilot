@@ -15,7 +15,7 @@ public interface DriverRepository extends JpaRepository<Driver, Long> {
 
     boolean existsByLicenceNo(String licenceNo);
 
-    @Query("select d from Driver d join fetch d.depot where d.user.id = :userId")
+    @Query("select d from Driver d join fetch d.user where d.user.id = :userId")
     Optional<Driver> findByUserId(Long userId);
 
     List<Driver> findByIsActiveTrue();
