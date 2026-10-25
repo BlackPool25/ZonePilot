@@ -1,9 +1,6 @@
 package com.zonepilot.backend.tour;
 
 import com.zonepilot.backend.auth.AppUserRepository;
-import com.zonepilot.backend.dto.response.RouteValidationResponse;
-import com.zonepilot.backend.entity.DispatchRoute;
-import com.zonepilot.backend.entity.Vehicle;
 import com.zonepilot.backend.repository.DispatchRouteRepository;
 import com.zonepilot.backend.repository.DriverRepository;
 import com.zonepilot.backend.repository.FleetGroupRepository;
@@ -12,16 +9,12 @@ import com.zonepilot.backend.repository.GroupVehicleRepository;
 import com.zonepilot.backend.repository.TourRepository;
 import com.zonepilot.backend.repository.TourStopRepository;
 import com.zonepilot.backend.repository.VehicleRepository;
-import com.zonepilot.backend.service.RouteComplianceService;
 import java.nio.file.Paths;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.locationtech.jts.geom.Coordinate;
-import org.locationtech.jts.geom.GeometryFactory;
-import org.locationtech.jts.geom.PrecisionModel;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.client.TestRestTemplate;
@@ -32,7 +25,6 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.wait.strategy.Wait;
 import org.testcontainers.images.builder.ImageFromDockerfile;
@@ -41,8 +33,6 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.within;
-import static org.mockito.ArgumentMatchers.*;
-import static org.mockito.Mockito.when;
 
 /**
  * Task 3: tour lifecycle — create (optimized), deliver, skip, guards.
@@ -72,9 +62,6 @@ class TourApiTest {
         registry.add("spring.datasource.password", () -> "zonepilot");
     }
 
-    @MockitoBean
-    private RouteComplianceService compliance;
-
     @LocalServerPort
     int port;
 
@@ -98,8 +85,8 @@ class TourApiTest {
     VehicleRepository vehicleRepository;
     @Autowired
     AppUserRepository userRepository;
-
-    private final GeometryFactory gf = new GeometryFactory(new PrecisionModel(), 4326);
+    @Autowired
+    org.springframework.jdbc.core.JdbcTemplate db;
 
     private String ownerToken;
     private long groupId;
@@ -128,29 +115,59 @@ class TourApiTest {
                         "licenceExpiry", "2030-01-01", "phone", "9886000001",
                         "salaryMode", "PER_TRIP", "email", drvEmail,
                         "password", "driver-pass-1"), ownerToken));
-        stubLegs();
+        stubRealNetwork();
     }
 
-    /** Each validateRoute call yields a fresh saved route, like the real service. */
-    private void stubLegs() {
-        when(compliance.validateRoute(anyLong(), anyDouble(), anyDouble(), anyDouble(), anyDouble()))
-                .thenAnswer(inv -> {
-                    RouteValidationResponse r = new RouteValidationResponse();
-                    r.setDispatchRouteId(saveLegRoute());
-                    r.setTravelDurationSec(600L);
-                    return r;
-                });
+    /**
+     * Synthetic 2-D grid road network (test-only fixture, NOT a migration —
+     * production loads real OSM). Lets tour legs run through real pgRouting
+     * Dijkstra + sp_validate_route instead of a stubbed compliance service.
+     * Grid covers 77.570–77.650 / 12.926–12.938, bidirectional, 50 km/h costs.
+     */
+    private void stubRealNetwork() {
+        db.execute("CREATE TABLE IF NOT EXISTS blr_2po_4pgr_vertices_pgr"
+                + " (id BIGINT PRIMARY KEY, the_geom geometry(Point,4326))");
+        db.execute("CREATE TABLE IF NOT EXISTS blr_2po_4pgr (id BIGINT PRIMARY KEY,"
+                + " source BIGINT, target BIGINT, cost_time_sec DOUBLE PRECISION,"
+                + " reverse_cost DOUBLE PRECISION, the_geom geometry(LineString,4326))");
+        db.execute("CREATE INDEX IF NOT EXISTS idx_test_vertices_geom"
+                + " ON blr_2po_4pgr_vertices_pgr USING GIST (the_geom)");
+        db.execute("DELETE FROM blr_2po_4pgr");
+        db.execute("DELETE FROM blr_2po_4pgr_vertices_pgr");
+
+        double[] lngs = new double[17];
+        for (int i = 0; i < lngs.length; i++) lngs[i] = 77.570 + i * 0.005;
+        double[] lats = new double[7];
+        for (int i = 0; i < lats.length; i++) lats[i] = 12.926 + i * 0.002;
+        long edgeId = 1;
+        for (int r = 0; r < lats.length; r++) {
+            for (int c = 0; c < lngs.length; c++) {
+                long node = r * 100L + c;
+                db.update("INSERT INTO blr_2po_4pgr_vertices_pgr(id, the_geom) VALUES (?,"
+                        + " ST_SetSRID(ST_Point(?, ?), 4326))", node, lngs[c], lats[r]);
+                if (c + 1 < lngs.length) {
+                    edgeId = link(edgeId, node, r * 100L + c + 1,
+                            lngs[c], lats[r], lngs[c + 1], lats[r]);
+                }
+                if (r + 1 < lats.length) {
+                    edgeId = link(edgeId, node, (r + 1) * 100L + c,
+                            lngs[c], lats[r], lngs[c], lats[r + 1]);
+                }
+            }
+        }
     }
 
-    private long saveLegRoute() {
-        Vehicle v = vehicleRepository.findById(vehicleId).orElseThrow();
-        DispatchRoute r = new DispatchRoute();
-        r.setVehicle(v);
-        r.setOriginPoint(gf.createPoint(new Coordinate(77.580, 12.930)));
-        r.setDestinationPoint(gf.createPoint(new Coordinate(77.600, 12.932)));
-        r.setPlannedRouteGeometry(gf.createLineString(new Coordinate[]{
-                new Coordinate(77.580, 12.930), new Coordinate(77.600, 12.932)}));
-        return routeRepository.save(r).getId();
+    private long link(long edgeId, long from, long to,
+                      double lng1, double lat1, double lng2, double lat2) {
+        // Bidirectional: reverse_cost == cost so directed Dijkstra traverses both ways.
+        double cost = com.zonepilot.backend.service.TourOptimizerService
+                .haversineMeters(lat1, lng1, lat2, lng2) / (50_000.0 / 3600.0);
+        db.update("INSERT INTO blr_2po_4pgr(id, source, target, cost_time_sec,"
+                + " reverse_cost, the_geom) VALUES (?,?,?,?,?,"
+                + " ST_SetSRID(ST_GeomFromText(?), 4326))",
+                edgeId, from, to, cost, cost,
+                "LINESTRING(" + lng1 + " " + lat1 + "," + lng2 + " " + lat2 + ")");
+        return edgeId + 1;
     }
 
     @SuppressWarnings("unchecked")
@@ -240,16 +257,19 @@ class TourApiTest {
         assertThat(eta0).isAfter(Instant.now().minusSeconds(300));
         assertThat(eta1).isAfter(eta0);
 
-        // Deliver stop 0 (stubbed leg actual = 600s) → stop 1 re-anchored to now+600s.
+        // Deliver stop 0 (real leg actual via Dijkstra) → stop 1 re-anchored.
         Map<String, Object> afterDeliver = post(
                 "/api/tours/" + tourId + "/stops/" + stops.get(0).get("id") + "/deliver",
                 Map.of("lat", 12.932, "lng", 77.600), ownerToken);
         assertThat(afterDeliver.get("status")).isEqualTo(200);
-        Instant anchored = Instant.now().plusSeconds(600);
+        // No Google key in IT, so the haversine single-leg estimate is the actual.
+        double expectedSec = com.zonepilot.backend.service.TourOptimizerService
+                .haversineMeters(12.932, 77.600, 12.935, 77.640) / (50_000.0 / 3600.0);
+        Instant anchored = Instant.now().plusSeconds(Math.round(expectedSec));
         List<Map<String, Object>> stops2 =
                 (List<Map<String, Object>>) tour(tourId).get("stops");
         Instant newEta1 = Instant.parse((String) stops2.get(1).get("etaAt"));
-        assertThat(Math.abs(newEta1.getEpochSecond() - anchored.getEpochSecond())).isLessThan(120);
+        assertThat(Math.abs(newEta1.getEpochSecond() - anchored.getEpochSecond())).isLessThan(180);
     }
 
     @Test

@@ -11,19 +11,55 @@ import com.zonepilot.backend.repository.DriverRepository;
 import com.zonepilot.backend.repository.FleetGroupRepository;
 import com.zonepilot.backend.repository.GroupDriverRepository;
 import com.zonepilot.backend.repository.GroupVehicleRepository;
+import com.zonepilot.backend.repository.VehicleRepository;
+import java.nio.file.Paths;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
+import org.testcontainers.containers.GenericContainer;
+import org.testcontainers.containers.wait.strategy.Wait;
+import org.testcontainers.images.builder.ImageFromDockerfile;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Task 1: fleet-group M2M membership. Needs Docker (PostGIS + pgRouting image).
+ *
+ * Standalone container (not SliceIT): SliceIT's static containers go stale
+ * across subclasses in a full-suite run.
  */
-public class GroupMembershipTest extends SliceIT {
+@SpringBootTest
+@Testcontainers
+public class GroupMembershipTest {
+
+    @Container
+    @SuppressWarnings("rawtypes")
+    static GenericContainer postgres = new GenericContainer(
+                    new ImageFromDockerfile("zonepilot-postgres-test", false)
+                            .withDockerfile(Paths.get("../docker/postgres/Dockerfile").toAbsolutePath()))
+            .withExposedPorts(5432)
+            .withEnv("POSTGRES_DB", "zonepilot")
+            .withEnv("POSTGRES_USER", "zonepilot")
+            .withEnv("POSTGRES_PASSWORD", "zonepilot")
+            .waitingFor(Wait.forListeningPort());
+
+    @DynamicPropertySource
+    static void datasourceProps(DynamicPropertyRegistry registry) {
+        registry.add("spring.datasource.url", () ->
+                "jdbc:postgresql://" + postgres.getHost() + ":" + postgres.getMappedPort(5432) + "/zonepilot");
+        registry.add("spring.datasource.username", () -> "zonepilot");
+        registry.add("spring.datasource.password", () -> "zonepilot");
+    }
 
     @Autowired
     private FleetGroupRepository groups;
+    @Autowired
+    private VehicleRepository vehicles;
     @Autowired
     private GroupVehicleRepository groupVehicles;
     @Autowired
