@@ -55,4 +55,21 @@ class TourOptimizerServiceTest {
         assertThat(there).isCloseTo(back, within(1e-6));
         assertThat(there).isGreaterThan(0);
     }
+
+    @Test
+    void plan_returnsLegTimes_matchingTotal() {
+        List<TourOptimizerService.StopPoint> stops = List.of(
+                pt(12.930, 77.640),
+                pt(12.930, 77.600),
+                pt(12.930, 77.620));
+        TourOptimizerService.Plan plan =
+                optimizer.plan(12.930, 77.580, stops, Instant.now());
+        assertThat(plan.ordered()).hasSize(3);
+        assertThat(plan.ordered().get(0).lng()).isEqualTo(77.600);
+        assertThat(plan.legTimesSec()).hasSize(3);
+        assertThat(plan.legTimesSec()).allMatch(t -> t > 0);
+        long total = optimizer.totalTimeSec(12.930, 77.580, plan.ordered(), Instant.now());
+        assertThat(plan.legTimesSec().stream().mapToLong(Long::longValue).sum())
+                .isEqualTo(total);
+    }
 }

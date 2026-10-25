@@ -37,13 +37,22 @@ public class TourOptimizerService {
 
     public record StopPoint(double lat, double lng) {}
 
-    public List<StopPoint> orderStops(double originLat, double originLng,
-                                      List<StopPoint> stops, Instant departureTime) {
+    /** Ordered stops plus per-leg travel seconds (origin→stop0, stop0→stop1, …). */
+    public record Plan(List<StopPoint> ordered, List<Long> legTimesSec) {}
+
+    public Plan plan(double originLat, double originLng,
+                     List<StopPoint> stops, Instant departureTime) {
         if (stops.size() > MAX_STOPS) {
             throw new IllegalArgumentException("Tours are capped at " + MAX_STOPS + " stops");
         }
         if (stops.size() < 2) {
-            return List.copyOf(stops);
+            List<StopPoint> single = List.copyOf(stops);
+            long[][] m = timeMatrix(originLat, originLng, stops, departureTime);
+            List<Long> legs = new ArrayList<>(single.size());
+            for (int i = 0; i < single.size(); i++) {
+                legs.add(m[i][i + 1]);
+            }
+            return new Plan(single, legs);
         }
         long[][] matrix = timeMatrix(originLat, originLng, stops, departureTime);
         List<Integer> order = nearestNeighbor(matrix);
@@ -52,12 +61,28 @@ public class TourOptimizerService {
         for (int i : order) {
             out.add(stops.get(i));
         }
-        return out;
+        // Leg times along the final order: matrix rows 0=origin, stopIdx+1.
+        List<Long> legs = new ArrayList<>(order.size());
+        int prev = 0;
+        for (int stopIdx : order) {
+            legs.add(matrix[prev][stopIdx + 1]);
+            prev = stopIdx + 1;
+        }
+        return new Plan(List.copyOf(out), List.copyOf(legs));
+    }
+
+    public List<StopPoint> orderStops(double originLat, double originLng,
+                                      List<StopPoint> stops, Instant departureTime) {
+        return plan(originLat, originLng, stops, departureTime).ordered();
+    }
+
+    /** Single-leg haversine estimate (no HTTP) for mid-tour ETA refresh fallback. */
+    public long estimateLegSec(double fromLat, double fromLng, double toLat, double toLng) {
+        return Math.round(haversineMeters(fromLat, fromLng, toLat, toLng) / FALLBACK_SPEED_MPS);
     }
 
     public long totalTimeSec(double originLat, double originLng,
-                             List<StopPoint> ordered, Instant departureTime) {
-        long[][] matrix = timeMatrix(originLat, originLng, ordered, departureTime);
+                             List<StopPoint> ordered, Instant departureTime) {        long[][] matrix = timeMatrix(originLat, originLng, ordered, departureTime);
         // matrix rows: 0 = origin, 1..N = ordered stops in list order
         long total = 0;
         for (int i = 0; i < ordered.size(); i++) {
