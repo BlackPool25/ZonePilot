@@ -32,12 +32,14 @@ class GroupServiceTest {
     private DriverRepository drivers;
     @Mock
     private DispatchRouteRepository routes;
+    @Mock
+    private com.zonepilot.backend.auth.GroupScope scope;
 
     private GroupService groupService;
 
     @BeforeEach
     void setUp() {
-        groupService = new GroupService(groups, groupVehicles, groupDrivers, vehicles, drivers, routes);
+        groupService = new GroupService(groups, groupVehicles, groupDrivers, vehicles, drivers, routes, scope);
     }
 
     @Test
@@ -46,7 +48,7 @@ class GroupServiceTest {
         FleetGroup g = new FleetGroup();
         g.setId(groupId);
         g.setName("North");
-        when(groups.existsById(groupId)).thenReturn(true);
+        when(groups.findById(groupId)).thenReturn(Optional.of(g));
 
         GroupVehicle busy = mock(GroupVehicle.class);
         Vehicle bv = new Vehicle();

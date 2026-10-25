@@ -1,9 +1,13 @@
 package com.zonepilot.backend.service;
 
 import com.zonepilot.backend.dto.response.RouteValidationResponse;
+import com.zonepilot.backend.auth.GroupScope;
 import com.zonepilot.backend.entity.DispatchRoute;
 import com.zonepilot.backend.entity.Driver;
+import com.zonepilot.backend.entity.FleetGroup;
 import com.zonepilot.backend.entity.Vehicle;
+import com.zonepilot.backend.exception.ResourceNotFoundException;
+import com.zonepilot.backend.repository.FleetGroupRepository;
 import com.zonepilot.backend.repository.GroupDriverRepository;
 import com.zonepilot.backend.repository.GroupVehicleRepository;
 import org.springframework.stereotype.Service;
@@ -20,13 +24,18 @@ import java.util.List;
 @Service
 public class GroupDispatchService {
 
+    private final FleetGroupRepository groups;
+    private final GroupScope scope;
     private final GroupVehicleRepository groupVehicles;
     private final GroupDriverRepository groupDrivers;
     private final DriverService driverService;
     private final RouteComplianceService compliance;
 
-    public GroupDispatchService(GroupVehicleRepository groupVehicles, GroupDriverRepository groupDrivers,
+    public GroupDispatchService(FleetGroupRepository groups, GroupScope scope,
+                                GroupVehicleRepository groupVehicles, GroupDriverRepository groupDrivers,
                                 DriverService driverService, RouteComplianceService compliance) {
+        this.groups = groups;
+        this.scope = scope;
         this.groupVehicles = groupVehicles;
         this.groupDrivers = groupDrivers;
         this.driverService = driverService;
@@ -36,6 +45,9 @@ public class GroupDispatchService {
     @Transactional
     public DispatchResult dispatchGroup(Long groupId, double originLat, double originLng,
                                         double destLat, double destLng) {
+        FleetGroup g = groups.findById(groupId)
+                .orElseThrow(() -> new ResourceNotFoundException("FleetGroup", "id", groupId));
+        scope.requireGroupAccess(g);
         List<Vehicle> vehicles = groupVehicles.findByGroupId(groupId).stream()
                 .map(gv -> gv.getVehicle()).toList();
         List<Driver> drivers = groupDrivers.findByGroupId(groupId).stream()

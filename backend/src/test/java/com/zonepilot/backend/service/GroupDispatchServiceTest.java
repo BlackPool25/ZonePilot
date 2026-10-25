@@ -25,6 +25,10 @@ class GroupDispatchServiceTest {
     @Mock
     private GroupDriverRepository groupDrivers;
     @Mock
+    private com.zonepilot.backend.repository.FleetGroupRepository fleetGroups;
+    @Mock
+    private com.zonepilot.backend.auth.GroupScope groupScope;
+    @Mock
     private DriverService driverService;
     @Mock
     private RouteComplianceService compliance;
@@ -33,12 +37,15 @@ class GroupDispatchServiceTest {
 
     @BeforeEach
     void setUp() {
-        dispatchService = new GroupDispatchService(groupVehicles, groupDrivers, driverService, compliance);
+        dispatchService = new GroupDispatchService(
+                fleetGroups, groupScope, groupVehicles, groupDrivers, driverService, compliance);
     }
 
     @Test
     void dispatchGroup_expiredLicenceDriverSkipped_eligibleDispatched() {
         Long groupId = 1L;
+        com.zonepilot.backend.entity.FleetGroup fg = new com.zonepilot.backend.entity.FleetGroup();
+        when(fleetGroups.findById(groupId)).thenReturn(java.util.Optional.of(fg));
 
         Vehicle v1 = new Vehicle();
         v1.setId(11L);

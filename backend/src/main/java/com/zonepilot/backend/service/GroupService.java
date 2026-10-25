@@ -1,5 +1,6 @@
 package com.zonepilot.backend.service;
 
+import com.zonepilot.backend.auth.GroupScope;
 import com.zonepilot.backend.entity.Driver;
 import com.zonepilot.backend.entity.FleetGroup;
 import com.zonepilot.backend.entity.GroupDriver;
@@ -35,16 +36,18 @@ public class GroupService {
     private final VehicleRepository vehicles;
     private final DriverRepository drivers;
     private final DispatchRouteRepository routes;
+    private final GroupScope scope;
 
     public GroupService(FleetGroupRepository groups, GroupVehicleRepository groupVehicles,
                         GroupDriverRepository groupDrivers, VehicleRepository vehicles,
-                        DriverRepository drivers, DispatchRouteRepository routes) {
+                        DriverRepository drivers, DispatchRouteRepository routes, GroupScope scope) {
         this.groups = groups;
         this.groupVehicles = groupVehicles;
         this.groupDrivers = groupDrivers;
         this.vehicles = vehicles;
         this.drivers = drivers;
         this.routes = routes;
+        this.scope = scope;
     }
 
     @Transactional
@@ -52,11 +55,18 @@ public class GroupService {
         FleetGroup g = new FleetGroup();
         g.setName(name);
         g.setActive(true);
+        scope.currentUser().ifPresent(g::setManager);
         return groups.save(g);
     }
 
     @Transactional(readOnly = true)
     public List<FleetGroup> listGroups() {
+        if (!scope.isOwner()) {
+            var uid = scope.currentUserId();
+            if (uid.isPresent()) {
+                return groups.findByManager_IdOrderByCreatedAtDesc(uid.get());
+            }
+        }
         return groups.findAll();
     }
 
@@ -66,6 +76,7 @@ public class GroupService {
                 .orElseThrow(() -> new ResourceNotFoundException("FleetGroup", "id", groupId));
         Vehicle v = vehicles.findById(vehicleId)
                 .orElseThrow(() -> new ResourceNotFoundException("Vehicle", "id", vehicleId));
+        scope.requireGroupAccess(g);
         if (groupVehicles.existsByGroupIdAndVehicleId(groupId, vehicleId)) {
             throw new ConflictException("Vehicle already in group");
         }
@@ -78,6 +89,7 @@ public class GroupService {
                 .orElseThrow(() -> new ResourceNotFoundException("FleetGroup", "id", groupId));
         Driver d = drivers.findById(driverId)
                 .orElseThrow(() -> new ResourceNotFoundException("Driver", "id", driverId));
+        scope.requireGroupAccess(g);
         if (groupDrivers.existsByGroupIdAndDriverId(groupId, driverId)) {
             throw new ConflictException("Driver already in group");
         }
@@ -86,19 +98,25 @@ public class GroupService {
 
     @Transactional
     public void removeVehicle(Long groupId, Long vehicleId) {
+        FleetGroup g = groups.findById(groupId)
+                .orElseThrow(() -> new ResourceNotFoundException("FleetGroup", "id", groupId));
+        scope.requireGroupAccess(g);
         groupVehicles.deleteByGroupIdAndVehicleId(groupId, vehicleId);
     }
 
     @Transactional
     public void removeDriver(Long groupId, Long driverId) {
+        FleetGroup g = groups.findById(groupId)
+                .orElseThrow(() -> new ResourceNotFoundException("FleetGroup", "id", groupId));
+        scope.requireGroupAccess(g);
         groupDrivers.deleteByGroupIdAndDriverId(groupId, driverId);
     }
 
     @Transactional(readOnly = true)
     public GroupDetail groupDetail(Long groupId) {
-        if (!groups.existsById(groupId)) {
-            throw new ResourceNotFoundException("FleetGroup", "id", groupId);
-        }
+        FleetGroup g = groups.findById(groupId)
+                .orElseThrow(() -> new ResourceNotFoundException("FleetGroup", "id", groupId));
+        scope.requireGroupAccess(g);
         List<MemberStatus> vehicleStatuses = groupVehicles.findByGroupId(groupId).stream()
                 .map(gv -> new MemberStatus(
                         gv.getVehicle().getId(),
