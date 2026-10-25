@@ -70,6 +70,10 @@ public class DispatchRoute {
     @JoinColumn(name = "driver_id")
     private Driver driver;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "tour_id")
+    private Tour tour;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "assignment_status", nullable = false, length = 20)
     private AssignmentStatus assignmentStatus = AssignmentStatus.UNASSIGNED;
@@ -130,6 +134,8 @@ public class DispatchRoute {
     public void setGoogleSimilarityScore(Double v) { this.googleSimilarityScore = v; }
     public Driver getDriver() { return driver; }
     public void setDriver(Driver driver) { this.driver = driver; }
+    public Tour getTour() { return tour; }
+    public void setTour(Tour tour) { this.tour = tour; }
     public AssignmentStatus getAssignmentStatus() { return assignmentStatus; }
     public void setAssignmentStatus(AssignmentStatus assignmentStatus) { this.assignmentStatus = assignmentStatus; }
     public Instant getAssignedAt() { return assignedAt; }
