@@ -7,7 +7,7 @@
 [![PostgreSQL 16](https://img.shields.io/badge/PostgreSQL-16-336791?logo=postgresql&logoColor=white)](https://www.postgresql.org/)
 [![PostGIS 3.4](https://img.shields.io/badge/PostGIS-3.4-5B8A3C?logo=postgis&logoColor=white)](https://postgis.net/)
 [![pgRouting 3.x](https://img.shields.io/badge/pgRouting-3.x-2C5E8A)](https://pgrouting.org/)
-[![React 18](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)](https://react.dev/)
+[![React 19](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)](https://react.dev/)
 [![Model-Driven Architecture](https://img.shields.io/badge/Architecture-MDA_C4-blueviolet)](#system-architecture-model-driven-architecture)
 
 ---
@@ -51,10 +51,10 @@ flowchart TD
 ```
 
 > 📖 **Full Architectural Specifications:**
-> - [01. System Context Model & Scope](file:///home/shreyas/projects/ZonePilot/docs/architecture/01_CONTEXT_MODEL.md)
-> - [02. Interaction Model & Sequence Flows](file:///home/shreyas/projects/ZonePilot/docs/architecture/02_INTERACTION_MODEL.md)
-> - [03. Structural Model & PostGIS ERD](file:///home/shreyas/projects/ZonePilot/docs/architecture/03_STRUCTURAL_MODEL.md)
-> - [04. State Transition Model & Statecharts](file:///home/shreyas/projects/ZonePilot/docs/architecture/04_STATE_TRANSITION_MODEL.md)
+> - [01. System Context Model & Scope](docs/architecture/01_CONTEXT_MODEL.md)
+> - [02. Interaction Model & Sequence Flows](docs/architecture/02_INTERACTION_MODEL.md)
+> - [03. Structural Model & PostGIS ERD](docs/architecture/03_STRUCTURAL_MODEL.md)
+> - [04. State Transition Model & Statecharts](docs/architecture/04_STATE_TRANSITION_MODEL.md)
 
 ---
 
@@ -147,8 +147,15 @@ npm run dev
 
 ---
 
-## 📚 Technical Documentation & References
+## 📚 Documentation — start here
 
-- [Complete Model-Driven Architecture (MDA) Suite](file:///home/shreyas/projects/ZonePilot/docs/architecture/README.md)
-- [Detailed Technical Specification Reference](file:///home/shreyas/projects/ZonePilot/docs/README_DETAILED_REFERENCE.md)
-- [Frontend API Integration Reference](file:///home/shreyas/projects/ZonePilot/FRONTEND_API_REPORT.md)
+| Doc | What it answers |
+|---|---|
+| [10 — Platform-Independent Requirements (PIM)](docs/10-PIM-PLATFORM-INDEPENDENT.md) | Scope, actors, FR/BR, UML — the stable contract |
+| [20 — Telemetry, Roadmap & Production Plan](docs/20-TELEMETRY-AND-ROADMAP-PLAN.md) | MQTT/STOMP pipeline, auth-first slices, scaling, pre-build gates |
+| [25 — Data Models, ER & Pipelines](docs/25-DATA-MODELS-AND-PIPELINE.md) | Table specs V21–V26, ER diagram, pipeline sequences, config |
+| [30 — Demo Hosting & UX Plan](docs/30-DEMO-HOSTING-UX-PLAN.md) | How to run/host the demo, tester script, UI flows, perf budget |
+| [MDA architecture suite](docs/architecture/README.md) | Context / interaction / structural / state models |
+
+> Stale QA snapshots live in [docs/archive/](docs/archive/) for history — not current spec.
+> Map data © [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors (ODbL).

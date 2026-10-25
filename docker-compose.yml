@@ -61,12 +61,36 @@ services:
       SPRING_DATASOURCE_USERNAME: ${DB_USER:-zonepilot}
       SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD:-zonepilot}
       SPRING_PROFILES_ACTIVE: dev
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
       GOOGLE_ROUTES_API_KEY: ${GOOGLE_ROUTES_API_KEY:-}
     ports:
-      - "8080:8080"
+      - "8081:8080"
     depends_on:
       postgres:
         condition: service_healthy
+    networks:
+      - zonepilot-net
+
+  # UI: static build served by nginx; VITE_API_BASE_URL is baked at build time.
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_BASE_URL: http://localhost:8081
+    container_name: zonepilot-frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    networks:
+      - zonepilot-net
+
+  # Slice 3: backend requires Redis for ingest state (no Redis => positions 500).
+  redis:
+    image: redis:7-alpine
+    container_name: zonepilot-redis
     networks:
       - zonepilot-net
 
