@@ -28,6 +28,10 @@ public class Vehicle {
     @Column(name = "active_dispatch_route_id")
     private Long activeDispatchRouteId;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "model_id")
+    private VehicleModel model;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -48,6 +52,8 @@ public class Vehicle {
     public void setIsActive(Boolean isActive) { this.isActive = isActive; }
     public Long getActiveDispatchRouteId() { return activeDispatchRouteId; }
     public void setActiveDispatchRouteId(Long activeDispatchRouteId) { this.activeDispatchRouteId = activeDispatchRouteId; }
+    public VehicleModel getModel() { return model; }
+    public void setModel(VehicleModel model) { this.model = model; }
     public Instant getCreatedAt() { return createdAt; }
     public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }
 }

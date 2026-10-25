@@ -18,6 +18,8 @@ public class CreateVehicleRequest {
 
     private Boolean isActive = true;
 
+    private Long modelId;
+
     public String getRegistrationNumber() { return registrationNumber; }
     public void setRegistrationNumber(String registrationNumber) { this.registrationNumber = registrationNumber; }
     public String getVehicleClass() { return vehicleClass; }
@@ -26,4 +28,6 @@ public class CreateVehicleRequest {
     public void setOwnerName(String ownerName) { this.ownerName = ownerName; }
     public Boolean getIsActive() { return isActive; }
     public void setIsActive(Boolean isActive) { this.isActive = isActive; }
+    public Long getModelId() { return modelId; }
+    public void setModelId(Long modelId) { this.modelId = modelId; }
 }

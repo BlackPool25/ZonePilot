@@ -24,5 +24,14 @@ public class VehicleResponse {
     public void setIsActive(Boolean isActive) { this.isActive = isActive; }
     public Long getActiveDispatchRouteId() { return activeDispatchRouteId; }
     public void setActiveDispatchRouteId(Long activeDispatchRouteId) { this.activeDispatchRouteId = activeDispatchRouteId; }
+    private Long modelId;
+    private String modelName;
+    private Double payloadKg;
+    public Long getModelId() { return modelId; }
+    public void setModelId(Long modelId) { this.modelId = modelId; }
+    public String getModelName() { return modelName; }
+    public void setModelName(String modelName) { this.modelName = modelName; }
+    public Double getPayloadKg() { return payloadKg; }
+    public void setPayloadKg(Double payloadKg) { this.payloadKg = payloadKg; }
 }
 

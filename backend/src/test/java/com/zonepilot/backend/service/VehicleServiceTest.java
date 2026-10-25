@@ -6,6 +6,7 @@ import com.zonepilot.backend.entity.Vehicle;
 import com.zonepilot.backend.enums.VehicleClass;
 import com.zonepilot.backend.exception.ResourceNotFoundException;
 import com.zonepilot.backend.exception.ValidationException;
+import com.zonepilot.backend.repository.VehicleModelRepository;
 import com.zonepilot.backend.repository.VehicleRepository;
 import com.zonepilot.backend.repository.ZoneRestrictionRepository;
 import com.zonepilot.backend.repository.ZoneRestrictionRuleRepository;
@@ -27,6 +28,7 @@ import static org.mockito.Mockito.*;
 class VehicleServiceTest {
 
     @Mock private VehicleRepository vehicleRepository;
+    @Mock private VehicleModelRepository modelRepository;
     @Mock private ZoneRestrictionRepository zoneRestrictionRepository;
     @Mock private ZoneRestrictionRuleRepository zoneRestrictionRuleRepository;
 
@@ -35,7 +37,7 @@ class VehicleServiceTest {
     @BeforeEach
     void setUp() {
         vehicleService = new VehicleService(
-                vehicleRepository,
+                vehicleRepository, modelRepository,
                 zoneRestrictionRepository, zoneRestrictionRuleRepository);
     }
 

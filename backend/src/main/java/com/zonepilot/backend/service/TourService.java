@@ -69,6 +69,12 @@ public class TourService {
         if (req.getStops().size() > TourOptimizerService.MAX_STOPS) {
             throw new ValidationException("at most 12 stops per tour");
         }
+        // Hard block: planned manifest must fit the model's rated payload,
+        // before spending optimizer/Google calls.
+        double plannedKg = req.getStops().stream()
+                .mapToDouble(s -> s.getWeightKg() != null ? s.getWeightKg() : 0.0).sum();
+        Double payloadKg = vehicle.getModel() != null ? vehicle.getModel().getPayloadKg() : null;
+        LoadService.checkCapacity(payloadKg, plannedKg, vehicle.getRegistrationNumber());
 
         Instant now = Instant.now();
         List<TourOptimizerService.StopPoint> points = req.getStops().stream()

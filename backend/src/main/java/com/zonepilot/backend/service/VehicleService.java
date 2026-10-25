@@ -3,10 +3,12 @@ package com.zonepilot.backend.service;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.zonepilot.backend.entity.Vehicle;
+import com.zonepilot.backend.entity.VehicleModel;
 import com.zonepilot.backend.entity.ZoneRestriction;
 import com.zonepilot.backend.entity.ZoneRestrictionRule;
 import com.zonepilot.backend.enums.VehicleClass;
 import com.zonepilot.backend.exception.ResourceNotFoundException;
+import com.zonepilot.backend.repository.VehicleModelRepository;
 import com.zonepilot.backend.repository.VehicleRepository;
 import com.zonepilot.backend.repository.ZoneRestrictionRepository;
 import com.zonepilot.backend.repository.ZoneRestrictionRuleRepository;
@@ -28,6 +30,7 @@ import java.util.stream.Collectors;
 public class VehicleService {
 
     private final VehicleRepository vehicleRepository;
+    private final VehicleModelRepository modelRepository;
     private final ZoneRestrictionRepository zoneRestrictionRepository;
     private final ZoneRestrictionRuleRepository zoneRestrictionRuleRepository;
     private final GeometryFactory geometryFactory;
@@ -35,9 +38,11 @@ public class VehicleService {
     private final ObjectMapper objectMapper;
 
     public VehicleService(VehicleRepository vehicleRepository,
+                          VehicleModelRepository modelRepository,
                           ZoneRestrictionRepository zoneRestrictionRepository,
                           ZoneRestrictionRuleRepository zoneRestrictionRuleRepository) {
         this.vehicleRepository = vehicleRepository;
+        this.modelRepository = modelRepository;
         this.zoneRestrictionRepository = zoneRestrictionRepository;
         this.zoneRestrictionRuleRepository = zoneRestrictionRuleRepository;
         this.geometryFactory = new GeometryFactory(new PrecisionModel(), 4326);
@@ -77,6 +82,10 @@ public class VehicleService {
         vehicle.setVehicleClass(VehicleClass.valueOf(request.getVehicleClass()));
         vehicle.setOwnerName(request.getOwnerName());
         vehicle.setIsActive(request.getIsActive() != null ? request.getIsActive() : true);
+        if (request.getModelId() != null) {
+            vehicle.setModel(modelRepository.findById(request.getModelId())
+                    .orElseThrow(() -> new ResourceNotFoundException("VehicleModel", "id", request.getModelId())));
+        }
 
         Vehicle saved = vehicleRepository.save(vehicle);
         return toResponse(saved);
@@ -100,6 +109,10 @@ public class VehicleService {
         vehicle.setOwnerName(request.getOwnerName());
         if (request.getIsActive() != null) {
             vehicle.setIsActive(request.getIsActive());
+        }
+        if (request.getModelId() != null) {
+            vehicle.setModel(modelRepository.findById(request.getModelId())
+                    .orElseThrow(() -> new ResourceNotFoundException("VehicleModel", "id", request.getModelId())));
         }
 
         return toResponse(vehicleRepository.save(vehicle));
@@ -125,6 +138,11 @@ public class VehicleService {
         r.setOwnerName(v.getOwnerName());
         r.setIsActive(v.getIsActive());
         r.setActiveDispatchRouteId(v.getActiveDispatchRouteId());
+        if (v.getModel() != null) {
+            r.setModelId(v.getModel().getId());
+            r.setModelName(v.getModel().getMake() + " " + v.getModel().getModel());
+            r.setPayloadKg(v.getModel().getPayloadKg());
+        }
         return r;
     }
 
