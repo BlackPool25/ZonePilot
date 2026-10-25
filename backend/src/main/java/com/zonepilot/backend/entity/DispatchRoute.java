@@ -51,6 +51,21 @@ public class DispatchRoute {
     @Column(name = "wait_duration_sec")
     private Integer waitDurationSec;
 
+    @Column(name = "google_duration_sec")
+    private Long googleDurationSec;
+
+    @Column(name = "google_static_duration_sec")
+    private Long googleStaticDurationSec;
+
+    @Column(name = "google_distance_meters")
+    private Long googleDistanceMeters;
+
+    @Column(name = "google_delay_sec")
+    private Long googleDelaySec;
+
+    @Column(name = "google_similarity_score")
+    private Double googleSimilarityScore;
+
     @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "driver_id")
     private Driver driver;
@@ -103,6 +118,16 @@ public class DispatchRoute {
     public void setWaitUntil(Instant waitUntil) { this.waitUntil = waitUntil; }
     public Integer getWaitDurationSec() { return waitDurationSec; }
     public void setWaitDurationSec(Integer waitDurationSec) { this.waitDurationSec = waitDurationSec; }
+    public Long getGoogleDurationSec() { return googleDurationSec; }
+    public void setGoogleDurationSec(Long v) { this.googleDurationSec = v; }
+    public Long getGoogleStaticDurationSec() { return googleStaticDurationSec; }
+    public void setGoogleStaticDurationSec(Long v) { this.googleStaticDurationSec = v; }
+    public Long getGoogleDistanceMeters() { return googleDistanceMeters; }
+    public void setGoogleDistanceMeters(Long v) { this.googleDistanceMeters = v; }
+    public Long getGoogleDelaySec() { return googleDelaySec; }
+    public void setGoogleDelaySec(Long v) { this.googleDelaySec = v; }
+    public Double getGoogleSimilarityScore() { return googleSimilarityScore; }
+    public void setGoogleSimilarityScore(Double v) { this.googleSimilarityScore = v; }
     public Driver getDriver() { return driver; }
     public void setDriver(Driver driver) { this.driver = driver; }
     public AssignmentStatus getAssignmentStatus() { return assignmentStatus; }

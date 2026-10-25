@@ -42,6 +42,8 @@ public class RouteComplianceService {
     private final TimePredictionService timePredictionService;
     private final JdbcTemplate jdbcTemplate;
     private final GeometryFactory geometryFactory;
+    private com.zonepilot.backend.repository.DispatchRouteAttemptRepository attemptRepository;
+    private RouteSimilarityService similarityService;
 
     public RouteComplianceService(VehicleRepository vehicleRepository,
                                    RoutingService routingService,
@@ -54,6 +56,19 @@ public class RouteComplianceService {
         this.timePredictionService = timePredictionService;
         this.jdbcTemplate = jdbcTemplate;
         this.geometryFactory = new GeometryFactory(new PrecisionModel(), 4326);
+    }
+
+    public void setAttemptRepository(com.zonepilot.backend.repository.DispatchRouteAttemptRepository r) {
+        this.attemptRepository = r;
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setSimilarityService(RouteSimilarityService s) { this.similarityService = s; }
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void injectAttemptRepository(
+            com.zonepilot.backend.repository.DispatchRouteAttemptRepository r) {
+        this.attemptRepository = r;
     }
 
     @Transactional
@@ -123,6 +138,61 @@ public class RouteComplianceService {
 
         DispatchRoute saved = dispatchRouteRepository.save(dispatchRoute);
 
+        // Google traffic enrichment + similarity (nullable when key missing/fails)
+        try {
+            java.util.List<double[]> entryPts = queryZoneEntryPoints(winner.geometry, winner.violations);
+            TimePredictionService.TrafficEnrichment enrich =
+                    timePredictionService.fetchTrafficEnrichment(winner.geometry, entryPts, departureTime);
+            if (enrich != null && enrich.durationSec() >= 0) {
+                dispatchRoute.setGoogleDurationSec(enrich.durationSec());
+                dispatchRoute.setGoogleStaticDurationSec(enrich.staticDurationSec());
+                dispatchRoute.setGoogleDistanceMeters(enrich.distanceMeters());
+                dispatchRoute.setGoogleDelaySec(enrich.delaySec());
+                response.setGoogleDurationSec(enrich.durationSec());
+                response.setGoogleStaticDurationSec(enrich.staticDurationSec());
+                response.setGoogleDistanceMeters(enrich.distanceMeters());
+                response.setGoogleDelaySec(enrich.delaySec());
+                if (enrich.googlePolyline() != null && similarityService != null) {
+                    String googleWkt = RouteSimilarityService.decodePolylineToWkt(enrich.googlePolyline());
+                    double sim = similarityService.score(winner.geometry.toText(), googleWkt);
+                    dispatchRoute.setGoogleSimilarityScore(sim);
+                    response.setGoogleSimilarityScore(sim);
+                }
+                dispatchRouteRepository.save(dispatchRoute);
+            }
+        } catch (Exception e) {
+            log.warn("Google enrichment skipped: {}", e.getMessage());
+        }
+
+        // Versioned attempt history with violation ids + reject reason
+        java.util.List<RouteValidationResponse.AttemptDetail> attemptDtos = new java.util.ArrayList<>();
+        for (AttemptTrace a : winner.attempts) {
+            RouteValidationResponse.AttemptDetail dto = new RouteValidationResponse.AttemptDetail();
+            dto.setAttemptNumber(a.attemptNumber());
+            dto.setPenalisedZoneIds(a.penalisedZoneIds());
+            dto.setViolatedZoneIds(a.violatedZoneIds());
+            dto.setAccepted(a.accepted());
+            dto.setReason(a.reason());
+            attemptDtos.add(dto);
+            if (attemptRepository != null) {
+                try {
+                    com.zonepilot.backend.entity.DispatchRouteAttempt row =
+                            new com.zonepilot.backend.entity.DispatchRouteAttempt();
+                    row.setDispatchRouteId(saved.getId());
+                    row.setAttemptNumber(a.attemptNumber());
+                    row.setPlannedRouteGeometry(a.geometry());
+                    row.setPenalisedZoneIds(a.penalisedZoneIds().toString());
+                    row.setViolatedZoneIds(a.violatedZoneIds().toString());
+                    row.setAccepted(a.accepted());
+                    row.setRejectReason(a.reason());
+                    attemptRepository.save(row);
+                } catch (Exception e) {
+                    log.warn("Attempt persist skipped: {}", e.getMessage());
+                }
+            }
+        }
+        response.setAttempts(attemptDtos);
+
         // Epic 3: only mark as active route when the route is usable (compliant or wait-state).
         // BUG-NEW-008: do not set active route for non-compliant routes with no wait state,
         // as map-matching against a non-compliant route would produce incorrect off-route signals.
@@ -138,73 +208,56 @@ public class RouteComplianceService {
     // ── Smart zone-aware routing ──────────────────────────────────────────────
 
     /**
-     * Two-phase routing strategy:
-     *
-     * Phase 1 — Direct route: compute standard Dijkstra. If compliant, done.
-     *
-     * Phase 2 — Zone-exit waypoint routing: for each violated zone, find the
-     * nearest road network node that lies OUTSIDE the zone boundary using
-     * ST_ExteriorRing + KNN. Route as a waypoint chain:
-     *   origin → exit_node_1 → exit_node_2 → ... → destination
-     * This guarantees the route leaves each zone before continuing — no
-     * penalty retries needed.
-     *
-     * Phase 3 — Wait-state fallback: if the destination itself is inside a
-     * zone (unavoidable), compute the curfew end time and return a wait-state
-     * route rather than exhausting retries.
+     * Iterative zone-avoidance routing (max 3 Dijkstra attempts):
+     * attempt 1 = direct; each retry accumulates ALL violated zones so far
+     * with huge cost (1e9x) so Dijkstra avoids them unless disconnected.
+     * Endpoint inside a zone breaks to wait-state to avoid infinite loop.
      */
     private RouteCandidate computeBestRoute(Long sourceNode, Long targetNode,
                                              Long vehicleId, Instant departureTime) {
-        // Phase 1: direct route
-        LineString directRoute = computeRouteAvoidingZones(sourceNode, targetNode, Set.of());
-        List<RouteValidationResponse.ViolationDetail> violations =
-                validateRouteAgainstZones(vehicleId, directRoute);
+        Set<Long> penalised = new java.util.LinkedHashSet<>();
+        List<AttemptTrace> attempts = new ArrayList<>();
+        LineString route = computeRouteAvoidingZones(sourceNode, targetNode, penalised);
+        List<RouteValidationResponse.ViolationDetail> violations = List.of();
 
-        if (violations.isEmpty()) {
-            long travelSec = timePredictionService.predictTotalDurationSec(
-                    directRoute, List.of(), departureTime);
-            return new RouteCandidate(directRoute, violations, 0, null, travelSec);
-        }
-
-        // Phase 2: smart zone-exit waypoint routing
-        try {
-            Set<Long> violatedZoneIds = violations.stream()
+        for (int attempt = 1; attempt <= 3; attempt++) {
+            violations = validateRouteAgainstZones(vehicleId, route);
+            Set<Long> violatedIds = violations.stream()
                     .filter(v -> v.getZoneId() != null)
                     .map(RouteValidationResponse.ViolationDetail::getZoneId)
                     .collect(java.util.stream.Collectors.toCollection(java.util.LinkedHashSet::new));
-
-            List<Long> exitNodes = findZoneExitNodes(violatedZoneIds, sourceNode, targetNode);
-
-            if (!exitNodes.isEmpty()) {
-                LineString waypointRoute = computeWaypointRoute(sourceNode, exitNodes, targetNode);
-                List<RouteValidationResponse.ViolationDetail> waypointViolations =
-                        validateRouteAgainstZones(vehicleId, waypointRoute);
-
-                if (waypointViolations.isEmpty()) {
-                    long travelSec = timePredictionService.predictTotalDurationSec(
-                            waypointRoute, List.of(), departureTime);
-                    return new RouteCandidate(waypointRoute, waypointViolations, 0, null, travelSec);
-                }
-
-                // Waypoint route still has violations (destination inside zone) — use it for wait-state
-                violations = waypointViolations;
-                directRoute = waypointRoute;
+            boolean accepted = violations.isEmpty();
+            attempts.add(new AttemptTrace(attempt, Set.copyOf(penalised),
+                    List.copyOf(violatedIds), accepted,
+                    accepted ? "ACCEPTED" : "REJECTED_ZONES_" + violatedIds, route));
+            if (accepted) {
+                long travelSec = timePredictionService.predictTotalDurationSec(
+                        route, List.of(), departureTime);
+                return new RouteCandidate(route, violations, 0, null, travelSec, List.copyOf(attempts));
             }
-        } catch (RoutingException e) {
-            log.warn("Zone-exit waypoint routing failed, falling back to wait-state: {}", e.getMessage());
+            penalised.addAll(violatedIds);
+            if (attempt == 3) break;
+            // Endpoint inside a restricted zone: no reroute can fix it
+            if (isEndpointInRestrictedZone(sourceNode, targetNode)) break;
+            try {
+                route = computeRouteAvoidingZones(sourceNode, targetNode, penalised);
+            } catch (RoutingException e) {
+                log.warn("Retry {} failed (penalised {}): {}", attempt, penalised, e.getMessage());
+                break;
+            }
         }
 
-        // Phase 3: wait-state fallback
-        List<double[]> zoneEntryPoints = queryZoneEntryPoints(directRoute, violations);
+        // Wait-state fallback using last route/violations
+        List<double[]> zoneEntryPoints = queryZoneEntryPoints(route, violations);
         List<Long> cumulativeArrivals = timePredictionService.predictCumulativeArrivalsSec(
-                directRoute, zoneEntryPoints, departureTime);
+                route, zoneEntryPoints, departureTime);
         WaitState waitState = computeWaitState(violations, departureTime, cumulativeArrivals);
         long travelSec = timePredictionService.predictTotalDurationSec(
-                directRoute, zoneEntryPoints, departureTime);
+                route, zoneEntryPoints, departureTime);
         long totalWithWait = (travelSec > 0 ? travelSec : 0) + waitState.waitDurationSec;
 
-        return new RouteCandidate(directRoute, violations, waitState.waitDurationSec,
-                waitState.waitUntil, totalWithWait);
+        return new RouteCandidate(route, violations, waitState.waitDurationSec,
+                waitState.waitUntil, totalWithWait, List.copyOf(attempts));
     }
 
     /**
@@ -348,7 +401,24 @@ public class RouteComplianceService {
     }
 
     /**
-     * Runs pgr_dijkstra with 1000x cost penalty on all penalised zones.
+     * True when origin or destination vertex lies inside any zone boundary.
+     * Used to stop retries that can never succeed.
+     */
+    private boolean isEndpointInRestrictedZone(Long sourceNode, Long targetNode) {
+        try {
+            Integer count = jdbcTemplate.queryForObject(
+                    "SELECT COUNT(*) FROM zone_restriction zr WHERE EXISTS ("
+                    + "SELECT 1 FROM blr_2po_4pgr_vertices_pgr v WHERE v.id IN (?, ?) "
+                    + "AND ST_Within(v.the_geom, zr.boundary))",
+                    Integer.class, sourceNode, targetNode);
+            return count != null && count > 0;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /**
+     * Runs pgr_dijkstra with huge cost penalty on all penalised zones.
      * Uses cost_time_sec (Epic 1) as base cost. Preserves reverse_cost=-1 for one-ways.
      *
      * BUG-NEW-006: pgr_dijkstra requires its edge SQL as a server-evaluated string literal —
@@ -368,9 +438,9 @@ public class RouteComplianceService {
         String pgRoutingEdgeSql = String.format(
                 "SELECT id, source, target, " +
                 "CASE WHEN ST_Intersects(the_geom, (SELECT ST_Union(boundary) FROM zone_restriction WHERE id IN (%s))) " +
-                "THEN cost_time_sec * 1000 ELSE cost_time_sec END AS cost, " +
+                "THEN cost_time_sec * 1e9 ELSE cost_time_sec END AS cost, " +
                 "CASE WHEN reverse_cost > 0 AND ST_Intersects(the_geom, (SELECT ST_Union(boundary) FROM zone_restriction WHERE id IN (%s))) " +
-                "THEN cost_time_sec * 1000 WHEN reverse_cost > 0 THEN cost_time_sec ELSE reverse_cost END AS reverse_cost " +
+                "THEN cost_time_sec * 1e9 WHEN reverse_cost > 0 THEN cost_time_sec ELSE reverse_cost END AS reverse_cost " +
                 "FROM blr_2po_4pgr",
                 zoneIds, zoneIds);
 
@@ -387,7 +457,7 @@ public class RouteComplianceService {
                 },
                 pgRoutingEdgeSql, sourceNode, targetNode);
 
-        if (results.isEmpty()) {
+        if (results == null || results.isEmpty()) {
             throw new RoutingException("No route found avoiding zones: " + zoneIds);
         }
 
@@ -429,7 +499,17 @@ public class RouteComplianceService {
             List<RouteValidationResponse.ViolationDetail> violations,
             int waitDurationSec,
             Instant waitUntil,
-            long totalTripSec
+            long totalTripSec,
+            List<AttemptTrace> attempts
+    ) {}
+
+    record AttemptTrace(
+            int attemptNumber,
+            Set<Long> penalisedZoneIds,
+            List<Long> violatedZoneIds,
+            boolean accepted,
+            String reason,
+            LineString geometry
     ) {}
 
     private record WaitState(int waitDurationSec, Instant waitUntil) {}

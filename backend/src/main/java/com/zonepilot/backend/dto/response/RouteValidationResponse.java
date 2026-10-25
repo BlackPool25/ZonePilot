@@ -30,6 +30,41 @@ public class RouteValidationResponse {
     public void setWaitUntil(String waitUntil) { this.waitUntil = waitUntil; }
     public Integer getWaitDurationSec() { return waitDurationSec; }
     public void setWaitDurationSec(Integer waitDurationSec) { this.waitDurationSec = waitDurationSec; }
+    private Long googleDurationSec;
+    private Long googleStaticDurationSec;
+    private Long googleDistanceMeters;
+    private Long googleDelaySec;
+    private Double googleSimilarityScore;
+    private List<AttemptDetail> attempts;
+    public Long getGoogleDurationSec() { return googleDurationSec; }
+    public void setGoogleDurationSec(Long v) { this.googleDurationSec = v; }
+    public Long getGoogleStaticDurationSec() { return googleStaticDurationSec; }
+    public void setGoogleStaticDurationSec(Long v) { this.googleStaticDurationSec = v; }
+    public Long getGoogleDistanceMeters() { return googleDistanceMeters; }
+    public void setGoogleDistanceMeters(Long v) { this.googleDistanceMeters = v; }
+    public Long getGoogleDelaySec() { return googleDelaySec; }
+    public void setGoogleDelaySec(Long v) { this.googleDelaySec = v; }
+    public Double getGoogleSimilarityScore() { return googleSimilarityScore; }
+    public void setGoogleSimilarityScore(Double v) { this.googleSimilarityScore = v; }
+    public List<AttemptDetail> getAttempts() { return attempts; }
+    public void setAttempts(List<AttemptDetail> v) { this.attempts = v; }
+    public static class AttemptDetail {
+        private int attemptNumber;
+        private java.util.Set<Long> penalisedZoneIds;
+        private java.util.List<Long> violatedZoneIds;
+        private boolean accepted;
+        private String reason;
+        public int getAttemptNumber() { return attemptNumber; }
+        public void setAttemptNumber(int v) { this.attemptNumber = v; }
+        public java.util.Set<Long> getPenalisedZoneIds() { return penalisedZoneIds; }
+        public void setPenalisedZoneIds(java.util.Set<Long> v) { this.penalisedZoneIds = v; }
+        public java.util.List<Long> getViolatedZoneIds() { return violatedZoneIds; }
+        public void setViolatedZoneIds(java.util.List<Long> v) { this.violatedZoneIds = v; }
+        public boolean isAccepted() { return accepted; }
+        public void setAccepted(boolean v) { this.accepted = v; }
+        public String getReason() { return reason; }
+        public void setReason(String v) { this.reason = v; }
+    }
 
     public static class ViolationDetail {
         private Long zoneId;
