@@ -22,4 +22,6 @@ public interface DispatchRouteRepository extends JpaRepository<DispatchRoute, Lo
             Long driverId, Collection<AssignmentStatus> statuses);
 
     boolean existsByDriverIdAndAssignmentStatusIn(Long driverId, Collection<AssignmentStatus> statuses);
+
+    List<DispatchRoute> findByTourIdOrderByIdDesc(Long tourId);
 }
