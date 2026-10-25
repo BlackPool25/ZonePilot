@@ -1,8 +1,9 @@
 package com.zonepilot.backend.service;
 
 import com.zonepilot.backend.entity.*;
-import com.zonepilot.backend.it.SliceIT;
+import com.zonepilot.backend.enums.VehicleClass;
 import com.zonepilot.backend.repository.*;
+import java.nio.file.Paths;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
@@ -11,15 +12,47 @@ import org.locationtech.jts.geom.Coordinate;
 import org.locationtech.jts.geom.GeometryFactory;
 import org.locationtech.jts.geom.PrecisionModel;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
+import org.testcontainers.containers.GenericContainer;
+import org.testcontainers.containers.wait.strategy.Wait;
+import org.testcontainers.images.builder.ImageFromDockerfile;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Task 1 RED: tour + ordered stops with full manifest persist and read back.
+ *
+ * Standalone container (not SliceIT): SliceIT's static containers are shared
+ * across subclasses and go stale between test classes in a full-suite run.
  */
-class TourPersistenceTest extends SliceIT {
+@SpringBootTest
+@Testcontainers
+class TourPersistenceTest {
+
+    @Container
+    @SuppressWarnings("rawtypes")
+    static GenericContainer postgres = new GenericContainer(
+                    new ImageFromDockerfile("zonepilot-postgres-test", false)
+                            .withDockerfile(Paths.get("../docker/postgres/Dockerfile").toAbsolutePath()))
+            .withExposedPorts(5432)
+            .withEnv("POSTGRES_DB", "zonepilot")
+            .withEnv("POSTGRES_USER", "zonepilot")
+            .withEnv("POSTGRES_PASSWORD", "zonepilot")
+            .waitingFor(Wait.forListeningPort());
+
+    @DynamicPropertySource
+    static void datasourceProps(DynamicPropertyRegistry registry) {
+        registry.add("spring.datasource.url", () ->
+                "jdbc:postgresql://" + postgres.getHost() + ":" + postgres.getMappedPort(5432) + "/zonepilot");
+        registry.add("spring.datasource.username", () -> "zonepilot");
+        registry.add("spring.datasource.password", () -> "zonepilot");
+    }
 
     @Autowired
     TourRepository tours;
@@ -29,6 +62,8 @@ class TourPersistenceTest extends SliceIT {
     FleetGroupRepository groups;
     @Autowired
     DriverRepository drivers;
+    @Autowired
+    VehicleRepository vehicles;
 
     private final GeometryFactory gf = new GeometryFactory(new PrecisionModel(), 4326);
 
@@ -102,5 +137,14 @@ class TourPersistenceTest extends SliceIT {
     void route_canLinkTour() {
         Tour t = savedTour();
         assertThat(tours.findById(t.getId())).isPresent();
+    }
+
+    private Vehicle saveVehicle(String reg) {
+        Vehicle v = new Vehicle();
+        v.setRegistrationNumber(reg);
+        v.setVehicleClass(VehicleClass.LCV);
+        v.setOwnerName("IT Owner");
+        v.setIsActive(true);
+        return vehicles.save(v);
     }
 }
