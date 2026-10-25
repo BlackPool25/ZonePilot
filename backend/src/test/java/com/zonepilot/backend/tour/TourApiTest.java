@@ -40,6 +40,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.within;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.when;
 
@@ -147,6 +148,8 @@ class TourApiTest {
         r.setVehicle(v);
         r.setOriginPoint(gf.createPoint(new Coordinate(77.580, 12.930)));
         r.setDestinationPoint(gf.createPoint(new Coordinate(77.600, 12.932)));
+        r.setPlannedRouteGeometry(gf.createLineString(new Coordinate[]{
+                new Coordinate(77.580, 12.930), new Coordinate(77.600, 12.932)}));
         return routeRepository.save(r).getId();
     }
 
@@ -159,6 +162,15 @@ class TourApiTest {
         return (Map<String, Object>) ((Map<String, Object>) res.getBody()).get("data");
     }
 
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> track(long tourId) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(ownerToken);
+        ResponseEntity<Map> res = rest.exchange(url("/api/tours/" + tourId + "/track"), HttpMethod.GET,
+                new HttpEntity<>(headers), Map.class);
+        return (Map<String, Object>) ((Map<String, Object>) res.getBody()).get("data");
+    }
+
     private Map<String, Object> createBody() {
         return Map.of("groupId", groupId, "vehicleId", vehicleId, "driverId", driverId,
                 "originLat", 12.930, "originLng", 77.580,
@@ -167,6 +179,28 @@ class TourApiTest {
                                 "quantity", 5, "codAmount", 100),
                         Map.of("lat", 12.932, "lng", 77.600, "address", "Near",
                                 "recipientName", "Rani", "recipientPhone", "9886000002")));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void track_returnsLegsAndLivePosition() {
+        long tourId = dataId(post("/api/tours", createBody(), ownerToken));
+
+        Map<String, Object> before = track(tourId);
+        assertThat(((Map<String, Object>) before.get("latestPosition")).get("source")).isEqualTo("NONE");
+        List<Map<String, Object>> legs0 = (List<Map<String, Object>>) before.get("legs");
+        assertThat(legs0).hasSize(1);
+        assertThat(legs0.get(0).get("geometryWkt")).isNotNull();
+        assertThat(((Number) legs0.get(0).get("fromSeq")).intValue()).isEqualTo(-1);
+
+        Map<String, Object> posPost = post("/api/vehicles/" + vehicleId + "/positions",
+                Map.of("lat", 12.931, "lng", 77.590, "speedKmh", 30, "headingDeg", 90), ownerToken);
+        assertThat(posPost.get("status")).isEqualTo(200);
+
+        Map<String, Object> after = track(tourId);
+        Map<String, Object> pos = (Map<String, Object>) after.get("latestPosition");
+        assertThat(((Number) pos.get("latitude")).doubleValue()).isCloseTo(12.931, within(0.001));
+        assertThat(((Number) pos.get("longitude")).doubleValue()).isCloseTo(77.590, within(0.001));
     }
 
     @Test

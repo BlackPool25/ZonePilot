@@ -4,6 +4,7 @@ import com.zonepilot.backend.auth.GroupScope;
 import com.zonepilot.backend.dto.request.CreateTourRequest;
 import com.zonepilot.backend.dto.response.RouteValidationResponse;
 import com.zonepilot.backend.dto.response.TourResponse;
+import com.zonepilot.backend.dto.response.TourTrackResponse;
 import com.zonepilot.backend.entity.*;
 import com.zonepilot.backend.enums.AssignmentStatus;
 import com.zonepilot.backend.exception.ResourceNotFoundException;
@@ -35,13 +36,14 @@ public class TourService {
     private final TourOptimizerService optimizer;
     private final RouteComplianceService compliance;
     private final DriverService driverService;
+    private final PositionTrackingService positions;
     private final GeometryFactory gf = new GeometryFactory(new PrecisionModel(), 4326);
 
     public TourService(TourRepository tours, TourStopRepository stops, FleetGroupRepository groups,
                        VehicleRepository vehicles, DriverRepository drivers,
                        DispatchRouteRepository routes, GroupScope scope,
                        TourOptimizerService optimizer, RouteComplianceService compliance,
-                       DriverService driverService) {
+                       DriverService driverService, PositionTrackingService positions) {
         this.tours = tours;
         this.stops = stops;
         this.groups = groups;
@@ -52,6 +54,7 @@ public class TourService {
         this.optimizer = optimizer;
         this.compliance = compliance;
         this.driverService = driverService;
+        this.positions = positions;
     }
 
     @Transactional
@@ -116,6 +119,30 @@ public class TourService {
     @Transactional(readOnly = true)
     public TourResponse get(Long tourId) {
         return toResponse(tourId);
+    }
+
+    @Transactional(readOnly = true)
+    public TourTrackResponse track(Long tourId) {
+        Tour tour = tours.findById(tourId)
+                .orElseThrow(() -> new ResourceNotFoundException("Tour", "id", tourId));
+        scope.requireGroupAccess(tour.getGroup());
+        List<TourStop> ordered = stops.findByTourIdOrderBySeqAsc(tourId);
+        // Routes are created one per leg in order; reverse id-desc back to seq order.
+        List<DispatchRoute> legs = new ArrayList<>(routes.findByTourIdOrderByIdDesc(tourId));
+        java.util.Collections.reverse(legs);
+        List<TourTrackResponse.LegDto> legDtos = new ArrayList<>(legs.size());
+        for (int i = 0; i < legs.size(); i++) {
+            TourTrackResponse.LegDto dto = new TourTrackResponse.LegDto();
+            dto.setRouteId(legs.get(i).getId());
+            dto.setFromSeq(i == 0 ? -1 : ordered.get(i - 1).getSeq());
+            dto.setToSeq(ordered.size() > i ? ordered.get(i).getSeq() : -1);
+            if (legs.get(i).getPlannedRouteGeometry() != null) {
+                dto.setGeometryWkt(legs.get(i).getPlannedRouteGeometry().toText());
+            }
+            legDtos.add(dto);
+        }
+        return TourTrackResponse.of(tourId, tour.getStatus().name(), ordered, legDtos,
+                positions.getLatestPosition(tour.getVehicle().getId()));
     }
 
     @Transactional

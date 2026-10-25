@@ -5,6 +5,7 @@ import com.zonepilot.backend.dto.request.DeliverStopRequest;
 import com.zonepilot.backend.dto.request.SkipStopRequest;
 import com.zonepilot.backend.dto.response.ApiResponse;
 import com.zonepilot.backend.dto.response.TourResponse;
+import com.zonepilot.backend.dto.response.TourTrackResponse;
 import com.zonepilot.backend.service.TourService;
 import io.swagger.v3.oas.annotations.Operation;
 import jakarta.validation.Valid;
@@ -49,5 +50,11 @@ public class TourController {
                                                           @Valid @RequestBody SkipStopRequest req) {
         return ResponseEntity.ok(
                 ApiResponse.success(tours.skip(tourId, stopId, req.getReason())));
+    }
+
+    @GetMapping("/{tourId}/track")
+    @Operation(summary = "Live tracing: stops with ETAs, per-leg route geometries, latest position")
+    public ResponseEntity<ApiResponse<TourTrackResponse>> track(@PathVariable Long tourId) {
+        return ResponseEntity.ok(ApiResponse.success(tours.track(tourId)));
     }
 }
