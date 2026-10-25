@@ -67,6 +67,12 @@ public class TourStop {
     @Column(name = "pod_lng")
     private Double podLng;
 
+    @Column(name = "eta_at")
+    private Instant etaAt;
+
+    @Column(name = "leg_duration_sec")
+    private Long legDurationSec;
+
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
     public Tour getTour() { return tour; }
@@ -103,4 +109,8 @@ public class TourStop {
     public void setPodLat(Double podLat) { this.podLat = podLat; }
     public Double getPodLng() { return podLng; }
     public void setPodLng(Double podLng) { this.podLng = podLng; }
+    public Instant getEtaAt() { return etaAt; }
+    public void setEtaAt(Instant etaAt) { this.etaAt = etaAt; }
+    public Long getLegDurationSec() { return legDurationSec; }
+    public void setLegDurationSec(Long legDurationSec) { this.legDurationSec = legDurationSec; }
 }

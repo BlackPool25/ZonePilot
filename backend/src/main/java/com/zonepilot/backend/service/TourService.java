@@ -71,12 +71,12 @@ public class TourService {
         List<TourOptimizerService.StopPoint> points = req.getStops().stream()
                 .map(s -> new TourOptimizerService.StopPoint(s.getLat(), s.getLng()))
                 .toList();
-        List<TourOptimizerService.StopPoint> ordered =
-                optimizer.orderStops(req.getOriginLat(), req.getOriginLng(), points, now);
+        TourOptimizerService.Plan plan =
+                optimizer.plan(req.getOriginLat(), req.getOriginLng(), points, now);
         // Pair ordered points back to inputs (exact double match — same objects Lane).
-        List<CreateTourRequest.StopInput> orderedInputs = new ArrayList<>(ordered.size());
+        List<CreateTourRequest.StopInput> orderedInputs = new ArrayList<>(plan.ordered().size());
         List<CreateTourRequest.StopInput> remaining = new ArrayList<>(req.getStops());
-        for (TourOptimizerService.StopPoint p : ordered) {
+        for (TourOptimizerService.StopPoint p : plan.ordered()) {
             CreateTourRequest.StopInput match = remaining.stream()
                     .filter(s -> Double.compare(s.getLat(), p.lat()) == 0
                             && Double.compare(s.getLng(), p.lng()) == 0)
@@ -94,8 +94,12 @@ public class TourService {
         tours.save(tour);
 
         for (int i = 0; i < orderedInputs.size(); i++) {
-            stops.save(toStop(tour, i, orderedInputs.get(i)));
+            TourStop s = toStop(tour, i, orderedInputs.get(i));
+            s.setLegDurationSec(plan.legTimesSec().get(i));
+            stops.save(s);
         }
+        // Anchor ETAs: eta(stop i) = departure + cumulative planned leg times.
+        reanchorFrom(tour.getId(), now, 0);
 
         // Leg 1: origin -> stop 0.
         CreateTourRequest.StopInput first = orderedInputs.get(0);
@@ -168,6 +172,32 @@ public class TourService {
                         "DispatchRoute", "id", leg.getDispatchRouteId()));
         route.setTour(tour);
         driverService.assign(route.getId(), tour.getDriver().getId());
+        // Re-anchor: next stop ETA = now + validated-leg actual; later stops
+        // shift by their stored planned durations (mid-tour order is frozen).
+        Instant now = Instant.now();
+        long actual = leg.getTravelDurationSec() != null && leg.getTravelDurationSec() > 0
+                ? leg.getTravelDurationSec()
+                : optimizer.estimateLegSec(done.getPoint().getY(), done.getPoint().getX(),
+                        next.getPoint().getY(), next.getPoint().getX());
+        next.setLegDurationSec(actual);
+        reanchorFrom(tour.getId(), now, ordered.indexOf(next));
+    }
+
+    /** Sets etaAt for PENDING stops from index i: anchor + cumulative leg durations. */
+    private void reanchorFrom(Long tourId, Instant anchor, int fromIdx) {
+        List<TourStop> ordered = stops.findByTourIdOrderBySeqAsc(tourId);
+        Instant cursor = anchor;
+        for (int i = fromIdx; i < ordered.size(); i++) {
+            TourStop s = ordered.get(i);
+            if (s.getStatus() != StopStatus.PENDING) {
+                continue;
+            }
+            long legSec = s.getLegDurationSec() != null && s.getLegDurationSec() > 0
+                    ? s.getLegDurationSec()
+                    : 0;
+            cursor = cursor.plusSeconds(legSec);
+            s.setEtaAt(cursor);
+        }
     }
 
     private void completeLatestRoute(Long tourId) {

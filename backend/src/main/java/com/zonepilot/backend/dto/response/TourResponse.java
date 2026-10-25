@@ -34,6 +34,8 @@ public class TourResponse {
         private String skipReason;
         private Double podLat;
         private Double podLng;
+        private Instant etaAt;
+        private Long legDurationSec;
 
         public static StopDto from(TourStop s) {
             StopDto d = new StopDto();
@@ -55,6 +57,8 @@ public class TourResponse {
             d.skipReason = s.getSkipReason();
             d.podLat = s.getPodLat();
             d.podLng = s.getPodLng();
+            d.etaAt = s.getEtaAt();
+            d.legDurationSec = s.getLegDurationSec();
             return d;
         }
 
@@ -76,6 +80,8 @@ public class TourResponse {
         public String getSkipReason() { return skipReason; }
         public Double getPodLat() { return podLat; }
         public Double getPodLng() { return podLng; }
+        public Instant getEtaAt() { return etaAt; }
+        public Long getLegDurationSec() { return legDurationSec; }
     }
 
     public Long getId() { return id; }

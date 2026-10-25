@@ -14,6 +14,7 @@ import com.zonepilot.backend.repository.TourStopRepository;
 import com.zonepilot.backend.repository.VehicleRepository;
 import com.zonepilot.backend.service.RouteComplianceService;
 import java.nio.file.Paths;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
@@ -135,6 +136,7 @@ class TourApiTest {
                 .thenAnswer(inv -> {
                     RouteValidationResponse r = new RouteValidationResponse();
                     r.setDispatchRouteId(saveLegRoute());
+                    r.setTravelDurationSec(600L);
                     return r;
                 });
     }
@@ -190,6 +192,30 @@ class TourApiTest {
                 (List<Map<String, Object>>) tour(tourId).get("stops");
         assertThat(stops2.get(0).get("status")).isEqualTo("DELIVERED");
         assertThat(stops2.get(1).get("status")).isEqualTo("PENDING");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void etas_increaseAlongTour_and_advanceReanchors() {
+        long tourId = dataId(post("/api/tours", createBody(), ownerToken));
+
+        List<Map<String, Object>> stops =
+                (List<Map<String, Object>>) tour(tourId).get("stops");
+        Instant eta0 = Instant.parse((String) stops.get(0).get("etaAt"));
+        Instant eta1 = Instant.parse((String) stops.get(1).get("etaAt"));
+        assertThat(eta0).isAfter(Instant.now().minusSeconds(300));
+        assertThat(eta1).isAfter(eta0);
+
+        // Deliver stop 0 (stubbed leg actual = 600s) → stop 1 re-anchored to now+600s.
+        Map<String, Object> afterDeliver = post(
+                "/api/tours/" + tourId + "/stops/" + stops.get(0).get("id") + "/deliver",
+                Map.of("lat", 12.932, "lng", 77.600), ownerToken);
+        assertThat(afterDeliver.get("status")).isEqualTo(200);
+        Instant anchored = Instant.now().plusSeconds(600);
+        List<Map<String, Object>> stops2 =
+                (List<Map<String, Object>>) tour(tourId).get("stops");
+        Instant newEta1 = Instant.parse((String) stops2.get(1).get("etaAt"));
+        assertThat(Math.abs(newEta1.getEpochSecond() - anchored.getEpochSecond())).isLessThan(120);
     }
 
     @Test
