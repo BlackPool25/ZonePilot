@@ -2,6 +2,7 @@ package com.zonepilot.backend.controller;
 
 import com.zonepilot.backend.dto.response.ApiResponse;
 import com.zonepilot.backend.entity.FleetGroup;
+import com.zonepilot.backend.service.GroupDispatchService;
 import com.zonepilot.backend.service.GroupService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -18,9 +19,11 @@ import java.util.Map;
 public class GroupController {
 
     private final GroupService groupService;
+    private final GroupDispatchService dispatchService;
 
-    public GroupController(GroupService groupService) {
+    public GroupController(GroupService groupService, GroupDispatchService dispatchService) {
         this.groupService = groupService;
+        this.dispatchService = dispatchService;
     }
 
     @GetMapping
@@ -68,4 +71,27 @@ public class GroupController {
         groupService.removeDriver(id, driverId);
         return ResponseEntity.ok(ApiResponse.success("removed"));
     }
+
+    @PostMapping("/{id}/dispatch")
+    @Operation(summary = "Dispatch all group pairs on one cargo run")
+    public ResponseEntity<ApiResponse<GroupDispatchService.DispatchResult>> dispatchGroup(
+            @PathVariable Long id, @RequestBody DispatchRequest request) {
+        return ResponseEntity.ok(ApiResponse.success(dispatchService.dispatchGroup(
+                id, request.originLat(), request.originLng(), request.destLat(), request.destLng())));
+    }
+
+    @PostMapping("/dispatch-solo")
+    @Operation(summary = "Dispatch one vehicle + driver on a cargo run")
+    public ResponseEntity<ApiResponse<GroupDispatchService.DispatchResult>> dispatchSolo(
+            @RequestBody SoloDispatchRequest request) {
+        return ResponseEntity.ok(ApiResponse.success(dispatchService.dispatchSolo(
+                request.vehicleId(), request.driverId(),
+                request.originLat(), request.originLng(), request.destLat(), request.destLng())));
+    }
+
+    public record DispatchRequest(double originLat, double originLng, double destLat, double destLng) {}
+
+    public record SoloDispatchRequest(Long vehicleId, Long driverId,
+                                       double originLat, double originLng,
+                                       double destLat, double destLng) {}
 }

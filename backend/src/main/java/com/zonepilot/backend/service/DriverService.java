@@ -204,7 +204,7 @@ public class DriverService {
                 .toList();
     }
 
-    private void checkEligible(Driver driver, Vehicle vehicle) {
+    public void checkEligible(Driver driver, Vehicle vehicle) {
         LocalDate today = LocalDate.now(IST);
         if (!Boolean.TRUE.equals(driver.getIsActive())) {
             throw new EligibilityException("Driver " + driver.getName() + " is marked OFF duty");
