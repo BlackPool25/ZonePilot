@@ -16,6 +16,8 @@ public interface DispatchRouteRepository extends JpaRepository<DispatchRoute, Lo
 
     List<DispatchRoute> findByVehicleIdAndStatusOrderByCreatedAtDesc(Long vehicleId, RouteStatus status);
 
+    boolean existsByVehicleIdAndAssignmentStatusIn(Long vehicleId, Collection<AssignmentStatus> statuses);
+
     List<DispatchRoute> findByDriverIdAndAssignmentStatusInOrderByAssignedAtDesc(
             Long driverId, Collection<AssignmentStatus> statuses);
 
