@@ -22,7 +22,7 @@ public class TourOptimizerService {
     private static final Logger log = LoggerFactory.getLogger(TourOptimizerService.class);
 
     static final int MAX_STOPS = 12;
-    private static final String MATRIX_URL = "https://routes.googleapis.com/directions/v2:computeRouteMatrix";
+    private static final String MATRIX_URL = "https://routes.googleapis.com/distanceMatrix/v2:computeRouteMatrix";
     private static final String MATRIX_MASK = "originIndex,destinationIndex,duration,distanceMeters,status";
     private static final double FALLBACK_SPEED_MPS = 50_000.0 / 3600.0; // 50 km/h urban
     private static final double EARTH_M = 6_371_008.0;
@@ -130,7 +130,8 @@ public class TourOptimizerService {
                     "destinations", waypoints,
                     "travelMode", "DRIVE",
                     "routingPreference", "TRAFFIC_AWARE",
-                    "departureTime", departureTime.toString());
+                    // +60s buffer: Google rejects timestamps at-or-behind its own clock.
+                    "departureTime", departureTime.plusSeconds(60).toString());
             List<Map<String, Object>> elements = restClient.post()
                     .uri(MATRIX_URL)
                     .contentType(MediaType.APPLICATION_JSON)
@@ -146,8 +147,18 @@ public class TourOptimizerService {
             long[][] m = new long[n][n];
             boolean[][] seen = new boolean[n][n];
             for (Map<String, Object> el : elements) {
-                Map<String, Object> status = (Map<String, Object>) el.get("status");
-                if (status == null || !Integer.valueOf(200).equals(((Number) status.get("code")).intValue())) {
+                // Elements carry {originIndex, destinationIndex, status, duration, ...}.
+                // Google returns "status": {} for OK elements — only a non-empty
+                // non-200 status is a failure.
+                Object st = el.get("status");
+                if (st instanceof Map _m && !_m.isEmpty()) {
+                    Object code = ((Map<?, ?>) st).get("code");
+                    Integer codeInt = code instanceof Number num ? num.intValue() : null;
+                    if (!Integer.valueOf(200).equals(codeInt)) {
+                        return null;
+                    }
+                }
+                if (el.get("duration") == null) {
                     return null;
                 }
                 int o = ((Number) el.get("originIndex")).intValue();

@@ -4,6 +4,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -24,14 +26,22 @@ public class RouteSimilarityService {
         this.jdbcTemplate = jdbcTemplate;
     }
 
+    // Own transaction: a scoring-query failure must never poison the caller's
+    // route-validation transaction (a failed SELECT aborts the whole PG tx).
+    // Metric math in UTM 43N (EPSG:32643 covers Bangalore): ST_Intersection
+    // and ST_HausdorffDistance do not accept geography inputs.
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public double score(String ourWkt, String googleWkt) {
         if (ourWkt == null || googleWkt == null || ourWkt.isBlank() || googleWkt.isBlank()) return 0.0;
         try {
             Double result = jdbcTemplate.queryForObject(
-                    "SELECT COALESCE(ST_Length(ST_Intersection(ST_Buffer(ST_GeomFromText(?, 4326)::geography, 50), "
-                    + "ST_GeomFromText(?, 4326)::geography)) / NULLIF(ST_Length(ST_GeomFromText(?, 4326)::geography), 0), 0) "
-                    + "* EXP(-COALESCE(ST_HausdorffDistance(ST_GeomFromText(?, 4326)::geography, "
-                    + "ST_GeomFromText(?, 4326)::geography), 999999) / 500.0)",
+                    "SELECT COALESCE(ST_Length(ST_Intersection("
+                    + "ST_Buffer(ST_Transform(ST_GeomFromText(?, 4326), 32643), 50), "
+                    + "ST_Transform(ST_GeomFromText(?, 4326), 32643))) "
+                    + "/ NULLIF(ST_Length(ST_Transform(ST_GeomFromText(?, 4326), 32643)), 0), 0) "
+                    + "* EXP(-COALESCE(ST_HausdorffDistance("
+                    + "ST_Transform(ST_GeomFromText(?, 4326), 32643), "
+                    + "ST_Transform(ST_GeomFromText(?, 4326), 32643)), 999999) / 500.0)",
                     Double.class, ourWkt, googleWkt, googleWkt, ourWkt, googleWkt);
             return result == null ? 0.0 : Math.min(1.0, Math.max(0.0, result));
         } catch (Exception e) {
