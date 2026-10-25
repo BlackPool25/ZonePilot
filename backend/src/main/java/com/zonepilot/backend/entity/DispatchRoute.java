@@ -66,6 +66,9 @@ public class DispatchRoute {
     @Column(name = "google_similarity_score")
     private Double googleSimilarityScore;
 
+    @Column(name = "travel_duration_sec")
+    private Long travelDurationSec;
+
     @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "driver_id")
     private Driver driver;
@@ -130,6 +133,8 @@ public class DispatchRoute {
     public void setGoogleDistanceMeters(Long v) { this.googleDistanceMeters = v; }
     public Long getGoogleDelaySec() { return googleDelaySec; }
     public void setGoogleDelaySec(Long v) { this.googleDelaySec = v; }
+    public Long getTravelDurationSec() { return travelDurationSec; }
+    public void setTravelDurationSec(Long v) { this.travelDurationSec = v; }
     public Double getGoogleSimilarityScore() { return googleSimilarityScore; }
     public void setGoogleSimilarityScore(Double v) { this.googleSimilarityScore = v; }
     public Driver getDriver() { return driver; }

@@ -10,6 +10,7 @@ public class RouteValidationResponse {
     private String alternativeRouteGeoJson;
     private Boolean alternativeRouteUnavailable = false;
     private Long dispatchRouteId;
+    private Long travelDurationSec; // own-network/Google total trip seconds, null when unknown
     // Epic 4: wait-state fields (populated when waiting is faster than rerouting)
     private String waitUntil;       // ISO-8601 timestamp
     private Integer waitDurationSec; // seconds to wait
@@ -26,6 +27,8 @@ public class RouteValidationResponse {
     public void setAlternativeRouteUnavailable(Boolean alternativeRouteUnavailable) { this.alternativeRouteUnavailable = alternativeRouteUnavailable; }
     public Long getDispatchRouteId() { return dispatchRouteId; }
     public void setDispatchRouteId(Long dispatchRouteId) { this.dispatchRouteId = dispatchRouteId; }
+    public Long getTravelDurationSec() { return travelDurationSec; }
+    public void setTravelDurationSec(Long travelDurationSec) { this.travelDurationSec = travelDurationSec; }
     public String getWaitUntil() { return waitUntil; }
     public void setWaitUntil(String waitUntil) { this.waitUntil = waitUntil; }
     public Integer getWaitDurationSec() { return waitDurationSec; }

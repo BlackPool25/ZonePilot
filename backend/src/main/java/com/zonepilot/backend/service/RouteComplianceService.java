@@ -131,6 +131,10 @@ public class RouteComplianceService {
         dispatchRoute.setPlannedRouteGeometry(winner.geometry);
         dispatchRoute.setStatus(response.getCompliant() ? RouteStatus.COMPLIANT : RouteStatus.NON_COMPLIANT);
         dispatchRoute.setValidationTimestamp(departureTime);
+        if (winner.totalTripSec > 0) {
+            dispatchRoute.setTravelDurationSec(winner.totalTripSec);
+            response.setTravelDurationSec(winner.totalTripSec);
+        }
         if (winner.waitDurationSec > 0) {
             dispatchRoute.setWaitUntil(winner.waitUntil);
             dispatchRoute.setWaitDurationSec(winner.waitDurationSec);

@@ -144,8 +144,7 @@ class RouteComplianceServiceTest {
     }
 
     @Test
-    void validateRoute_threeStrikes_capsAtThreeAttempts() {
-        when(vehicleRepository.findById(5L)).thenReturn(Optional.of(vehicle));
+    void validateRoute_threeStrikes_capsAtThreeAttempts() {        when(vehicleRepository.findById(5L)).thenReturn(Optional.of(vehicle));
         when(routingService.findNearestNode(12.9, 77.6)).thenReturn(100L);
         when(routingService.findNearestNode(12.91, 77.61)).thenReturn(200L);
         when(routingService.computeRoute(100L, 200L)).thenReturn(mockRoute);
@@ -183,5 +182,46 @@ class RouteComplianceServiceTest {
         assertNotNull(response.getAttempts());
         assertEquals(3, response.getAttempts().size());
         assertTrue(response.getAttempts().stream().noneMatch(RouteValidationResponse.AttemptDetail::isAccepted));
+    }
+
+    @Test
+    void validateRoute_exposesTravelDurationSec() {
+        when(vehicleRepository.findById(5L)).thenReturn(Optional.of(vehicle));
+        when(routingService.findNearestNode(12.9, 77.6)).thenReturn(100L);
+        when(routingService.findNearestNode(12.91, 77.61)).thenReturn(200L);
+        when(routingService.computeRoute(100L, 200L)).thenReturn(mockRoute);
+        when(jdbcTemplate.queryForList(eq("SELECT * FROM sp_validate_route(?, ST_GeomFromText(?, 4326))"), eq(5L), anyString()))
+                .thenReturn(Collections.emptyList());
+        when(timePredictionService.predictTotalDurationSec(any(), anyList(), any())).thenReturn(300L);
+
+        org.mockito.ArgumentCaptor<DispatchRoute> captor =
+                org.mockito.ArgumentCaptor.forClass(DispatchRoute.class);
+        DispatchRoute savedRoute = new DispatchRoute();
+        savedRoute.setId(800L);
+        when(dispatchRouteRepository.save(captor.capture())).thenReturn(savedRoute);
+
+        RouteValidationResponse response = complianceService.validateRoute(5L, 12.9, 77.6, 12.91, 77.61);
+
+        assertEquals(300L, response.getTravelDurationSec());
+        assertEquals(300L, captor.getValue().getTravelDurationSec());
+    }
+
+    @Test
+    void validateRoute_unknownTravelDuration_isNull() {
+        when(vehicleRepository.findById(5L)).thenReturn(Optional.of(vehicle));
+        when(routingService.findNearestNode(12.9, 77.6)).thenReturn(100L);
+        when(routingService.findNearestNode(12.91, 77.61)).thenReturn(200L);
+        when(routingService.computeRoute(100L, 200L)).thenReturn(mockRoute);
+        when(jdbcTemplate.queryForList(eq("SELECT * FROM sp_validate_route(?, ST_GeomFromText(?, 4326))"), eq(5L), anyString()))
+                .thenReturn(Collections.emptyList());
+        when(timePredictionService.predictTotalDurationSec(any(), anyList(), any())).thenReturn(-1L);
+
+        DispatchRoute savedRoute = new DispatchRoute();
+        savedRoute.setId(801L);
+        when(dispatchRouteRepository.save(any(DispatchRoute.class))).thenReturn(savedRoute);
+
+        RouteValidationResponse response = complianceService.validateRoute(5L, 12.9, 77.6, 12.91, 77.61);
+
+        assertNull(response.getTravelDurationSec());
     }
 }
