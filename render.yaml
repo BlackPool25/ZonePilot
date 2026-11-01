@@ -20,3 +20,20 @@ services:
         sync: false   # e.g. https://zonepilot.vercel.app
       - key: GOOGLE_ROUTES_API_KEY
         sync: false   # optional; leave blank to disable predictive compliance
+      - key: REDIS_HOST
+        fromService:
+          type: redis
+          name: zonepilot-redis
+          property: host
+      - key: REDIS_PORT
+        fromService:
+          type: redis
+          name: zonepilot-redis
+          property: port
+
+# Slice 3: backend requires Redis for ingest state (no Redis => positions 500).
+  - type: redis
+    name: zonepilot-redis
+    plan: free
+    maxmemoryPolicy: noeviction
+    ipAllowList: []

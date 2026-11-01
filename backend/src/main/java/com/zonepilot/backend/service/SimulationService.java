@@ -18,6 +18,7 @@ import org.locationtech.jts.geom.LineString;
 import org.locationtech.jts.geom.PrecisionModel;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -191,14 +192,31 @@ public class SimulationService {
             double reportedLng = reportedPos[1];
             Short reportedHeading = (short) Math.round(reportedPos[2]);
 
-            PositionRecordResponse positionResult = positionTrackingService.recordPosition(
-                    path.getVehicle().getId(),
-                    reportedLat,
-                    reportedLng,
-                    null,
-                    null,
-                    reportedHeading,
-                    PositionSource.SIMULATED);
+            PositionRecordResponse positionResult;
+            try {
+                positionResult = positionTrackingService.recordPosition(
+                        path.getVehicle().getId(),
+                        reportedLat,
+                        reportedLng,
+                        null,
+                        null,
+                        reportedHeading,
+                        PositionSource.SIMULATED);
+            } catch (DataIntegrityViolationException dup) {
+                // QoS1-style redelivery of an already-stored fix: benign, skip this vehicle.
+                log.debug("tick.duplicate vehicle={} step={}", path.getVehicle().getId(), nextStep);
+                vehicleResults.add(skippedResult(path));
+                simulationPathRepository.incrementStep(path.getId());
+                continue;
+            } catch (Exception e) {
+                // Per-vehicle guard: one bad fix (e.g. out-of-bbox deviation) must not
+                // abort the whole tick — validation applies per-fix, not per-tick.
+                log.warn("tick.vehicle_failed vehicle={} step={} cause={}",
+                        path.getVehicle().getId(), nextStep, e.toString());
+                vehicleResults.add(skippedResult(path));
+                simulationPathRepository.incrementStep(path.getId());
+                continue;
+            }
 
             simulationPathRepository.incrementStep(path.getId());
 
@@ -329,6 +347,15 @@ public class SimulationService {
             case "C", "SCENARIO_C", "SCENARIO C" -> "SCENARIO_C";
             default -> name;
         };
+    }
+
+    private SimulationTickResponse.TickVehicleResult skippedResult(SimulationPath path) {
+        SimulationTickResponse.TickVehicleResult result = new SimulationTickResponse.TickVehicleResult();
+        result.setVehicleId(path.getVehicle().getId());
+        result.setRegistrationNumber(path.getVehicle().getRegistrationNumber());
+        result.setBreachDetected(false);
+        result.setStatus("SKIPPED");
+        return result;
     }
 
     private Coordinate extractWaypoint(LineString waypoints, int stepIndex) {

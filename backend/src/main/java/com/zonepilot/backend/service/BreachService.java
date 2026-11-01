@@ -12,7 +12,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
@@ -44,8 +43,12 @@ public class BreachService {
      * Computes a reroute from the vehicle's current position that avoids the breached zone.
      * The destination is taken from the vehicle's most recent dispatch route if available.
      * The resolved geometry is persisted on the breach log record.
+     *
+     * Joins the caller's transaction (default REQUIRED): recordPosition invokes this
+     * inside its own txn, and suspending it with REQUIRES_NEW deadlocks on the
+     * partitioned position/breach tables.
      */
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    @Transactional
     public void computeReroute(ZoneBreachLog breach, Long vehicleId,
                                 double currentLat, double currentLng) {
         try {
@@ -81,8 +84,10 @@ public class BreachService {
     /**
      * Epic 3: Computes a reroute for a vehicle confirmed off-route (no zone breach).
      * Uses the vehicle's active dispatch route destination.
+     *
+     * Joins the caller's transaction (default REQUIRED) — see computeReroute.
      */
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    @Transactional
     public void computeOffRouteReroute(Long vehicleId, double currentLat, double currentLng) {
         try {
             Long currentNode = routingService.findNearestNodeOrNull(currentLat, currentLng);

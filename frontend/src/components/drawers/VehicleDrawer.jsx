@@ -36,7 +36,7 @@ export default function VehicleDrawer({ entityId }) {
       setRoutes(updatedHistory);
       setShowClearConfirm(false);
     } catch (err) {
-      addToast('danger', err.message || 'Failed to clear active route.');
+      addToast('error', err.message || 'Failed to clear active route.');
     } finally {
       setClearing(false);
     }

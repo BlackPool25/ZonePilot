@@ -26,7 +26,7 @@ export default function RouteDrawer({ entityId, data: initialData }) {
       closeDrawer();
       navigate('/simulation');
     } catch (err) {
-      addToast('danger', err.message || 'Failed to start simulation.');
+      addToast('error', err.message || 'Failed to start simulation.');
     } finally {
       setSimulating(false);
     }
@@ -42,7 +42,7 @@ export default function RouteDrawer({ entityId, data: initialData }) {
       window.dispatchEvent(new CustomEvent('route-deleted', { detail: { id: routeId } }));
       closeDrawer();
     } catch (err) {
-      addToast('danger', err.message || 'Failed to delete route.');
+      addToast('error', err.message || 'Failed to delete route.');
     } finally {
       setDeleting(false);
     }

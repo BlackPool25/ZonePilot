@@ -17,6 +17,8 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -126,5 +128,25 @@ class BreachServiceTest {
 
         assertEquals(mockReroute, route.getPlannedRouteGeometry());
         verify(dispatchRouteRepository).save(route);
+    }
+
+    @Test
+    void computeReroute_joinsCallerTransaction_noRequiresNew() throws NoSuchMethodException {
+        // Deadlock guard: recordPosition calls computeReroute inside its own txn,
+        // so this method must join the outer txn (default REQUIRED), never suspend it.
+        Propagation p = BreachService.class
+                .getMethod("computeReroute", ZoneBreachLog.class, Long.class, double.class, double.class)
+                .getAnnotation(Transactional.class).propagation();
+        assertEquals(Propagation.REQUIRED, p,
+                "computeReroute must join the caller's transaction (REQUIRED), not REQUIRES_NEW");
+    }
+
+    @Test
+    void computeOffRouteReroute_joinsCallerTransaction_noRequiresNew() throws NoSuchMethodException {
+        Propagation p = BreachService.class
+                .getMethod("computeOffRouteReroute", Long.class, double.class, double.class)
+                .getAnnotation(Transactional.class).propagation();
+        assertEquals(Propagation.REQUIRED, p,
+                "computeOffRouteReroute must join the caller's transaction (REQUIRED), not REQUIRES_NEW");
     }
 }

@@ -16,9 +16,14 @@ async function request(path, options = {}) {
     },
     ...options,
   });
-  const json = await res.json();
-  if (!json.success) {
-    const err = new Error(json.error?.message || 'Request failed');
+  let json = null;
+  try {
+    json = await res.json();
+  } catch {
+    throw Object.assign(new Error(`HTTP ${res.status}`), { status: res.status });
+  }
+  if (!res.ok || !json.success) {
+    const err = new Error(json.error?.message || `HTTP ${res.status}`);
     err.code = json.error?.code;
     err.fields = json.error?.fields;
     err.status = res.status;
@@ -63,7 +68,7 @@ export const groupsApi = {
   removeVehicle: (id, vehicleId) => del(`/groups/${id}/vehicles/${vehicleId}`),
   removeDriver: (id, driverId) => del(`/groups/${id}/drivers/${driverId}`),
   dispatch: (id, body) => post(`/groups/${id}/dispatch`, body),
-  dispatchSolo: (id, body) => post(`/groups/${id}/dispatch-solo`, body),
+  dispatchSolo: (body) => post('/groups/dispatch-solo', body),
 };
 
 // ─── Zones ────────────────────────────────────────────────────────────

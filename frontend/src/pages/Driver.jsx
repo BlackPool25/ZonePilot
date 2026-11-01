@@ -44,12 +44,12 @@ export default function Driver() {
   const persistQueue = (q) => { setQueue(q); localStorage.setItem(QUEUE_KEY, JSON.stringify(q)); };
   const enqueue = (path, body) => {
     persistQueue([...readQueue(), { path, body, ts: Date.now() }]);
-    addToast(t.queued, 'info');
+    addToast('info', t.queued);
   };
 
   const load = () => {
     setLoading(true);
-    driverApi.myRoutes().then(setRoutes).catch((e) => addToast(e.message, 'error')).finally(() => setLoading(false));
+    driverApi.myRoutes().then(setRoutes).catch((e) => addToast('error', e.message)).finally(() => setLoading(false));
   };
   useEffect(() => { if (token) load(); }, [token]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -59,7 +59,7 @@ export default function Driver() {
       const data = await authApi.login(form.email, form.password);
       tokenStore.set(data.accessToken);
       setToken(data.accessToken);
-    } catch (err) { addToast(err.message, 'error'); }
+    } catch (err) { addToast('error', err.message); }
   };
   const logout = () => { tokenStore.set(null); setToken(null); setRoutes([]); };
 
@@ -70,7 +70,7 @@ export default function Driver() {
       await fn();
       load();
     } catch (e) {
-      if (e.status >= 400 && e.status < 500) addToast(e.message, 'error');
+      if (e.status >= 400 && e.status < 500) addToast('error', e.message);
       else enqueue(path, body);
     } finally { setBusy(null); }
   };
@@ -86,7 +86,7 @@ export default function Driver() {
       } catch { remaining.push(item); }
     }
     persistQueue(remaining);
-    if (!remaining.length) addToast(t.synced, 'success');
+    if (!remaining.length) addToast('success', t.synced);
     load();
   };
 
@@ -94,15 +94,15 @@ export default function Driver() {
     // No GPS (unsupported/denied/timeout): the distress signal still goes out
     // with unknown location — never (0,0).
     const sosWithoutFix = () => guarded(routeId, 'sos',
-      () => driverApi.sos(null, null, routeId).then(() => addToast(t.sosSent, 'success')),
+      () => driverApi.sos(null, null, routeId).then(() => addToast('success', t.sosSent)),
       '/driver/sos', { lat: null, lng: null, routeId });
     if (!navigator.geolocation) { sosWithoutFix(); return; }
     navigator.geolocation.getCurrentPosition(
       (pos) => guarded(routeId, 'sos',
-        () => driverApi.sos(pos.coords.latitude, pos.coords.longitude, routeId).then(() => addToast(t.sosSent, 'success')),
+        () => driverApi.sos(pos.coords.latitude, pos.coords.longitude, routeId).then(() => addToast('success', t.sosSent)),
         '/driver/sos', { routeId }), // offline SOS replays without coords => unknown location
       () => guarded(routeId, 'sos',
-        () => driverApi.sos(null, null, routeId).then(() => addToast(t.sosSent, 'success')),
+        () => driverApi.sos(null, null, routeId).then(() => addToast('success', t.sosSent)),
         '/driver/sos', { lat: null, lng: null, routeId }),
       { timeout: 8000 });
   };

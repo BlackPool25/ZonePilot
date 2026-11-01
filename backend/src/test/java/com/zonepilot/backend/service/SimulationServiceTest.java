@@ -5,6 +5,7 @@ import com.zonepilot.backend.entity.SimulationPath;
 import com.zonepilot.backend.entity.Vehicle;
 import com.zonepilot.backend.enums.VehicleClass;
 import com.zonepilot.backend.exception.SimulationException;
+import com.zonepilot.backend.exception.ValidationException;
 import com.zonepilot.backend.repository.DispatchRouteRepository;
 import com.zonepilot.backend.repository.SimulationPathRepository;
 import com.zonepilot.backend.repository.VehicleRepository;
@@ -23,6 +24,8 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyDouble;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -126,6 +129,65 @@ class SimulationServiceTest {
         assertEquals("MOVING", response.getVehicles().get(0).getStatus());
         assertFalse(response.getVehicles().get(0).getBreachDetected());
         verify(simulationPathRepository).incrementStep(path.getId());
+    }
+
+    @Test
+    void tick_whenOneVehicleFixFailsOutOfBounds_continuesWithRemainingVehicles() {
+        // Tick guard: one bad fix (e.g. deviation pushed it outside the bbox)
+        // must not abort the whole tick — validation applies per-fix, not per-tick.
+        Vehicle v1 = buildVehicle(1L);
+        Vehicle v2 = buildVehicle(2L);
+        SimulationPath p1 = buildPath("SCENARIO_A", true, 0, 3);
+        p1.setVehicle(v1);
+        p1.setId(1L);
+        SimulationPath p2 = buildPath("SCENARIO_A", true, 0, 3);
+        p2.setVehicle(v2);
+        p2.setId(2L);
+
+        when(simulationPathRepository.findAllActive()).thenReturn(List.of(p1, p2));
+        when(positionTrackingService.recordPosition(eq(1L), anyDouble(), anyDouble(),
+                any(), any(), any(), any()))
+                .thenThrow(new ValidationException("Coordinates (0.0, 0.0) are outside Bangalore bounding box"));
+        com.zonepilot.backend.dto.response.PositionRecordResponse ok =
+                new com.zonepilot.backend.dto.response.PositionRecordResponse();
+        ok.setBreachDetected(false);
+        when(positionTrackingService.recordPosition(eq(2L), anyDouble(), anyDouble(),
+                any(), any(), any(), any())).thenReturn(ok);
+
+        SimulationTickResponse response = simulationService.tick();
+
+        assertEquals(2, response.getVehicles().size());
+        assertEquals("SKIPPED", response.getVehicles().get(0).getStatus());
+        assertEquals("MOVING", response.getVehicles().get(1).getStatus());
+    }
+
+    @Test
+    void tick_whenDuplicateKey_toleratesAndContinues() {
+        // Tick guard: QoS1 redelivery of an already-stored fix is benign — skip, don't abort.
+        Vehicle v1 = buildVehicle(1L);
+        Vehicle v2 = buildVehicle(2L);
+        SimulationPath p1 = buildPath("SCENARIO_A", true, 0, 3);
+        p1.setVehicle(v1);
+        p1.setId(1L);
+        SimulationPath p2 = buildPath("SCENARIO_A", true, 0, 3);
+        p2.setVehicle(v2);
+        p2.setId(2L);
+
+        when(simulationPathRepository.findAllActive()).thenReturn(List.of(p1, p2));
+        when(positionTrackingService.recordPosition(eq(1L), anyDouble(), anyDouble(),
+                any(), any(), any(), any()))
+                .thenThrow(new org.springframework.dao.DataIntegrityViolationException("duplicate key"));
+        com.zonepilot.backend.dto.response.PositionRecordResponse ok =
+                new com.zonepilot.backend.dto.response.PositionRecordResponse();
+        ok.setBreachDetected(false);
+        when(positionTrackingService.recordPosition(eq(2L), anyDouble(), anyDouble(),
+                any(), any(), any(), any())).thenReturn(ok);
+
+        SimulationTickResponse response = simulationService.tick();
+
+        assertEquals(2, response.getVehicles().size());
+        assertEquals("SKIPPED", response.getVehicles().get(0).getStatus());
+        assertEquals("MOVING", response.getVehicles().get(1).getStatus());
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
