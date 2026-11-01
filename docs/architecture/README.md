@@ -5,6 +5,8 @@
 > **Target Persona:** Logistics Fleet Dispatcher & Operations Control  
 > **Architecture Standard:** Model-Driven Architecture (MDA) & C4 Model  
 
+> Amendment 2026-11-01 (Wave C): these 01–04 files are early PSM sketches — "depot"/`depot_id` wording in them now reads "group"/`group_id` (`fleet_group`, STOMP `/topic/group/{id}`). The stable contract is `docs/10-PIM-PLATFORM-INDEPENDENT.md`; history kept in git.
+
 ---
 
 ## 1. Overview & Architectural Motivation

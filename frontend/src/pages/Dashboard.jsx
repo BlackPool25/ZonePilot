@@ -59,10 +59,13 @@ export default function Dashboard() {
   useEffect(() => {
     const ids = selectedGroupId === 'all'
       ? groups.map(g => g.id ?? g.groupId).filter(id => id != null)
-      : [Number(selectedGroupId)];
+      : (() => { const n = Number(selectedGroupId); return Number.isFinite(n) ? [n] : []; })();
     if (ids.length === 0 || vehicles.length === 0) return undefined;
     const onTick = (tick) => {
-      if (tick.type !== 'tick' || tick.vehicleId == null) return;
+      if (tick?.type !== 'tick' || tick.vehicleId == null) return;
+      const lat = Number(tick.lat);
+      const lng = Number(tick.lng);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
       setPositions(prev => ({
         ...prev,
         [tick.vehicleId]: {

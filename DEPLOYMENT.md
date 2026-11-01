@@ -104,6 +104,11 @@ Navigate to your service → Environment → Add the following:
 | `SPRING_DATASOURCE_URL` | `jdbc:postgresql://zonepilot-db.fly.dev:5432/ZonePilot?sslmode=require` | From Step 1.6 |
 | `SPRING_DATASOURCE_USERNAME` | `zonepilot` | Must match Fly.io secret |
 | `SPRING_DATASOURCE_PASSWORD` | `<your-password>` | Must match Fly.io secret |
+| `APP_JWT_SECRET` | `<32+ byte random secret>` | **REQUIRED** — HS256 signing key; boot fails fast when unset. Generate: `openssl rand -base64 48` |
+| `APP_JWT_ACCESS_TTL` | `PT15M` | Optional — defaults apply when unset |
+| `APP_JWT_REFRESH_TTL` | `P7D` | Optional — defaults apply when unset |
+| `REDIS_HOST` / `REDIS_PORT` | auto (fromService) | Already wired in `render.yaml` to `zonepilot-redis` (allkeys-lru). Slice 3: backend requires Redis for ingest state (no Redis → positions 500) |
+| `EMQX_URL` / `EMQX_USER` / `EMQX_PASSWORD` | `<broker url>` | Optional — Traccar MQTT ingest; unset = no broker binding |
 | `CORS_ALLOWED_ORIGINS` | `https://your-app.vercel.app` | Set after Vercel deploy in Step 3 |
 | `GOOGLE_ROUTES_API_KEY` | `<key>` | Optional — enables predictive compliance |
 
@@ -130,7 +135,7 @@ Expected: JSON response with `"success": true`.
 
 Check Render logs for:
 ```
-Successfully applied 18 migrations to schema "public"
+Successfully applied 43+ migrations to schema "public"
 ```
 
 ---
@@ -210,6 +215,10 @@ Expected: > 100,000 road segments.
 | `SPRING_DATASOURCE_URL` | Yes | Fly.io Postgres JDBC URL with `?sslmode=require` |
 | `SPRING_DATASOURCE_USERNAME` | Yes | Postgres username |
 | `SPRING_DATASOURCE_PASSWORD` | Yes | Postgres password |
+| `APP_JWT_SECRET` | Yes | HS256 signing key (32+ bytes); no default in prod |
+| `APP_JWT_ACCESS_TTL` / `APP_JWT_REFRESH_TTL` | No | Token lifetimes, e.g. `PT15M` / `P7D` |
+| `REDIS_HOST` / `REDIS_PORT` | Yes (auto) | From `zonepilot-redis` via `render.yaml` fromService |
+| `EMQX_URL` / `EMQX_USER` / `EMQX_PASSWORD` | No | Traccar MQTT ingest; unset = disabled |
 | `CORS_ALLOWED_ORIGINS` | Yes | Vercel frontend URL, e.g. `https://zonepilot.vercel.app` |
 | `GOOGLE_ROUTES_API_KEY` | No | Enables Google Routes API for predictive compliance |
 | `PORT` | Auto | Injected by Render; Spring binds to `${PORT:8080}` |
@@ -267,9 +276,10 @@ curl -s -X POST $BACKEND/api/routes/validate \
 # Expected: {"success":true,"data":{"compliant":...}}
 # If OSM not imported: {"success":false,"error":{"code":"ROAD_NETWORK_UNAVAILABLE"}}
 
-# 7. Simulation state
-curl -s $BACKEND/api/simulation/state
-# Expected: {"success":true,"data":[]}  (empty before simulation start)
+# 7. Simulation state — RETIRED (V43 dropped `simulation_path`).
+# Replay is served from stored fixes: POST /api/replays with a tour id.
+# curl -s -X POST $BACKEND/api/replays -H "Content-Type: application/json" \
+#   -H "Authorization: Bearer $TOKEN" -d '{"tourId":12,"speed":5}'
 
 # 8. Reports
 curl -s $BACKEND/api/reports/summary
@@ -348,5 +358,5 @@ curl -s $BACKEND/api/reports/active-restrictions
 - `.env` is in `.gitignore`
 - Fly.io Postgres is not publicly accessible by default; public IP must be explicitly allocated
 - CORS is locked to the specific Vercel domain
-- All endpoints are currently unauthenticated — add Spring Security before exposing to untrusted users
+- ~~All endpoints are currently unauthenticated — add Spring Security before exposing to untrusted users~~ **SUPERSEDED 2026-11-01:** JWT auth + group-scoped RBAC shipped (Wave C). All API endpoints require a Bearer token except `/api/auth/*`, `/v3/api-docs`, and `/ws` handshake (which carries its own token check).
 - Render provides automatic HTTPS; Vercel provides automatic HTTPS

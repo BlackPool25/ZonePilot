@@ -78,7 +78,15 @@ export default function Driver() {
       setToken(data.accessToken);
     } catch (err) { addToast('error', err.message); }
   };
-  const logout = () => { tokenStore.set(null); setToken(null); setRoutes([]); };
+  const logout = () => {
+    tokenStore.set(null);
+    setToken(null);
+    setRoutes([]);
+    setTours([]);
+    setSlip({});
+    setSkipText({});
+    persistQueue([]);
+  };
   /** POST with offline fallback: 4xx drops with toast; anything else queues. */
   const guarded = async (routeId, label, fn, path, body) => {
     setBusy(`${routeId}-${label}`);

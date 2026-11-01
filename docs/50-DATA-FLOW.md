@@ -1,5 +1,7 @@
 # ZonePilot — End-to-End Data Flow & Component Internals
 
+> Amendment 2026-11-01 (Wave C): depots removed (V33) — all scoping is by flat fleet group (`fleet_group`, STOMP `/topic/group/{id}`); `simulation_path` retired (V43). Earlier "depot" wording below now reads "group"; history kept in git.
+
 > How every piece moves data, what happens *inside* each component, and how they
 > connect. Diagrams are Mermaid; code refs are `backend/...` and `frontend/...`.
 > Naming convention follows the existing docs (`10-`, `20-`, `25-`, `30-`, `40-`).
@@ -222,7 +224,7 @@ flowchart TB
     B -- yes --> RR[computeReroute per breach<br/>resolvedRouteGeometry → WKT in response]
     B -- no --> NB[breachDetected=false]
     RR --> FAN
-    NB --> FAN[FAN-OUT tick if vehicle.depot set<br/>TickBroadcaster → /topic/depots/id<br/>frame: lat,lng,speedKmh,recordedAt,breach?]
+    NB --> FAN[FAN-OUT tick if vehicle.group set<br/>TickBroadcaster → /topic/group/{id}<br/>frame: lat,lng,speedKmh,recordedAt,breach?]
     FAN --> OUT([PositionRecordResponse<br/>+ breach + reroute GeoJSON])
 ```
 

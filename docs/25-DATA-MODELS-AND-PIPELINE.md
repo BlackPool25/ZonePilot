@@ -83,7 +83,7 @@ sequenceDiagram
     Q->>PT: recordPosition() — blind-box +5min check, active-route map-match
     PT->>DB: INSERT position → trigger: ST_Covers + class + IST window + bitmask → open/extend breach (60s continuity, distance_m += ST_Distance)
     PT->>PT: breach? computeReroute (penalty Dijkstra) : off-route 2×50m? computeOffRouteReroute
-    PT->>WS: /topic/groups/{id} tick frame (<2s tick→pixel)
+    PT->>WS: /topic/group/{id} tick frame (<2s tick→pixel)
 ```
 
 Map-match rules (EXISTS, `PositionTrackingService:164`): ≤30m on-route (heading flip >150° = carriageway glitch → snap); 30–50m tolerate; >50m twice consecutively = off-route reroute; no active route = pass-through. State lives in `ConcurrentHashMap`s today — **must move to Redis in Slice 3** (lost on restart, breaks with 2 instances).
@@ -102,7 +102,7 @@ Map-match rules (EXISTS, `PositionTrackingService:164`): ≤30m on-route (headin
 - **Traccar (`traccar.xml`):** `forward.enable=true, forward.url=<emqx-host:1883>, forward.type=mqtt, forward.topic=zonepilot/{group}/vehicles/{id}/position`, `forward.retry.*` on; mirror set under `event.forward.*`. Capture one position + one event JSON as fixtures.
 - **Backend (`application.yml`):** `mqtt.url/username/password` (env), `spring.threads.virtual.enabled=true`, validation `Semaphore` bean, `@Async("broadcastExecutor")`, Caffeine `zoneRules` cache, Redis `gps:latest:*` GEO + route cache, Bucket4j buckets on auth/ingest/links, `MaxRAMPercentage=75`.
 - **DB ops:** monthly partition cron (+3 ahead, drop >90d raw), `VACUUM ANALYZE` after OSM import, `statement_timeout` on report role, Fly volume snapshots daily + one restore drill before testers.
-- **Frontend:** route-lazy pages, lazy LiveMap + fixed placeholder, `leaflet-trackplayer` with explicit `speed` + `src/types/leaflet-trackplayer.d.ts` shim, Carto tiles + markercluster at 50+, OSM attribution.
+- **Frontend:** route-lazy pages, lazy LiveMap + fixed placeholder, ~~`leaflet-trackplayer` with explicit `speed` + `src/types/leaflet-trackplayer.d.ts` shim~~ SUPERSEDED 2026-11-01 (server-driven replay via `POST /api/replays`, no TrackPlayer dep), Carto tiles + markercluster at 50+, OSM attribution.
 
 ## 6. Brutal notes (do not skip)
 

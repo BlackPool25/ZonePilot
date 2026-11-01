@@ -12,7 +12,7 @@ flowchart LR
     SIM[Traccar + simulated devices<br/>native forward.type=mqtt] -->|publish + events| EMQX[(EMQX Cloud Serverless<br/>free quota)]
     EMQX -->|subscribe zonepilot/#| ING[Spring ingest<br/>@MqttListener, validated]
     ING --> TRACK[PositionTracking + Breach<br/>derive idle/dwell/off-route]
-    TRACK -->|broadcast| WS[STOMP /topic/groups/{id}]
+    TRACK -->|broadcast| WS[STOMP /topic/group/{id}]
     WS --> OPS[Ops board]
     WS --> DRV[Driver app queue /user]
 ```
@@ -77,10 +77,10 @@ Verdict 2026-10-24: plan is **~70% build-ready**. Requirements, slices, and UX a
 - [ ] **BLOCKER — PG hosting with pgRouting.** Fly Managed Postgres supports PostGIS + pgvector only; **pgRouting is not available** (Fly docs, Jul-2025). But `render.yaml` points at Fly PG — `V10__stored_procedures.sql` (pgr_dijkstra) will fail to migrate there. Decide: (a) self-hosted PG on a Fly Machine using `docker/postgres/Dockerfile` (keeps pgRouting, you own backups), or (b) split topology: compliance routing stays on self-hosted PG, app data on managed. Spike: boot option (a), run Flyway V1–V24, record restore procedure.
 - [ ] **Pin MQTT coordinates.** `io.github.enesdurmus:mqtt-spring-boot-starter:2.0.0` declares Boot 3.x + MQTT5 (EMQX-compatible) — verify against Boot 3.5.14 in a scratch module with a publish/subscribe round-trip to EMQX Cloud Serverless (TLS port, credentials via env).
 - [ ] **Traccar forward schema.** Run Traccar locally, enable HTTP forward, capture one position + one geofence event JSON; freeze the bridge mapping (field names, ts format, fuel field) as a contract test fixture.
-- [ ] **STOMP handshake.** `spring-boot-starter-websocket` + SockJS client versions for React 19; confirm `/topic/groups/{id}` + `/user` queues through one Render instance (no broker relay needed at demo scale).
+- [ ] **STOMP handshake.** `spring-boot-starter-websocket` + SockJS client versions for React 19; confirm `/topic/group/{id}` + `/user` queues through one Render instance (no broker relay needed at demo scale).
 - [ ] **JWT + group filter.** Pick jjwt vs Nimbus against Boot 3.5; prove the `group_id` enforcement (Hibernate `@Filter` vs interceptor) with a cross-group 403 test.
 - [ ] **Bucket4j + Caffeine + Redis client.** Version check vs Boot 3.5; confirm Lettuce GEO commands for the `gps:latest:*` index.
-- [ ] **Leaflet.TrackPlayer API.** Install in a scratch branch; confirm `speed/passedLineColor/panTo/markerRotation` props against Leaflet 1.9.4 + React 19 before committing the Simulation page to it.
+- [ ] **~~Leaflet.TrackPlayer API.~~ SUPERSEDED 2026-11-01:** replay is server-driven (`POST /api/replays`, REPLAY-source fixes re-inserted at 1–30x, breach feed polled separately) — no TrackPlayer dependency. Original spike item kept for history: ~~Install in a scratch branch; confirm `speed/passedLineColor/panTo/markerRotation` props against Leaflet 1.9.4 + React 19 before committing the Simulation page to it.~~
 - [ ] **Java 25 on Render.** Confirm the backend Dockerfile builds Temurin-25 on Render's infra (native, not Docker-in-Docker issue) or pin the image accordingly.
 
 Exit criteria: each box has a version number + a passing spike test or fixture recorded in this section. Then Slice 1 starts. (Note: no plan-review skill is installed in this environment, so this audit was done directly against repo + docs.)
@@ -110,7 +110,7 @@ Traccar speaks MQTT itself: `forward.url` (broker), `forward.type=mqtt`, `forwar
 
 ### 8.4 Browser fan-out — STOMP confirmed
 
-Server: BOM-managed `spring-boot-starter-websocket`, endpoint `/ws`, topics `/topic/groups/{id}` + `/user/queue/*` (driver). Client: `@stomp/stompjs@7.5.0` (verified on npm — pure ESM, **no React peer deps**, React 19/Vite 8 safe) with native WebSocket, no SockJS. Heartbeats on; single Render instance needs no relay at demo scale.
+Server: BOM-managed `spring-boot-starter-websocket`, endpoint `/ws`, topics `/topic/group/{id}` + `/user/queue/*` (driver). Client: `@stomp/stompjs@7.5.0` (verified on npm — pure ESM, **no React peer deps**, React 19/Vite 8 safe) with native WebSocket, no SockJS. Heartbeats on; single Render instance needs no relay at demo scale.
 
 ### 8.5 Auth — jjwt 0.12.6 + Hibernate filter (verified on Central)
 
@@ -120,9 +120,11 @@ Server: BOM-managed `spring-boot-starter-websocket`, endpoint `/ws`, topics `/to
 
 `com.giffing.bucket4j.spring.boot.starter:bucket4j-spring-boot-starter:0.12.10` (verified on Central; Boot 3 line). Apply to auth + ingest + share-link endpoints first; SOS gets its own tight bucket.
 
-### 8.7 Simulation playback — TrackPlayer API confirmed, two traps flagged
+### 8.7 Simulation playback — SUPERSEDED 2026-11-01: server-driven replay, no TrackPlayer
 
-`npm install leaflet-trackplayer` (verified README): `new L.TrackPlayer(latlngs, {speed, passedLineColor, notPassedLineColor, panTo, markerRotation})` + `start()/pause()/setSpeed()/setProgress()/on('progress'|'finished')` + [live demo](https://weijun-lab.github.io/Leaflet.TrackPlayer/). Traps: (1) default `speed: 600` km/h — always set explicitly per scenario; (2) no TypeScript types — add `src/types/leaflet-trackplayer.d.ts` shim. Dual-trail trick stands: compliant = blue→green trail, breach = red via `passedLineColor`.
+~~`npm install leaflet-trackplayer` (verified README): `new L.TrackPlayer(latlngs, {speed, passedLineColor, notPassedLineColor, panTo, markerRotation})` + `start()/pause()/setSpeed()/setProgress()/on('progress'|'finished')` + [live demo](https://weijun-lab.github.io/Leaflet.TrackPlayer/). Traps: (1) default `speed: 600` km/h — always set explicitly per scenario; (2) no TypeScript types — add `src/types/leaflet-trackplayer.d.ts` shim. Dual-trail trick stands: compliant = blue→green trail, breach = red via `passedLineColor`.~~
+
+Replay shipped as server-driven playback instead: `POST /api/replays` re-inserts a tour's stored fixes with source REPLAY at 1–30x; the background worker evaluates breaches eventually and the UI polls `/api/breaches?vehicleId=` separately. `simulation_path` retired (V43). No `leaflet-trackplayer` dependency in `frontend/package.json`.
 
 ### 8.8 Java 25 on Render — RESOLVED, no action
 

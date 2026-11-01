@@ -35,10 +35,10 @@ Render free sleeps: warm it (`/actuator/health`) before a demo call; note the 30
 
 ## 2. Tester experience — guided 6-minute script
 
-Seed a `demo` depot (4 vehicles, 4 scenarios prewired). Landing = operation brief, not a blank map:
+Seed a `demo` group (4 vehicles, 4 scenarios prewired). Landing = operation brief, not a blank map:
 
 1. **Act 1 — Block (90s):** dispatcher validates Silk Board→E-City diesel HCV at 09:30 → red banner cites E-City elevated 06–22 + fine → one-click compliant detour. Tester learns the wedge.
-2. **Act 2 — Live (2min):** "Play morning shift" replays all four scenarios as STOMP ticks with TrackPlayer trails; Chickpet dwell goes amber 15:00 → cited 20:00 live.
+2. **Act 2 — Live (2min):** "Play morning shift" replays all four scenarios as STOMP ticks with replay trails; Chickpet dwell goes amber 15:00 → cited 20:00 live.
 3. **Act 3 — Money (2min):** challan ledger totals the shift (fines avoided vs incurred), fuel estimate per trip, month P&L sketch.
 4. Debrief prompt: "Which of your routes would this have blocked last week?" — the question that sells.
 
@@ -52,7 +52,7 @@ One hero question per role, answered in <3s without scrolling (Volpis/Lokomax pa
 |---|---|---|
 | Dispatcher | What needs my attention? | Exception inbox → live map → assign |
 | Driver | How did I drive today? | Score + trend + last trip |
-| Owner | Are we making money? | 5–6 KPIs + drill-down by depot |
+| Owner | Are we making money? | 5–6 KPIs + drill-down by group |
 
 - **3-tier display:** hero tile (1) → context (3–5) → drill-down one tap away. Red = incident, amber = warning, green = healthy — never decorative. KPIs carry 7/30-day sparklines, not bare numbers.
 - **Dispatch flow (state machine, mirrors PIM §7):** Unassigned queue → eligibility gate (licence/docs/on-trip) → Assign → driver Accept → In-Transit (live) → ePOD → Settled. Reassignment keeps history. Every screen shows the trip's current state; no dead-end pages.

@@ -22,19 +22,19 @@ You are a senior backend engineer building ZonePilot, a fleet-compliance platfor
 
 ## Build order (do not reorder)
 
-PG boot on Fly Machine (plan §8.1) → Slice 1 auth + depot RBAC → Slice 2 driver app → Slice 3 Traccar ingest → Slice 4 fuel → Slice 5 maintenance → Slice 6 share+ePOD → Slice 7 billing → Slice 8–10 notify/audit/tenancy. Current slice is: **{SLICE}**.
+PG boot on Fly Machine (plan §8.1) → Slice 1 auth + group RBAC → Slice 2 driver app → Slice 3 Traccar ingest → Slice 4 fuel → Slice 5 maintenance → Slice 6 share+ePOD → Slice 7 billing → Slice 8–10 notify/audit/tenancy. Current slice is: **{SLICE}**.
 
 ## Iron rules
 
 - Flyway: never edit an applied migration; new work = V21+. Every geometry column `GEOMETRY(x, 4326)`; every time comparison on `recorded_at` (timestamptz, IST-derived), never server-local `NOW()`.
 - No new dependency without a one-line justification + version pinned in pom. BOM-managed first.
-- Depot scoping via Hibernate `@FilterDef`, auto-enabled from JWT — client-sent depot ids are untrusted. Every new endpoint ships with a 401 (no token) and 403 (cross-depot) test.
+- Group scoping via Hibernate `@FilterDef`, auto-enabled from JWT — client-sent group ids are untrusted. Every new endpoint ships with a 401 (no token) and 403 (cross-group) test.
 - In-memory maps (`ConcurrentHashMap` counters) are banned for new state — use Redis.
 - Map-match thresholds (30m/50m/2-pings), breach 60s continuity, deviation probabilities: constants with names, never magic numbers.
 
 ## Test pyramid (all mandatory per slice)
 
-1. **Unit** (JUnit5 + Mockito + AssertJ): pure logic — settlement math, map-match branches, depot-filter wiring, JWT expiry. Seeded `Random` for probabilistic code. Run: `mvn -q test -Dtest='<Slice>*Test'`.
+1. **Unit** (JUnit5 + Mockito + AssertJ): pure logic — settlement math, map-match branches, group-filter wiring, JWT expiry. Seeded `Random` for probabilistic code. Run: `mvn -q test -Dtest='<Slice>*Test'`.
 2. **Integration** (Testcontainers, image MUST be our `docker/postgres/Dockerfile` build — plain `postgis/postgis` lacks pgRouting; CI uses the same image as a service container): Flyway migrates for real; trigger tests insert a position and assert the breach row; `recordPosition` end-to-end asserts reroute geometry. `@DataJpaTest` for repos/triggers, `@SpringBootTest` for service chains.
 3. **API** (MockMvc + JWT): happy path, validation errors, 401/403, rate-limit 429.
 4. **Contract**: Traccar fixture JSON (one position + one event, captured from real Traccar) replayed through the ingest channel asserts identical DB + WS output. Fixture changes = failing test, not silent drift.

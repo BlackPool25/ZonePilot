@@ -6,5 +6,8 @@ spring:
         format_sql: true
 
 zonepilot:
+  # DANGER: the dev seeder reseeds demo data on boot. When pointed at a SHARED
+  # (remote/staging) database, leave this false — otherwise one local boot
+  # wipes/reseeds data other users see. Only enable with a local throwaway DB.
   simulation:
-    enabled: true
+    enabled: ${SIMULATION_ENABLED:false}
