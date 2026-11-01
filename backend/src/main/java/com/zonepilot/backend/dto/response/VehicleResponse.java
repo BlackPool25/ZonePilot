@@ -1,5 +1,6 @@
 package com.zonepilot.backend.dto.response;
 
+import com.zonepilot.backend.enums.VehicleAvailability;
 import com.zonepilot.backend.enums.VehicleClass;
 
 public class VehicleResponse {
@@ -9,6 +10,8 @@ public class VehicleResponse {
     private VehicleClass vehicleClass;
     private String ownerName;
     private Boolean isActive;
+
+    private VehicleAvailability availability;
 
     private Long activeDispatchRouteId;
 
@@ -22,6 +25,8 @@ public class VehicleResponse {
     public void setOwnerName(String ownerName) { this.ownerName = ownerName; }
     public Boolean getIsActive() { return isActive; }
     public void setIsActive(Boolean isActive) { this.isActive = isActive; }
+    public VehicleAvailability getAvailability() { return availability; }
+    public void setAvailability(VehicleAvailability availability) { this.availability = availability; }
     public Long getActiveDispatchRouteId() { return activeDispatchRouteId; }
     public void setActiveDispatchRouteId(Long activeDispatchRouteId) { this.activeDispatchRouteId = activeDispatchRouteId; }
     private Long modelId;

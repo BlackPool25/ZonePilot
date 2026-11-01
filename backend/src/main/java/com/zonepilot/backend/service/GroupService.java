@@ -121,18 +121,20 @@ public class GroupService {
                 .map(gv -> new MemberStatus(
                         gv.getVehicle().getId(),
                         gv.getVehicle().getRegistrationNumber(),
-                        routes.existsByVehicleIdAndAssignmentStatusIn(gv.getVehicle().getId(), ON_TRIP)))
+                        routes.existsByVehicleIdAndAssignmentStatusIn(gv.getVehicle().getId(), ON_TRIP),
+                        gv.getVehicle().getAvailability().name()))
                 .toList();
         List<MemberStatus> driverStatuses = groupDrivers.findByGroupId(groupId).stream()
                 .map(gd -> new MemberStatus(
                         gd.getDriver().getId(),
                         gd.getDriver().getName(),
-                        routes.existsByDriverIdAndAssignmentStatusIn(gd.getDriver().getId(), ON_TRIP)))
+                        routes.existsByDriverIdAndAssignmentStatusIn(gd.getDriver().getId(), ON_TRIP),
+                        null))
                 .toList();
         return new GroupDetail(groupId, vehicleStatuses, driverStatuses);
     }
 
-    public record MemberStatus(Long id, String label, boolean busy) {}
+    public record MemberStatus(Long id, String label, boolean busy, String availability) {}
 
     public record GroupDetail(Long groupId, List<MemberStatus> vehicles, List<MemberStatus> drivers) {}
 }

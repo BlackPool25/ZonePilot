@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { groupsApi } from '../api/client.js';
+import { groupsApi, vehiclesApi } from '../api/client.js';
 import Badge from '../components/atoms/Badge.jsx';
 import Button from '../components/atoms/Button.jsx';
 import Input from '../components/atoms/Input.jsx';
@@ -87,6 +87,16 @@ export default function Groups() {
     }
   }
 
+  async function setVehicleAvailability(vehicleId, availability) {
+    try {
+      await vehiclesApi.setAvailability(vehicleId, availability);
+      addToast('success', `Vehicle ${availability}`);
+      await load();
+    } catch (err) {
+      addToast('error', err.message || 'Availability update failed');
+    }
+  }
+
   if (loading) return <LoadingOverlay label="Loading groups…" />;
   if (error) return <ErrorState message={error} onRetry={load} />;
 
@@ -154,6 +164,18 @@ export default function Groups() {
         <div key={`v-${v.id}`} className={styles.filters} style={{ marginBottom: 4 }}>
           <span className={styles.regNumber}>🚛 {v.label}</span>
           <Badge variant={v.busy ? 'amber' : 'green'} dot>{v.busy ? 'BUSY' : 'FREE'}</Badge>
+          <Badge variant={v.availability === 'AVAILABLE' ? 'green' : v.availability === 'MAINTENANCE' ? 'red' : 'blue'}>
+            {v.availability ?? 'AVAILABLE'}
+          </Badge>
+          {v.availability === 'MAINTENANCE' ? (
+            <Button size="sm" variant="ghost" onClick={() => setVehicleAvailability(v.id, 'AVAILABLE')}>
+              Release →
+            </Button>
+          ) : (
+            <Button size="sm" variant="ghost" onClick={() => setVehicleAvailability(v.id, 'MAINTENANCE')}>
+              Maintenance
+            </Button>
+          )}
         </div>
       ))}
       {selected?.drivers?.map(d => (

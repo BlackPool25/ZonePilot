@@ -3,10 +3,13 @@ package com.zonepilot.backend.controller;
 import com.zonepilot.backend.dto.request.CreateSlipRequest;
 import com.zonepilot.backend.dto.request.SosRequest;
 import com.zonepilot.backend.dto.response.ApiResponse;
+import com.zonepilot.backend.dto.response.TourResponse;
 import com.zonepilot.backend.entity.DispatchRoute;
 import com.zonepilot.backend.entity.SosAlert;
 import com.zonepilot.backend.entity.TripSlip;
+import com.zonepilot.backend.enums.DutyStatus;
 import com.zonepilot.backend.service.DriverService;
+import com.zonepilot.backend.service.TourService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -22,9 +25,11 @@ import java.util.List;
 public class DriverAppController {
 
     private final DriverService driverService;
+    private final TourService tourService;
 
-    public DriverAppController(DriverService driverService) {
+    public DriverAppController(DriverService driverService, TourService tourService) {
         this.driverService = driverService;
+        this.tourService = tourService;
     }
 
     @GetMapping("/routes")
@@ -56,5 +61,39 @@ public class DriverAppController {
     @Operation(summary = "Raise an SOS distress signal")
     public ResponseEntity<ApiResponse<SosAlert>> sos(@RequestBody SosRequest request) {
         return ResponseEntity.ok(ApiResponse.success(driverService.sos(request)));
+    }
+
+    @GetMapping("/tours")
+    @Operation(summary = "My assigned tours with ordered stops (PWA)")
+    public ResponseEntity<ApiResponse<List<TourResponse>>> myTours() {
+        return ResponseEntity.ok(ApiResponse.success(driverService.myTours()));
+    }
+
+    @PostMapping("/tours/{id}/duty")
+    @Operation(summary = "Set duty state on my tour (drives vehicle availability)")
+    public ResponseEntity<ApiResponse<TourResponse>> setDuty(
+            @PathVariable Long id, @RequestBody java.util.Map<String, String> body) {
+        return ResponseEntity.ok(ApiResponse.success(
+                driverService.setTourDuty(id, DutyStatus.valueOf(body.get("status")))));
+    }
+
+    @PostMapping("/tours/{id}/stops/{stopId}/deliver")
+    @Operation(summary = "Proof of delivery on my tour (tap + GPS stamp)")
+    public ResponseEntity<ApiResponse<TourResponse>> deliver(@PathVariable Long id,
+                                                             @PathVariable Long stopId,
+                                                             @RequestBody java.util.Map<String, Double> body) {
+        driverService.requireOwnedTour(id);
+        return ResponseEntity.ok(ApiResponse.success(tourService.deliver(
+                id, stopId, body.get("lat"), body.get("lng"))));
+    }
+
+    @PostMapping("/tours/{id}/stops/{stopId}/skip")
+    @Operation(summary = "Skip a stop on my tour with reason")
+    public ResponseEntity<ApiResponse<TourResponse>> skip(@PathVariable Long id,
+                                                          @PathVariable Long stopId,
+                                                          @RequestBody java.util.Map<String, String> body) {
+        driverService.requireOwnedTour(id);
+        return ResponseEntity.ok(ApiResponse.success(
+                tourService.skip(id, stopId, body.get("reason"))));
     }
 }

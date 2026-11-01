@@ -14,17 +14,26 @@ const STRINGS = {
     trips: 'My trips', accept: 'Accept', start: 'Start trip', slip: 'Add slip', sos: 'SOS',
     kind: 'Type', amount: 'Amount (₹)', fuel: 'Fuel', toll: 'Toll', send: 'Send SOS',
     sync: 'Sync pending', pending: 'pending', noTrips: 'No assigned trips right now.',
-    synced: 'Queue synced', queued: 'Saved offline — will sync later', sosSent: 'SOS sent. Dispatch has been notified.' },
+    synced: 'Queue synced', queued: 'Saved offline — will sync later', sosSent: 'SOS sent. Dispatch has been notified.',
+    tours: 'My tours', duty: 'Duty', onDuty: 'On duty', driving: 'Driving', break: 'Break', offDuty: 'Off duty',
+    delivered: 'Delivered ✓', skip: 'Skip', skipReason: 'Skip reason…', noTours: 'No active tours.',
+    dutySet: 'Duty updated', stopClosed: 'Stop recorded' },
   kn: { login: 'ಚಾಲಕ ಲಾಗಿನ್', email: 'ಇಮೇಲ್', password: 'ಪಾಸ್‌ವರ್ಡ್', logout: 'ಲಾಗ್ಔಟ್',
     trips: 'ನನ್ನ ಪ್ರವಾಸಗಳು', accept: 'ಒಪ್ಪಿಕೊಳ್ಳಿ', start: 'ಪ್ರವಾಸ ಪ್ರಾರಂಭಿಸಿ', slip: 'ಚೀಟಿ ಸೇರಿಸಿ', sos: 'SOS',
     kind: 'ವಿಧ', amount: 'ಮೊತ್ತ (₹)', fuel: 'ಇಂಧನ', toll: 'ಸುಂಕ', send: 'SOS ಕಳುಹಿಸಿ',
     sync: 'ಬಾಕಿ ಸಿಂಕ್ ಮಾಡಿ', pending: 'ಬಾಕಿ', noTrips: 'ಸದ್ಯಕ್ಕೆ ಯಾವುದೇ ಪ್ರವಾಸಗಳಿಲ್ಲ.',
-    synced: 'ಸಿಂಕ್ ಆಗಿದೆ', queued: 'ಆಫ್‌ಲೈನ್‌ನಲ್ಲಿ ಉಳಿಸಲಾಗಿದೆ', sosSent: 'SOS ಕಳುಹಿಸಲಾಗಿದೆ.' },
+    synced: 'ಸಿಂಕ್ ಆಗಿದೆ', queued: 'ಆಫ್‌ಲೈನ್‌ನಲ್ಲಿ ಉಳಿಸಲಾಗಿದೆ', sosSent: 'SOS ಕಳುಹಿಸಲಾಗಿದೆ.',
+    tours: 'ನನ್ನ ಟೂರ್‌ಗಳು', duty: 'ಕರ್ತವ್ಯ', onDuty: 'ಕರ್ತವ್ಯದಲ್ಲಿ', driving: 'ಚಾಲನೆ', break: 'ವಿರಾಮ', offDuty: 'ಕರ್ತವ್ಯ ಮುಕ್ತ',
+    delivered: 'ತಲುಪಿದೆ ✓', skip: 'ಬಿಟ್ಟುಬಿಡಿ', skipReason: 'ಕಾರಣ…', noTours: 'ಯಾವುದೇ ಟೂರ್‌ಗಳಿಲ್ಲ.',
+    dutySet: 'ಕರ್ತವ್ಯ ಬದಲಾಗಿದೆ', stopClosed: 'ನಿಲ್ದಾಣ ದಾಖಲಾಗಿದೆ' },
   hi: { login: 'ड्राइवर लॉगिन', email: 'ईमेल', password: 'पासवर्ड', logout: 'लॉगआउट',
     trips: 'मेरी यात्राएं', accept: 'स्वीकार करें', start: 'यात्रा शुरू करें', slip: 'पर्ची जोड़ें', sos: 'SOS',
     kind: 'प्रकार', amount: 'राशि (₹)', fuel: 'ईंधन', toll: 'टोल', send: 'SOS भेजें',
     sync: 'बकाया सिंक करें', pending: 'बकाया', noTrips: 'अभी कोई यात्रा नहीं है।',
-    synced: 'सिंक हो गया', queued: 'ऑफ़लाइन सहेजा गया', sosSent: 'SOS भेजा गया।' },
+    synced: 'सिंक हो गया', queued: 'ऑफ़लाइन सहेजा गया', sosSent: 'SOS भेजा गया।',
+    tours: 'मेरे टूर', duty: 'ड्यूटी', onDuty: 'ड्यूटी पर', driving: 'ड्राइविंग', break: 'ब्रेक', offDuty: 'छुट्टी',
+    delivered: 'पहुंचाया ✓', skip: 'छोड़ें', skipReason: 'कारण…', noTours: 'कोई सक्रिय टूर नहीं है।',
+    dutySet: 'ड्यूटी बदली', stopClosed: 'स्टॉप दर्ज' },
 };
 
 const readQueue = () => { try { return JSON.parse(localStorage.getItem(QUEUE_KEY) || '[]'); } catch { return []; } };
@@ -36,9 +45,11 @@ export default function Driver() {
   const [token, setToken] = useState(tokenStore.get());
   const [form, setForm] = useState({ email: '', password: '' });
   const [routes, setRoutes] = useState([]);
+  const [tours, setTours] = useState([]);
   const [loading, setLoading] = useState(false);
   const [queue, setQueue] = useState(readQueue());
   const [slip, setSlip] = useState({}); // routeId -> {kind, amount}
+  const [skipText, setSkipText] = useState({}); // stopId -> reason
   const [busy, setBusy] = useState(null);
 
   const persistQueue = (q) => { setQueue(q); localStorage.setItem(QUEUE_KEY, JSON.stringify(q)); };
@@ -49,9 +60,18 @@ export default function Driver() {
 
   const load = () => {
     setLoading(true);
-    driverApi.myRoutes().then(setRoutes).catch((e) => addToast('error', e.message)).finally(() => setLoading(false));
+    Promise.allSettled([driverApi.myRoutes(), driverApi.myTours()]).then(([r, tr]) => {
+      if (r.status === 'fulfilled') setRoutes(r.value);
+      if (tr.status === 'fulfilled') setTours(tr.value);
+    }).catch((e) => addToast('error', e.message)).finally(() => setLoading(false));
   };
   useEffect(() => { if (token) load(); }, [token]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Offline queue burst: replay as soon as connectivity returns.
+  useEffect(() => {
+    const onOnline = () => { if (readQueue().length) syncQueue(); };
+    window.addEventListener('online', onOnline);
+    return () => window.removeEventListener('online', onOnline);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const login = async (e) => {
     e.preventDefault();
@@ -62,7 +82,6 @@ export default function Driver() {
     } catch (err) { addToast('error', err.message); }
   };
   const logout = () => { tokenStore.set(null); setToken(null); setRoutes([]); };
-
   /** POST with offline fallback: network failure queues, 4xx drops with toast. */
   const guarded = async (routeId, label, fn, path, body) => {
     setBusy(`${routeId}-${label}`);
@@ -107,6 +126,30 @@ export default function Driver() {
       { timeout: 8000 });
   };
 
+  const setDuty = (tourId, status) =>
+    guarded(tourId, `duty-${status}`,
+      () => driverApi.tourDuty(tourId, status).then(() => addToast('success', t.dutySet)),
+      `/driver/tours/${tourId}/duty`, { status });
+
+  const deliverTap = (tour, stop) => {
+    const post = (lat, lng) => guarded(tour.id, `stop-${stop.id}`,
+      () => driverApi.deliverStop(tour.id, stop.id, lat, lng).then(() => addToast('success', t.stopClosed)),
+      `/driver/tours/${tour.id}/stops/${stop.id}/deliver`, { lat, lng });
+    if (!navigator.geolocation) { post(null, null); return; }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => post(pos.coords.latitude, pos.coords.longitude),
+      () => post(null, null), // unknown location, never (0,0)
+      { timeout: 8000 });
+  };
+
+  const skipTap = (tour, stop) => {
+    const reason = (skipText[stop.id] || '').trim();
+    if (!reason) { addToast('error', t.skipReason); return; }
+    guarded(tour.id, `stop-${stop.id}`,
+      () => driverApi.skipStop(tour.id, stop.id, reason).then(() => addToast('success', t.stopClosed)),
+      `/driver/tours/${tour.id}/stops/${stop.id}/skip`, { reason });
+  };
+
   if (!token) {
     return (
       <div className={styles.wrap}>
@@ -143,7 +186,39 @@ export default function Driver() {
       )}
       <h2>{t.trips}</h2>
       {loading && <LoadingOverlay />}
-      {!loading && routes.length === 0 && <EmptyState message={t.noTrips} />}
+      {!loading && routes.length === 0 && tours.length === 0 && <EmptyState message={t.noTrips} />}
+      {tours.map((tour) => (
+        <article key={`tour-${tour.id}`} className={styles.card}>
+          <div className={styles.row}>
+            <strong>Tour #{tour.id}</strong>
+            <Badge variant={tour.status === 'ACTIVE' ? 'green' : 'blue'}>{tour.status} · {tour.dutyStatus}</Badge>
+          </div>
+          <div className={styles.actions} role="group" aria-label={t.duty}>
+            {['ON_DUTY', 'DRIVING', 'BREAK', 'OFF_DUTY'].map((s) => (
+              <Button key={s} size="sm" variant={tour.dutyStatus === s ? 'primary' : 'ghost'}
+                disabled={busy === `${tour.id}-duty-${s}`} onClick={() => setDuty(tour.id, s)}>
+                {s === 'ON_DUTY' ? t.onDuty : s === 'DRIVING' ? t.driving : s === 'BREAK' ? t.break : t.offDuty}
+              </Button>
+            ))}
+            <Button variant="danger" size="sm" onClick={() => sendSos(tour.activeRouteId)}>{t.sos}</Button>
+          </div>
+          {(tour.stops ?? []).map((s) => (
+            <div key={s.id} className={styles.slipRow}>
+              <span>#{s.seq} {s.address || `${s.lat},${s.lng}`} — {s.status}</span>
+              {s.status === 'PENDING' && (
+                <>
+                  <Button size="sm" variant="primary" disabled={busy === `${tour.id}-stop-${s.id}`}
+                    onClick={() => deliverTap(tour, s)}>{t.delivered}</Button>
+                  <Input id={`skip-${s.id}`} placeholder={t.skipReason} value={skipText[s.id] || ''}
+                    onChange={(e) => setSkipText({ ...skipText, [s.id]: e.target.value })} />
+                  <Button size="sm" variant="ghost" disabled={busy === `${tour.id}-stop-${s.id}`}
+                    onClick={() => skipTap(tour, s)}>{t.skip}</Button>
+                </>
+              )}
+            </div>
+          ))}
+        </article>
+      ))}
       {routes.map((r) => {
         const s = slip[r.id] || { kind: 'FUEL', amount: '' };
         return (

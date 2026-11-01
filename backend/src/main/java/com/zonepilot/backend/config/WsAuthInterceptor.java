@@ -1,11 +1,14 @@
 package com.zonepilot.backend.config;
 
+import com.zonepilot.backend.auth.AppUserRepository;
 import com.zonepilot.backend.auth.DepotPrincipal;
 import com.zonepilot.backend.auth.GroupScope;
 import com.zonepilot.backend.auth.JwtService;
 import com.zonepilot.backend.auth.Role;
 import com.zonepilot.backend.entity.FleetGroup;
+import com.zonepilot.backend.repository.DriverRepository;
 import com.zonepilot.backend.repository.FleetGroupRepository;
+import com.zonepilot.backend.repository.GroupDriverRepository;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -36,13 +39,21 @@ public class WsAuthInterceptor implements ChannelInterceptor {
     private final JwtService jwt;
     private final FleetGroupRepository groups;
     private final GroupScope scope;
+    private final AppUserRepository appUsers;
+    private final DriverRepository drivers;
+    private final GroupDriverRepository groupDrivers;
     private final SubscribableChannel outbound;
 
     public WsAuthInterceptor(JwtService jwt, FleetGroupRepository groups, GroupScope scope,
+                             AppUserRepository appUsers, DriverRepository drivers,
+                             GroupDriverRepository groupDrivers,
                              @Lazy @Qualifier("clientOutboundChannel") SubscribableChannel outbound) {
         this.jwt = jwt;
         this.groups = groups;
         this.scope = scope;
+        this.appUsers = appUsers;
+        this.drivers = drivers;
+        this.groupDrivers = groupDrivers;
         this.outbound = outbound;
     }
 
@@ -81,6 +92,11 @@ public class WsAuthInterceptor implements ChannelInterceptor {
                     try {
                         scope.requireGroupAccess(principal, group);
                     } catch (AccessDeniedException e) {
+                        // Task 4: drivers own no groups but may listen to groups
+                        // they are dispatched in.
+                        if (principal.role() == Role.DRIVER && isGroupDriver(principal, groupId)) {
+                            return message;
+                        }
                         return reject(accessor, e.getMessage());
                     }
                 }
@@ -96,6 +112,14 @@ public class WsAuthInterceptor implements ChannelInterceptor {
         } catch (NumberFormatException e) {
             return null;
         }
+    }
+
+    /** DRIVER login mapped to roster → group member may subscribe. */
+    private boolean isGroupDriver(DepotPrincipal principal, Long groupId) {
+        return appUsers.findByEmail(principal.username())
+                .flatMap(u -> drivers.findByUserId(u.getId()))
+                .map(d -> groupDrivers.existsByGroupIdAndDriverId(groupId, d.getId()))
+                .orElse(false);
     }
 
     /** ERROR frame to the session; null return drops the rejected SUBSCRIBE. */

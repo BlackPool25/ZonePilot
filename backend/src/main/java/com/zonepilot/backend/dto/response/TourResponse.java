@@ -13,6 +13,7 @@ public class TourResponse {
     private Long vehicleId;
     private Long driverId;
     private Long activeRouteId;
+    private String dutyStatus;
     private List<StopDto> stops;
 
     public static class StopDto {
@@ -96,6 +97,8 @@ public class TourResponse {
     public void setDriverId(Long driverId) { this.driverId = driverId; }
     public Long getActiveRouteId() { return activeRouteId; }
     public void setActiveRouteId(Long activeRouteId) { this.activeRouteId = activeRouteId; }
+    public String getDutyStatus() { return dutyStatus; }
+    public void setDutyStatus(String dutyStatus) { this.dutyStatus = dutyStatus; }
     public List<StopDto> getStops() { return stops; }
     public void setStops(List<StopDto> stops) { this.stops = stops; }
 }

@@ -56,6 +56,7 @@ export const vehiclesApi = {
   },
   recordPosition: (id, body) => post(`/vehicles/${id}/positions`, body),
   clearRoute: (id) => post(`/vehicles/${id}/clear-route`),
+  setAvailability: (id, availability) => post(`/vehicles/${id}/availability`, { availability }),
 };
 
 // ─── Groups ──────────────────────────────────────────────────────────
@@ -127,4 +128,8 @@ export const driverApi = {
   start: (routeId) => post(`/driver/routes/${routeId}/start`, {}),
   slip: (routeId, kind, amount) => post(`/driver/routes/${routeId}/slips`, { kind, amount }),
   sos: (lat, lng, routeId) => post('/driver/sos', { lat, lng, routeId }),
+  myTours: () => get('/driver/tours'),
+  tourDuty: (tourId, status) => post(`/driver/tours/${tourId}/duty`, { status }),
+  deliverStop: (tourId, stopId, lat, lng) => post(`/driver/tours/${tourId}/stops/${stopId}/deliver`, { lat, lng }),
+  skipStop: (tourId, stopId, reason) => post(`/driver/tours/${tourId}/stops/${stopId}/skip`, { reason }),
 };

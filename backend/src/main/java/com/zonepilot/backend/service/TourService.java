@@ -7,6 +7,7 @@ import com.zonepilot.backend.dto.response.TourResponse;
 import com.zonepilot.backend.dto.response.TourTrackResponse;
 import com.zonepilot.backend.entity.*;
 import com.zonepilot.backend.enums.AssignmentStatus;
+import com.zonepilot.backend.enums.VehicleAvailability;
 import com.zonepilot.backend.exception.ResourceNotFoundException;
 import com.zonepilot.backend.exception.ValidationException;
 import com.zonepilot.backend.repository.*;
@@ -194,6 +195,7 @@ public class TourService {
                 .orElse(null);
         if (next == null) {
             tour.setStatus(TourStatus.COMPLETED);
+            tour.getVehicle().setAvailability(VehicleAvailability.AVAILABLE);
             completeLatestRoute(tour.getId());
             return;
         }
@@ -294,6 +296,7 @@ public class TourService {
         TourResponse r = new TourResponse();
         r.setId(tour.getId());
         r.setStatus(tour.getStatus().name());
+        r.setDutyStatus(tour.getDutyStatus().name());
         r.setGroupId(tour.getGroup().getId());
         r.setVehicleId(tour.getVehicle().getId());
         r.setDriverId(tour.getDriver().getId());

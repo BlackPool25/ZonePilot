@@ -6,6 +6,7 @@ import com.zonepilot.backend.entity.Vehicle;
 import com.zonepilot.backend.entity.VehicleModel;
 import com.zonepilot.backend.entity.ZoneRestriction;
 import com.zonepilot.backend.entity.ZoneRestrictionRule;
+import com.zonepilot.backend.enums.VehicleAvailability;
 import com.zonepilot.backend.enums.VehicleClass;
 import com.zonepilot.backend.exception.ResourceNotFoundException;
 import com.zonepilot.backend.repository.VehicleModelRepository;
@@ -119,6 +120,14 @@ public class VehicleService {
     }
 
     @Transactional
+    public com.zonepilot.backend.dto.response.VehicleResponse setAvailability(Long id, VehicleAvailability availability) {
+        Vehicle vehicle = vehicleRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Vehicle", "id", id));
+        vehicle.setAvailability(availability);
+        return toResponse(vehicleRepository.save(vehicle));
+    }
+
+    @Transactional
     public com.zonepilot.backend.dto.response.VehicleResponse clearActiveRoute(Long id) {
         Vehicle vehicle = vehicleRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Vehicle", "id", id));
@@ -137,6 +146,7 @@ public class VehicleService {
         r.setVehicleClass(v.getVehicleClass());
         r.setOwnerName(v.getOwnerName());
         r.setIsActive(v.getIsActive());
+        r.setAvailability(v.getAvailability());
         r.setActiveDispatchRouteId(v.getActiveDispatchRouteId());
         if (v.getModel() != null) {
             r.setModelId(v.getModel().getId());

@@ -1,5 +1,6 @@
 package com.zonepilot.backend.entity;
 
+import com.zonepilot.backend.enums.DutyStatus;
 import jakarta.persistence.*;
 import java.time.Instant;
 
@@ -27,6 +28,10 @@ public class Tour {
     @Column(nullable = false, length = 20)
     private TourStatus status = TourStatus.PLANNED;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "duty_status", nullable = false, length = 20)
+    private DutyStatus dutyStatus = DutyStatus.OFF_DUTY;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -45,6 +50,8 @@ public class Tour {
     public void setDriver(Driver driver) { this.driver = driver; }
     public TourStatus getStatus() { return status; }
     public void setStatus(TourStatus status) { this.status = status; }
+    public DutyStatus getDutyStatus() { return dutyStatus; }
+    public void setDutyStatus(DutyStatus dutyStatus) { this.dutyStatus = dutyStatus; }
     public Instant getCreatedAt() { return createdAt; }
     public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }
 }

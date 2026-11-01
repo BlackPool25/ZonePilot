@@ -1,5 +1,6 @@
 package com.zonepilot.backend.entity;
 
+import com.zonepilot.backend.enums.VehicleAvailability;
 import com.zonepilot.backend.enums.VehicleClass;
 import jakarta.persistence.*;
 import java.time.Instant;
@@ -24,6 +25,10 @@ public class Vehicle {
 
     @Column(name = "is_active", nullable = false)
     private Boolean isActive = true;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
+    private VehicleAvailability availability = VehicleAvailability.AVAILABLE;
 
     @Column(name = "active_dispatch_route_id")
     private Long activeDispatchRouteId;
@@ -52,6 +57,8 @@ public class Vehicle {
     public void setIsActive(Boolean isActive) { this.isActive = isActive; }
     public Long getActiveDispatchRouteId() { return activeDispatchRouteId; }
     public void setActiveDispatchRouteId(Long activeDispatchRouteId) { this.activeDispatchRouteId = activeDispatchRouteId; }
+    public VehicleAvailability getAvailability() { return availability; }
+    public void setAvailability(VehicleAvailability availability) { this.availability = availability; }
     public VehicleModel getModel() { return model; }
     public void setModel(VehicleModel model) { this.model = model; }
     public Instant getCreatedAt() { return createdAt; }
