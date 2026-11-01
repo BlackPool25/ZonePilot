@@ -478,9 +478,13 @@ class FixWaveTest {
             assertThrows(BadCredentialsException.class,
                     () -> auth.login(email, "wrongpass"));
         }
-        Field f = com.zonepilot.backend.auth.AuthService.class.getDeclaredField("loginFailures");
+        Field f = com.zonepilot.backend.auth.LoginThrottleService.class.getDeclaredField("memory");
         f.setAccessible(true);
-        Map<?, ?> buckets = (Map<?, ?>) f.get(auth);
+        Field tf = com.zonepilot.backend.auth.AuthService.class.getDeclaredField("throttle");
+        tf.setAccessible(true);
+        com.zonepilot.backend.auth.LoginThrottleService throttle =
+                (com.zonepilot.backend.auth.LoginThrottleService) tf.get(auth);
+        Map<?, ?> buckets = (Map<?, ?>) f.get(throttle);
         assertTrue(buckets.size() <= 10_000,
                 "login bucket map grew to " + buckets.size());
     }
