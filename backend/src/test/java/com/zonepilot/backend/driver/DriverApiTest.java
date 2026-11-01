@@ -6,8 +6,14 @@ import com.zonepilot.backend.enums.RouteStatus;
 import com.zonepilot.backend.auth.AppUserRepository;
 import com.zonepilot.backend.repository.DispatchRouteRepository;
 import com.zonepilot.backend.repository.DriverRepository;
+import com.zonepilot.backend.repository.FleetGroupRepository;
+import com.zonepilot.backend.repository.GroupDriverRepository;
+import com.zonepilot.backend.repository.GroupVehicleRepository;
 import com.zonepilot.backend.repository.SosAlertRepository;
+import com.zonepilot.backend.repository.TourRepository;
+import com.zonepilot.backend.repository.TourStopRepository;
 import com.zonepilot.backend.repository.TripSlipRepository;
+import com.zonepilot.backend.repository.VehiclePositionLogRepository;
 import com.zonepilot.backend.repository.VehicleRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -81,6 +87,18 @@ class DriverApiTest {
     @Autowired
     SosAlertRepository sosAlertRepository;
     @Autowired
+    VehiclePositionLogRepository positionLogRepository;
+    @Autowired
+    TourStopRepository stopRepository;
+    @Autowired
+    TourRepository tourRepository;
+    @Autowired
+    GroupVehicleRepository groupVehicleRepository;
+    @Autowired
+    GroupDriverRepository groupDriverRepository;
+    @Autowired
+    FleetGroupRepository groupRepository;
+    @Autowired
     AppUserRepository userRepository;
 
     private final GeometryFactory gf = new GeometryFactory(new PrecisionModel(), 4326);
@@ -90,10 +108,17 @@ class DriverApiTest {
 
     @BeforeEach
     void setup() {
-        // FK order: sos/slips -> routes -> drivers -> users.
+        // FK order (mirrors TourApiTest): sos/slips -> positions -> routes -> stops
+        // -> tours -> memberships -> groups -> drivers -> users.
         sosAlertRepository.deleteAll();
         slipRepository.deleteAll();
+        positionLogRepository.deleteAll();
         routes.deleteAll();
+        stopRepository.deleteAll();
+        tourRepository.deleteAll();
+        groupVehicleRepository.deleteAll();
+        groupDriverRepository.deleteAll();
+        groupRepository.deleteAll();
         driverRepository.deleteAll();
         userRepository.deleteAll();
         ownerToken = registerOwner("owner-drv-" + System.nanoTime() + "@test.io");

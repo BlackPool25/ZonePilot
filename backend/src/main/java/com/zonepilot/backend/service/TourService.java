@@ -163,6 +163,7 @@ public class TourService {
         }
         Tour tour = tours.findByIdWithLock(tourId)
                 .orElseThrow(() -> new ResourceNotFoundException("Tour", "id", tourId));
+        scope.requireGroupAccess(tour.getGroup());
         requireActive(tour);
         TourStop stop = loadStop(tourId, stopId);
         requireCurrent(tourId, stop);
@@ -198,6 +199,7 @@ public class TourService {
         }
         Tour tour = tours.findByIdWithLock(tourId)
                 .orElseThrow(() -> new ResourceNotFoundException("Tour", "id", tourId));
+        scope.requireGroupAccess(tour.getGroup());
         requireActive(tour);
         TourStop stop = loadStop(tourId, stopId);
         requireCurrent(tourId, stop);
