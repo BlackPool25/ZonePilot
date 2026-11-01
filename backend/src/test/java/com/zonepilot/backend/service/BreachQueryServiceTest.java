@@ -92,6 +92,25 @@ class BreachQueryServiceTest {
     }
 
     @Test
+    void breachesForTours_excludesReplayRows() {
+        FleetGroup own = group(1L);
+        when(tours.findById(7L)).thenReturn(Optional.of(tour(7L, own, 21L)));
+        VehiclePositionLog live = position(101L);
+        live.setReplay(false);
+        VehiclePositionLog replayed = position(102L);
+        replayed.setReplay(true);
+        when(positions.findByTourIdOrderByRecordedAtAsc(7L))
+                .thenReturn(List.of(live, replayed));
+        when(breaches.findByPositionLogIdIn(List.of(101L))).thenReturn(List.of());
+
+        service.getBreaches(null, null, null, null, null, 7L, null);
+
+        // Replay re-inserts must never surface in live breach reads.
+        verify(breaches).findByPositionLogIdIn(List.of(101L));
+        verify(breaches, never()).findByPositionLogIdIn(List.of(101L, 102L));
+    }
+
+    @Test
     void tourFilter_crossGroup_403() {
         FleetGroup other = group(2L);
         when(tours.findById(7L)).thenReturn(Optional.of(tour(7L, other, 21L)));

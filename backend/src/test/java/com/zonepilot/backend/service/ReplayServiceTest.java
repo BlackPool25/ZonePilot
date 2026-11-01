@@ -178,6 +178,40 @@ class ReplayServiceTest {
         verifyNoInteractions(positions, tracking, broadcaster);
     }
 
+    @Test
+    void start_globalLimit_sixthReplayInMinute_429() {
+        // Instance guard: 5 replays/min across ALL tours (DDoS backpressure);
+        // per-tour 1/min alone lets an attacker fan out over many tours.
+        for (long tourId = 1L; tourId <= 5L; tourId++) {
+            Tour tour = buildTour(tourId, 100L + tourId, 200L + tourId, 300L + tourId);
+            when(tours.findById(tourId)).thenReturn(Optional.of(tour));
+            when(positions.findTop2000ByTourIdOrderByRecordedAtDesc(tourId))
+                    .thenReturn(buildHistory(1));
+            replay.start(tourId, 5);
+        }
+        Tour sixth = buildTour(6L, 106L, 206L, 306L);
+        when(tours.findById(6L)).thenReturn(Optional.of(sixth));
+
+        assertThrows(RateLimitExceededException.class, () -> replay.start(6L, 5));
+    }
+
+    @Test
+    void start_neverUsesLiveIngestPath() {
+        // Replay rows are is_replay=TRUE and event-silent by construction:
+        // the live recordPosition pipe (which publishes BreachWorker events)
+        // must never run for a replay.
+        Tour tour = buildTour(9L, 11L, 21L, 31L);
+        when(tours.findById(9L)).thenReturn(Optional.of(tour));
+        when(positions.findTop2000ByTourIdOrderByRecordedAtDesc(9L)).thenReturn(buildHistory(2));
+
+        replay.start(9L, 5);
+
+        verify(tracking, never()).recordPosition(
+                any(), anyDouble(), anyDouble(), any(), any(), any(), any());
+        verify(tracking, never()).recordPosition(
+                any(), any(), any(), any(), anyDouble(), anyDouble(), any(), any(), any(), any());
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     private Tour buildTour(Long tourId, Long vehicleId, Long driverId, Long groupId) {

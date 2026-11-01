@@ -32,7 +32,15 @@ import java.util.List;
  * oldest fixes are dropped). Per-fix ticks are suppressed; one summary tick
  * for the final fix fans out at the end.
  *
- * <p>Throttled: one replay per user+tour per minute (429 beyond that).
+ * <p>Throttled twice: one replay per user+tour per minute (429 beyond
+ * that), plus a global 5 replays/min/instance backpressure guard so a fan-out
+ * over many tours cannot starve live ingest.
+ *
+ * <p>No separate executor: replay runs inline on the request thread in
+ * bounded 100-row REQUIRES_NEW chunks (never one giant TX), emitting one
+ * summary tick at the end. A queue would add an unbounded backlog with no
+ * backpressure; the two rate limits ARE the backpressure — excess replays
+ * fail fast with 429 instead of piling up behind the live breach worker.
  */
 @Service
 public class ReplayService {
@@ -43,6 +51,9 @@ public class ReplayService {
     static final int CHUNK = 100;
     /** Replay throttle window: one replay per user+tour per minute. */
     static final long REPLAY_MIN_INTERVAL_MS = 60_000;
+    /** Instance backpressure: at most this many replays admitted per minute. */
+    static final int GLOBAL_MAX_PER_MINUTE = 5;
+    static final long GLOBAL_WINDOW_MS = 60_000;
 
     /** Ops counter: admitted replays (rate-limited attempts don't count). */
     private static final java.util.concurrent.atomic.AtomicLong replayRuns =
@@ -57,9 +68,15 @@ public class ReplayService {
     private final java.util.concurrent.ConcurrentHashMap<String, Long> lastReplayAt =
             new java.util.concurrent.ConcurrentHashMap<>();
 
+    /** Global admit stamps (sliding 1-min window, instance backpressure). */
+    private final java.util.ArrayDeque<Long> globalAdmits = new java.util.ArrayDeque<>();
+
     /** Test hook: clear the replay throttle. */
     void resetRateLimits() {
         lastReplayAt.clear();
+        synchronized (globalAdmits) {
+            globalAdmits.clear();
+        }
     }
 
     /**
@@ -72,6 +89,16 @@ public class ReplayService {
                 com.zonepilot.backend.auth.DepotScope.current();
         String key = (caller != null ? caller.username() : "anon") + ":" + tourId;
         long now = System.currentTimeMillis();
+        synchronized (globalAdmits) {
+            while (!globalAdmits.isEmpty() && now - globalAdmits.peekFirst() >= GLOBAL_WINDOW_MS) {
+                globalAdmits.pollFirst();
+            }
+            if (globalAdmits.size() >= GLOBAL_MAX_PER_MINUTE) {
+                throw new com.zonepilot.backend.exception.RateLimitExceededException(
+                        "replay instance budget exhausted: at most 5 replays per minute");
+            }
+            globalAdmits.addLast(now);
+        }
         lastReplayAt.compute(key, (k, prev) -> {
             if (prev != null && now - prev < REPLAY_MIN_INTERVAL_MS) {
                 throw new com.zonepilot.backend.exception.RateLimitExceededException(

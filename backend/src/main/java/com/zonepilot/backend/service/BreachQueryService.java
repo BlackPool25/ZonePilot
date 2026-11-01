@@ -76,6 +76,11 @@ public class BreachQueryService {
             return toResponses(breachesForTours(tourIds),
                     vehicleId, zoneId, from, to, unacknowledged);
         }
+        if (!scope.isOwner()) {
+            // Fail-closed: unauthenticated callers get nothing, never a
+            // fleet-wide findAll dump. Owners fall through to the fleet view.
+            return List.of();
+        }
         List<ZoneBreachLog> breaches;
         if (Boolean.TRUE.equals(unacknowledged)) {
             breaches = breachLogRepository.findByIsAcknowledgedFalseOrderByBreachTimeDesc();
@@ -101,6 +106,9 @@ public class BreachQueryService {
         }
         List<Long> positionIds = tourIds.stream()
                 .flatMap(tid -> positionLogs.findByTourIdOrderByRecordedAtAsc(tid).stream())
+                // Live rows only: replay re-inserts (is_replay=TRUE) never
+                // carry breaches, and must not surface in live reads.
+                .filter(p -> !p.isReplay())
                 .map(VehiclePositionLog::getId).toList();
         if (positionIds.isEmpty()) {
             return List.of();
