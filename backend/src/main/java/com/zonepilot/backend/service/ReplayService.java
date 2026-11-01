@@ -9,6 +9,7 @@ import com.zonepilot.backend.exception.ValidationException;
 import com.zonepilot.backend.repository.TourRepository;
 import com.zonepilot.backend.repository.VehiclePositionLogRepository;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.DefaultTransactionDefinition;
@@ -69,6 +70,7 @@ public class ReplayService {
         this.chunkTx = new TransactionTemplate(txm, def);
     }
 
+    @Transactional(readOnly = true)
     public ReplayResult start(Long tourId, int speed) {
         return start(tourId, speed, null);
     }
@@ -80,6 +82,7 @@ public class ReplayService {
      * starved: replays run on the same bounded per-fix path (one summary tick),
      * and replayRuns counts attempts for ops dashboards.
      */
+    @Transactional(readOnly = true)
     public ReplayResult start(Long tourId, int speed, Instant endAt) {
         if (speed < MIN_SPEED || speed > MAX_SPEED) {
             throw new ValidationException("speed must be 1-30");
