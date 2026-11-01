@@ -2,11 +2,16 @@ package com.zonepilot.backend.service;
 
 import com.zonepilot.backend.repository.DispatchRouteRepository;
 import com.zonepilot.backend.entity.Vehicle;
+import com.zonepilot.backend.entity.DispatchRoute;
+import com.zonepilot.backend.entity.Driver;
+import com.zonepilot.backend.entity.FleetGroup;
+import com.zonepilot.backend.entity.Tour;
 import com.zonepilot.backend.enums.PositionSource;
 import com.zonepilot.backend.enums.VehicleClass;
 import com.zonepilot.backend.exception.ResourceNotFoundException;
 import com.zonepilot.backend.exception.ValidationException;
 import com.zonepilot.backend.repository.VehiclePositionLogRepository;
+import com.zonepilot.backend.repository.TourRepository;
 import com.zonepilot.backend.repository.VehicleRepository;
 import com.zonepilot.backend.repository.ZoneBreachLogRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -34,6 +39,7 @@ class PositionTrackingServiceTest {
     @Mock private VehiclePositionLogRepository positionLogRepository;
     @Mock private ZoneBreachLogRepository breachLogRepository;
     @Mock private DispatchRouteRepository dispatchRouteRepository;
+    @Mock private TourRepository tourRepository;
     @Mock private BreachService breachService;
     @Mock private JdbcTemplate jdbcTemplate;
     @Mock private TickBroadcaster broadcaster;
@@ -45,7 +51,19 @@ class PositionTrackingServiceTest {
     void setUp() {
         service = new PositionTrackingService(
                 vehicleRepository, positionLogRepository, breachLogRepository,
-                dispatchRouteRepository, breachService, jdbcTemplate, state, broadcaster);
+                dispatchRouteRepository, tourRepository, breachService, jdbcTemplate, state, broadcaster);
+        // Strict-keys default: active route 500 resolves to tour 3 (driver 9, group 7).
+        DispatchRoute route = mock(DispatchRoute.class);
+        Tour tour = mock(Tour.class);
+        Driver driver = mock(Driver.class);
+        FleetGroup group = mock(FleetGroup.class);
+        lenient().when(driver.getId()).thenReturn(9L);
+        lenient().when(group.getId()).thenReturn(7L);
+        lenient().when(tour.getId()).thenReturn(3L);
+        lenient().when(tour.getDriver()).thenReturn(driver);
+        lenient().when(tour.getGroup()).thenReturn(group);
+        lenient().when(route.getTour()).thenReturn(tour);
+        lenient().when(dispatchRouteRepository.findById(any())).thenReturn(Optional.of(route));
     }
 
     @Test
@@ -62,7 +80,7 @@ class PositionTrackingServiceTest {
 
         assertThrows(ValidationException.class,
                 () -> service.recordPosition(1L, 12.9, 77.6, null, null, null, PositionSource.LIVE));
-        verify(positionLogRepository, never()).save(any());
+        verify(positionLogRepository, never()).saveAndFlush(any());
     }
 
     @ParameterizedTest
@@ -112,22 +130,15 @@ class PositionTrackingServiceTest {
     }
 
     @Test
-    void recordPosition_whenVehicleHasNoActiveRoute_doesNotPerformMapMatching() {
+    void recordPosition_whenVehicleHasNoActiveTour_rejectsBeforePersist() {
         Vehicle active = buildVehicle(1L, true);
         active.setActiveDispatchRouteId(null);
         when(vehicleRepository.findById(1L)).thenReturn(Optional.of(active));
 
-        com.zonepilot.backend.entity.VehiclePositionLog savedLog = new com.zonepilot.backend.entity.VehiclePositionLog();
-        savedLog.setId(100L);
-        when(positionLogRepository.save(any())).thenReturn(savedLog);
-        when(breachLogRepository.findByPositionLogId(100L)).thenReturn(Collections.emptyList());
+        assertThrows(ValidationException.class,
+                () -> service.recordPosition(1L, 12.9, 77.6, Instant.now(), null, null, PositionSource.LIVE));
 
-        com.zonepilot.backend.dto.response.PositionRecordResponse response =
-                service.recordPosition(1L, 12.9, 77.6, Instant.now(), null, null, PositionSource.LIVE);
-
-        assertNotNull(response);
-        assertEquals(12.9, response.getPosition().getLatitude());
-        assertEquals(77.6, response.getPosition().getLongitude());
+        verify(positionLogRepository, never()).saveAndFlush(any());
         verify(jdbcTemplate, never()).query(anyString(), any(org.springframework.jdbc.core.RowMapper.class), (Object[]) any());
     }
 
@@ -146,7 +157,7 @@ class PositionTrackingServiceTest {
 
         com.zonepilot.backend.entity.VehiclePositionLog savedLog = new com.zonepilot.backend.entity.VehiclePositionLog();
         savedLog.setId(100L);
-        when(positionLogRepository.save(any())).thenReturn(savedLog);
+        when(positionLogRepository.saveAndFlush(any())).thenReturn(savedLog);
         when(breachLogRepository.findByPositionLogId(100L)).thenReturn(Collections.emptyList());
 
         com.zonepilot.backend.dto.response.PositionRecordResponse response =
@@ -173,7 +184,7 @@ class PositionTrackingServiceTest {
 
         com.zonepilot.backend.entity.VehiclePositionLog savedLog = new com.zonepilot.backend.entity.VehiclePositionLog();
         savedLog.setId(100L);
-        when(positionLogRepository.save(any())).thenReturn(savedLog);
+        when(positionLogRepository.saveAndFlush(any())).thenReturn(savedLog);
         when(breachLogRepository.findByPositionLogId(100L)).thenReturn(Collections.emptyList());
 
         // Send reversed heading of 180 degrees (South)
@@ -201,7 +212,7 @@ class PositionTrackingServiceTest {
 
         com.zonepilot.backend.entity.VehiclePositionLog savedLog = new com.zonepilot.backend.entity.VehiclePositionLog();
         savedLog.setId(100L);
-        when(positionLogRepository.save(any())).thenReturn(savedLog);
+        when(positionLogRepository.saveAndFlush(any())).thenReturn(savedLog);
         when(breachLogRepository.findByPositionLogId(100L)).thenReturn(Collections.emptyList());
 
         com.zonepilot.backend.dto.response.PositionRecordResponse response =
@@ -229,7 +240,7 @@ class PositionTrackingServiceTest {
 
         com.zonepilot.backend.entity.VehiclePositionLog savedLog = new com.zonepilot.backend.entity.VehiclePositionLog();
         savedLog.setId(100L);
-        when(positionLogRepository.save(any())).thenReturn(savedLog);
+        when(positionLogRepository.saveAndFlush(any())).thenReturn(savedLog);
         when(breachLogRepository.findByPositionLogId(100L)).thenReturn(Collections.emptyList());
 
         // Ping 1 (increment off-route count to 1)

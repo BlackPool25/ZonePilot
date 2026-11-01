@@ -27,4 +27,9 @@ public interface VehiclePositionLogRepository extends JpaRepository<VehiclePosit
 
     @Query(value = "SELECT EXISTS(SELECT 1 FROM vehicle_position_log WHERE vehicle_id = :vehicleId AND recorded_at = :recordedAt)", nativeQuery = true)
     boolean existsByVehicleIdAndRecordedAt(@Param("vehicleId") Long vehicleId, @Param("recordedAt") Instant recordedAt);
+
+    // Tour-scoped dedupe key (V38): same-ms burst redelivery collides here, not 500.
+    boolean existsByVehicleIdAndTourIdAndRecordedAt(Long vehicleId, Long tourId, Instant recordedAt);
+
+    Optional<VehiclePositionLog> findByVehicleIdAndTourIdAndRecordedAt(Long vehicleId, Long tourId, Instant recordedAt);
 }

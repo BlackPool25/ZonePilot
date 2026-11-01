@@ -84,6 +84,8 @@ class TourApiTest {
     @Autowired
     VehicleRepository vehicleRepository;
     @Autowired
+    com.zonepilot.backend.repository.VehiclePositionLogRepository positionLogRepository;
+    @Autowired
     AppUserRepository userRepository;
     @Autowired
     org.springframework.jdbc.core.JdbcTemplate db;
@@ -95,7 +97,8 @@ class TourApiTest {
 
     @BeforeEach
     void setup() {
-        // FK order: routes -> stops -> tours -> memberships -> groups -> drivers -> users.
+        // FK order: positions -> routes -> stops -> tours -> memberships -> groups -> drivers -> users.
+        positionLogRepository.deleteAll();
         routeRepository.deleteAll();
         stopRepository.deleteAll();
         tourRepository.deleteAll();
