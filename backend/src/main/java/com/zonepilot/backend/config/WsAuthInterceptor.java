@@ -11,6 +11,7 @@ import com.zonepilot.backend.repository.FleetGroupRepository;
 import com.zonepilot.backend.repository.GroupDriverRepository;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.Map;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.messaging.Message;
@@ -64,41 +65,55 @@ public class WsAuthInterceptor implements ChannelInterceptor {
             return message;
         }
         if (accessor.getCommand() == StompCommand.CONNECT) {
-            DepotPrincipal principal = principalFrom(accessor.getFirstNativeHeader("Authorization"));
+            String header = accessor.getFirstNativeHeader("Authorization");
+            DepotPrincipal principal = principalFrom(header);
             if (principal != null) {
                 accessor.setUser(new UsernamePasswordAuthenticationToken(principal, null,
                         List.of(new SimpleGrantedAuthority("ROLE_" + principal.role().name()))));
-                accessor.getSessionAttributes().put(PRINCIPAL_ATTR, principal);
+                Map<String, Object> attrs = accessor.getSessionAttributes();
+                if (attrs != null) {
+                    attrs.put(PRINCIPAL_ATTR, principal);
+                }
+            } else if (header != null) {
+                // Bad token presented: fail the CONNECT fast instead of
+                // letting an anonymous session linger to SUBSCRIBE time.
+                return reject(accessor, "Invalid token");
             }
             return message;
         }
         if (accessor.getCommand() == StompCommand.SUBSCRIBE) {
             String dest = accessor.getDestination();
             if (dest != null && dest.startsWith("/topic/")) {
-                DepotPrincipal principal = (DepotPrincipal) accessor.getSessionAttributes()
-                        .get(PRINCIPAL_ATTR);
+                Map<String, Object> attrs = accessor.getSessionAttributes();
+                DepotPrincipal principal = attrs == null ? null
+                        : (DepotPrincipal) attrs.get(PRINCIPAL_ATTR);
                 // Throwing here is swallowed by the async inbound channel, so
                 // reject explicitly with an ERROR frame and drop the SUBSCRIBE.
                 if (principal == null) {
                     return reject(accessor, "Login required");
                 }
-                if (dest.startsWith("/topic/group/")) {
-                    Long groupId = groupIdOf(dest);
-                    FleetGroup group = groupId == null ? null
-                            : groups.findById(groupId).orElse(null);
-                    if (group == null) {
-                        return reject(accessor, "No such group");
+                if (!dest.startsWith("/topic/group/")) {
+                    // Only per-group ticks exist; anything else is owner-only.
+                    if (!principal.isOwner()) {
+                        return reject(accessor, "Forbidden destination");
                     }
-                    try {
-                        scope.requireGroupAccess(principal, group);
-                    } catch (AccessDeniedException e) {
-                        // Task 4: drivers own no groups but may listen to groups
-                        // they are dispatched in.
-                        if (principal.role() == Role.DRIVER && isGroupDriver(principal, groupId)) {
-                            return message;
-                        }
-                        return reject(accessor, e.getMessage());
+                    return message;
+                }
+                Long groupId = groupIdOf(dest);
+                FleetGroup group = groupId == null ? null
+                        : groups.findById(groupId).orElse(null);
+                if (group == null) {
+                    return reject(accessor, "No such group");
+                }
+                try {
+                    scope.requireGroupAccess(principal, group);
+                } catch (AccessDeniedException e) {
+                    // Task 4: drivers own no groups but may listen to groups
+                    // they are dispatched in.
+                    if (principal.role() == Role.DRIVER && isGroupDriver(principal, groupId)) {
+                        return message;
                     }
+                    return reject(accessor, e.getMessage());
                 }
             }
             return message;

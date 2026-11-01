@@ -11,7 +11,10 @@ import org.springframework.transaction.annotation.Transactional;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Instant;
+import java.util.ArrayDeque;
+import java.util.Deque;
 import java.util.HexFormat;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Slice 1 auth: register / login / refresh rotation / me.
@@ -23,6 +26,12 @@ public class AuthService {
     private final AppUserRepository users;
     private final PasswordEncoder passwords;
     private final JwtService jwt;
+
+    // Basic per-email login bucket: 10 failures / 5 min, then 429-style deny.
+    // In-memory only (single instance); success clears the bucket.
+    private final ConcurrentHashMap<String, Deque<Instant>> loginFailures = new ConcurrentHashMap<>();
+    static final int MAX_FAILURES = 10;
+    private static final long WINDOW_SEC = 300;
 
     public AuthService(AppUserRepository users,
                        PasswordEncoder passwords, JwtService jwt) {
@@ -63,13 +72,48 @@ public class AuthService {
 
     @Transactional
     public TokenPair login(String email, String rawPassword) {
-        AppUser user = users.findByEmail(email == null ? null : email.toLowerCase())
+        String normalized = email == null ? null : email.toLowerCase();
+        checkLoginBucket(normalized);
+        AppUser user = users.findByEmail(normalized)
                 .filter(u -> Boolean.TRUE.equals(u.getIsActive()))
-                .orElseThrow(() -> new BadCredentialsException("Invalid credentials"));
-        if (!passwords.matches(rawPassword, user.getPasswordHash())) {
+                .orElse(null);
+        if (user == null || !passwords.matches(rawPassword, user.getPasswordHash())) {
+            recordLoginFailure(normalized);
             throw new BadCredentialsException("Invalid credentials");
         }
+        if (normalized != null) {
+            loginFailures.remove(normalized);
+        }
         return issueTokens(user);
+    }
+
+    private void checkLoginBucket(String email) {
+        if (email == null) {
+            return;
+        }
+        Deque<Instant> attempts = loginFailures.get(email);
+        if (attempts == null) {
+            return;
+        }
+        synchronized (attempts) {
+            Instant cutoff = Instant.now().minusSeconds(WINDOW_SEC);
+            while (!attempts.isEmpty() && attempts.peekFirst().isBefore(cutoff)) {
+                attempts.pollFirst();
+            }
+            if (attempts.size() >= MAX_FAILURES) {
+                throw new AccessDeniedException("Too many login attempts, try again later");
+            }
+        }
+    }
+
+    private void recordLoginFailure(String email) {
+        if (email == null) {
+            return;
+        }
+        Deque<Instant> attempts = loginFailures.computeIfAbsent(email, k -> new ArrayDeque<>());
+        synchronized (attempts) {
+            attempts.addLast(Instant.now());
+        }
     }
 
     @Transactional

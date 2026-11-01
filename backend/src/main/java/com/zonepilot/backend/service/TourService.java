@@ -1,6 +1,9 @@
 package com.zonepilot.backend.service;
 
+import com.zonepilot.backend.auth.DepotPrincipal;
+import com.zonepilot.backend.auth.DepotScope;
 import com.zonepilot.backend.auth.GroupScope;
+import com.zonepilot.backend.auth.Role;
 import com.zonepilot.backend.dto.request.CreateTourRequest;
 import com.zonepilot.backend.dto.response.RouteValidationResponse;
 import com.zonepilot.backend.dto.response.TourResponse;
@@ -166,7 +169,7 @@ public class TourService {
         }
         Tour tour = tours.findByIdWithLock(tourId)
                 .orElseThrow(() -> new ResourceNotFoundException("Tour", "id", tourId));
-        scope.requireGroupAccess(tour.getGroup());
+        requireDeliverAccess(tour);
         requireActive(tour);
         TourStop stop = loadStop(tourId, stopId);
         requireCurrent(tourId, stop);
@@ -202,7 +205,7 @@ public class TourService {
         }
         Tour tour = tours.findByIdWithLock(tourId)
                 .orElseThrow(() -> new ResourceNotFoundException("Tour", "id", tourId));
-        scope.requireGroupAccess(tour.getGroup());
+        requireDeliverAccess(tour);
         requireActive(tour);
         TourStop stop = loadStop(tourId, stopId);
         requireCurrent(tourId, stop);
@@ -292,6 +295,24 @@ public class TourService {
         if (tour.getStatus() != TourStatus.ACTIVE) {
             throw new ValidationException("tour is " + tour.getStatus() + ", not ACTIVE");
         }
+    }
+
+    /**
+     * PoD/skip access: the owned-tour driver passes without group access
+     * (drivers own no groups); everyone else needs the group check, which
+     * still 403s a driver on somebody else's tour.
+     *
+     * <p>Role-gated (not try/catch): requireOwnedTour throws inside the
+     * deliver transaction, and swallowing that would poison the TX
+     * (rollback-only) for the manager path that follows.
+     */
+    private void requireDeliverAccess(Tour tour) {
+        DepotPrincipal caller = DepotScope.current();
+        if (caller != null && caller.role() == Role.DRIVER) {
+            driverService.requireOwnedTour(tour.getId());
+            return;
+        }
+        scope.requireGroupAccess(tour.getGroup());
     }
 
     private TourStop loadStop(Long tourId, Long stopId) {

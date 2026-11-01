@@ -28,7 +28,10 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * Slice 2: driver roster, assignment gate (Accept/Start), slips, SOS, doc wall.
@@ -153,7 +156,12 @@ public class DriverService {
         TripSlip slip = new TripSlip();
         slip.setRoute(route);
         slip.setDriver(route.getDriver());
-        slip.setKind(SlipKind.valueOf(request.getKind()));
+        try {
+            slip.setKind(SlipKind.valueOf(request.getKind()));
+        } catch (IllegalArgumentException | NullPointerException e) {
+            throw new ValidationException("unknown slip kind '" + request.getKind()
+                    + "', expected FUEL or TOLL");
+        }
         slip.setAmount(BigDecimal.valueOf(request.getAmount()));
         return slips.save(slip);
     }
@@ -174,6 +182,11 @@ public class DriverService {
         alert.setRoute(route);
         // No GPS (offline queue, denied permission) => unknown location, never (0,0).
         if (request.getLat() != null && request.getLng() != null) {
+            if (!GeoBounds.inBounds(request.getLat(), request.getLng())) {
+                throw new ValidationException("SOS coordinates ("
+                        + request.getLat() + ", " + request.getLng()
+                        + ") are outside Bangalore operating bounds");
+            }
             alert.setLocation(geometryFactory.createPoint(
                     new Coordinate(request.getLng(), request.getLat())));
         }
@@ -203,8 +216,26 @@ public class DriverService {
     @Transactional(readOnly = true)
     public List<TourResponse> myTours() {
         Driver driver = currentDriver();
-        return tourRepository.findByDriverIdOrderByIdDesc(driver.getId()).stream()
-                .map(t -> toTourResponse(t.getId())).toList();
+        List<Tour> mine = tourRepository.findByDriverIdOrderByIdDesc(driver.getId());
+        if (mine.isEmpty()) {
+            return List.of();
+        }
+        // Batched: 1 tour query above + 1 stops + 1 routes (was 3N via per-tour toTourResponse).
+        // Group/vehicle/driver are EAGER/LAZY-safe in-memory joins — no extra queries here.
+        List<Long> ids = mine.stream().map(Tour::getId).toList();
+        Map<Long, List<TourStop>> stopsByTour = tourStopRepository
+                .findByTourIdInOrderByTourIdAscSeqAsc(ids).stream()
+                .collect(Collectors.groupingBy(s -> s.getTour().getId()));
+        Map<Long, DispatchRoute> latestRoute = new HashMap<>();
+        for (DispatchRoute r : routes.findByTourIdIn(ids)) {
+            latestRoute.merge(r.getTour().getId(), r,
+                    (a, b) -> a.getId() >= b.getId() ? a : b);
+        }
+        return mine.stream()
+                .map(t -> toTourResponse(t,
+                        stopsByTour.getOrDefault(t.getId(), List.of()),
+                        latestRoute.get(t.getId())))
+                .toList();
     }
 
     @Transactional
@@ -254,6 +285,13 @@ public class DriverService {
     private TourResponse toTourResponse(Long tourId) {
         Tour tour = tourRepository.findById(tourId)
                 .orElseThrow(() -> new ResourceNotFoundException("Tour", "id", tourId));
+        return toTourResponse(tour,
+                tourStopRepository.findByTourIdOrderBySeqAsc(tourId),
+                routes.findByTourIdOrderByIdDesc(tourId).stream().findFirst().orElse(null));
+    }
+
+    private static TourResponse toTourResponse(Tour tour, List<TourStop> orderedStops,
+                                               DispatchRoute latestRoute) {
         TourResponse r = new TourResponse();
         r.setId(tour.getId());
         r.setStatus(tour.getStatus().name());
@@ -261,10 +299,10 @@ public class DriverService {
         r.setGroupId(tour.getGroup().getId());
         r.setVehicleId(tour.getVehicle().getId());
         r.setDriverId(tour.getDriver().getId());
-        r.setStops(tourStopRepository.findByTourIdOrderBySeqAsc(tourId).stream()
-                .map(TourResponse.StopDto::from).toList());
-        routes.findByTourIdOrderByIdDesc(tourId).stream().findFirst()
-                .ifPresent(latest -> r.setActiveRouteId(latest.getId()));
+        r.setStops(orderedStops.stream().map(TourResponse.StopDto::from).toList());
+        if (latestRoute != null) {
+            r.setActiveRouteId(latestRoute.getId());
+        }
         return r;
     }
 

@@ -13,16 +13,29 @@ import org.springframework.integration.mqtt.inbound.MqttPahoMessageDrivenChannel
 import org.springframework.integration.mqtt.support.DefaultPahoMessageConverter;
 import org.springframework.messaging.MessageHandler;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Slice 3: Traccar (native {@code forward.type=mqtt}) → EMQX → Paho driven
- * adapter (QoS 1) → bounded {@code ExecutorChannel} (500, CallerRuns) →
+ * adapter (QoS 1) → bounded {@code ExecutorChannel} (500, discard+warn) →
  * {@link TraccarIngestService}. Only active when {@code mqtt.url} is set, so
- * local dev and tests boot without a broker.
+ * local dev and tests boot without a broker. MQTT redelivery covers dropped
+ * frames, so saturation discards (counted + warned) instead of CallerRuns.
  */
 @Configuration
 @ConditionalOnExpression("'${mqtt.url:}' != ''")
 public class MqttConfig {
+
+    private static final Logger log = LoggerFactory.getLogger(MqttConfig.class);
+    static final AtomicLong rejectedMessages = new AtomicLong();
+
+    /** Discarded-message count since boot (saturation signal for dashboards). */
+    public static long rejectedCount() {
+        return rejectedMessages.get();
+    }
 
     @Bean
     public ExecutorChannel mqttInputChannel() {
@@ -30,7 +43,10 @@ public class MqttConfig {
         executor.setCorePoolSize(4);
         executor.setMaxPoolSize(8);
         executor.setQueueCapacity(500);
-        executor.setRejectedExecutionHandler(new java.util.concurrent.ThreadPoolExecutor.CallerRunsPolicy());
+        executor.setRejectedExecutionHandler((task, exe) -> {
+            long n = rejectedMessages.incrementAndGet();
+            log.warn("mqtt-ingest saturated, discarding message (discarded={})", n);
+        });
         executor.setThreadNamePrefix("mqtt-ingest-");
         executor.initialize();
         return new ExecutorChannel(executor);

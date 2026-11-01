@@ -1,17 +1,37 @@
 package com.zonepilot.backend.service;
 
+import com.zonepilot.backend.auth.AppUser;
+import com.zonepilot.backend.auth.AppUserRepository;
+import com.zonepilot.backend.auth.DepotPrincipal;
+import com.zonepilot.backend.auth.DepotScope;
+import com.zonepilot.backend.auth.GroupScope;
+import com.zonepilot.backend.auth.Role;
 import com.zonepilot.backend.dto.response.PositionRecordResponse;
 import com.zonepilot.backend.entity.Vehicle;
 import com.zonepilot.backend.entity.VehiclePositionLog;
 import com.zonepilot.backend.entity.Tour;
+import com.zonepilot.backend.entity.Driver;
 import com.zonepilot.backend.entity.DispatchRoute;
 import com.zonepilot.backend.enums.PositionSource;
 import com.zonepilot.backend.exception.ResourceNotFoundException;
 import com.zonepilot.backend.exception.ValidationException;
 import com.zonepilot.backend.repository.DispatchRouteRepository;
+import com.zonepilot.backend.repository.DriverRepository;
 import com.zonepilot.backend.repository.TourRepository;
 import com.zonepilot.backend.repository.VehiclePositionLogRepository;
 import com.zonepilot.backend.repository.VehicleRepository;
+import org.locationtech.jts.geom.Coordinate;
+import org.locationtech.jts.geom.GeometryFactory;
+import org.locationtech.jts.geom.Point;
+import org.locationtech.jts.geom.PrecisionModel;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.locationtech.jts.geom.Coordinate;
 import org.locationtech.jts.geom.GeometryFactory;
 import org.locationtech.jts.geom.Point;
@@ -47,6 +67,9 @@ public class PositionTrackingService {
     private final GeometryFactory geometryFactory;
     private final ApplicationEventPublisher events;
     private final TickBroadcaster broadcaster;
+    private final DriverRepository driverRepository;
+    private final AppUserRepository appUserRepository;
+    private final GroupScope scope;
 
     public PositionTrackingService(VehicleRepository vehicleRepository,
                                    VehiclePositionLogRepository positionLogRepository,
@@ -54,7 +77,10 @@ public class PositionTrackingService {
                                    TourRepository tourRepository,
                                    JdbcTemplate jdbcTemplate,
                                    ApplicationEventPublisher events,
-                                   TickBroadcaster broadcaster) {
+                                   TickBroadcaster broadcaster,
+                                   DriverRepository driverRepository,
+                                   AppUserRepository appUserRepository,
+                                   GroupScope scope) {
         this.vehicleRepository = vehicleRepository;
         this.positionLogRepository = positionLogRepository;
         this.dispatchRouteRepository = dispatchRouteRepository;
@@ -63,6 +89,9 @@ public class PositionTrackingService {
         this.geometryFactory = new GeometryFactory(new PrecisionModel(), 4326);
         this.events = events;
         this.broadcaster = broadcaster;
+        this.driverRepository = driverRepository;
+        this.appUserRepository = appUserRepository;
+        this.scope = scope;
     }
 
     @Transactional
@@ -85,6 +114,26 @@ public class PositionTrackingService {
     public PositionRecordResponse recordPosition(Long vehicleId, Long driverId, Long tourId, Long groupId,
                                                   double lat, double lng, Instant timestamp,
                                                   BigDecimal speedKmh, Short headingDeg, PositionSource source) {
+        return doRecord(vehicleId, driverId, tourId, groupId, lat, lng,
+                timestamp, speedKmh, headingDeg, source, true);
+    }
+
+    /**
+     * Replay path: same binding + persistence as live ingest but no per-fix
+     * tick — the replay caller emits one summary tick at the end.
+     */
+    @Transactional
+    public PositionRecordResponse recordReplayFix(Long vehicleId, Long driverId, Long tourId, Long groupId,
+                                                  double lat, double lng, Instant timestamp,
+                                                  BigDecimal speedKmh, Short headingDeg, PositionSource source) {
+        return doRecord(vehicleId, driverId, tourId, groupId, lat, lng,
+                timestamp, speedKmh, headingDeg, source, false);
+    }
+
+    private PositionRecordResponse doRecord(Long vehicleId, Long driverId, Long tourId, Long groupId,
+                                             double lat, double lng, Instant timestamp,
+                                             BigDecimal speedKmh, Short headingDeg, PositionSource source,
+                                             boolean broadcast) {
         validateBangaloreCoordinates(lat, lng);
 
         if (timestamp != null && timestamp.isAfter(Instant.now().plusSeconds(300))) {
@@ -99,12 +148,11 @@ public class PositionTrackingService {
         }
 
         Tour tour = resolveTour(tourId, vehicle);
-        if (driverId == null) {
-            driverId = tour.getDriver().getId();
-        }
-        if (groupId == null) {
-            groupId = tour.getGroup().getId();
-        }
+        // Client keys are untrusted: drivers bind to their owned tour,
+        // managers must own the tour's group (spoofed keys rejected here).
+        Long[] keys = bindKeys(tour, tourId, driverId, groupId);
+        driverId = keys[0];
+        groupId = keys[1];
 
         // Epic 3: cross-track check against active route
         double[] snappedPos = applyRouteMapMatching(vehicle, lat, lng, headingDeg);
@@ -159,10 +207,52 @@ public class PositionTrackingService {
 
         // Live pipe: every accepted fix fans out as a derived tick frame
         // on the fix's group topic (/topic/group/{id}, JWT-scoped).
-        broadcaster.tick(groupId, vehicleId, finalLat, finalLng,
-                speedKmh, recordedAt, false);
+        // Replay passes broadcast=false and emits one summary tick instead.
+        if (broadcast) {
+            broadcaster.tick(groupId, vehicleId, finalLat, finalLng,
+                    speedKmh, recordedAt, false);
+        }
 
         return response;
+    }
+
+    /**
+     * Key binding for untrusted client keys. Driver callers ignore all
+     * client keys and bind to their owned tour (spoofed tourIds 403);
+     * manager callers with an explicit tourId must own the tour's group,
+     * and explicit driver/group keys must match the tour. Null-auth callers
+     * (replay, background workers) keep the old defaulting behavior.
+     */
+    private Long[] bindKeys(Tour tour, Long tourId, Long driverId, Long groupId) {
+        DepotPrincipal caller = DepotScope.current();
+        if (caller != null && caller.role() == Role.DRIVER) {
+            Long userId = appUserRepository.findByEmail(caller.username())
+                    .map(AppUser::getId)
+                    .orElseThrow(() -> new AccessDeniedException("Unknown driver login"));
+            Driver me = driverRepository.findByUserId(userId)
+                    .orElseThrow(() -> new AccessDeniedException("No driver profile linked to this login"));
+            if (tour.getDriver() == null || !tour.getDriver().getId().equals(me.getId())) {
+                throw new AccessDeniedException("Tour is not your assignment");
+            }
+            return new Long[]{me.getId(), tour.getGroup().getId()};
+        }
+        if (tourId != null) {
+            if (caller != null) {
+                scope.requireGroupAccess(tour.getGroup());
+                if (groupId != null && !groupId.equals(tour.getGroup().getId())) {
+                    throw new ValidationException("groupId does not match tour " + tour.getId());
+                }
+            }
+            // Explicit driverId is never validated: mid-tour driver/vehicle
+            // swaps are accepted (keys are scoped per fix; the tour key rules).
+        }
+        if (driverId == null) {
+            driverId = tour.getDriver().getId();
+        }
+        if (groupId == null) {
+            groupId = tour.getGroup().getId();
+        }
+        return new Long[]{driverId, groupId};
     }
 
     /**

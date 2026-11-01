@@ -1,6 +1,8 @@
 package com.zonepilot.backend.controller;
 
 import com.zonepilot.backend.dto.request.CreateSlipRequest;
+import com.zonepilot.backend.dto.request.DeliverStopRequest;
+import com.zonepilot.backend.dto.request.SkipStopRequest;
 import com.zonepilot.backend.dto.request.SosRequest;
 import com.zonepilot.backend.dto.response.ApiResponse;
 import com.zonepilot.backend.dto.response.DutyLogResponse;
@@ -100,19 +102,19 @@ public class DriverAppController {
     @Operation(summary = "Proof of delivery on my tour (tap + GPS stamp)")
     public ResponseEntity<ApiResponse<TourResponse>> deliver(@PathVariable Long id,
                                                              @PathVariable Long stopId,
-                                                             @RequestBody java.util.Map<String, Double> body) {
+                                                             @Valid @RequestBody DeliverStopRequest req) {
         driverService.requireOwnedTour(id);
         return ResponseEntity.ok(ApiResponse.success(tourService.deliver(
-                id, stopId, body.get("lat"), body.get("lng"))));
+                id, stopId, req.getLat(), req.getLng())));
     }
 
     @PostMapping("/tours/{id}/stops/{stopId}/skip")
     @Operation(summary = "Skip a stop on my tour with reason")
     public ResponseEntity<ApiResponse<TourResponse>> skip(@PathVariable Long id,
                                                           @PathVariable Long stopId,
-                                                          @RequestBody java.util.Map<String, String> body) {
+                                                          @Valid @RequestBody SkipStopRequest req) {
         driverService.requireOwnedTour(id);
         return ResponseEntity.ok(ApiResponse.success(
-                tourService.skip(id, stopId, body.get("reason"))));
+                tourService.skip(id, stopId, req.getReason())));
     }
 }
