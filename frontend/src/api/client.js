@@ -124,13 +124,19 @@ export const replayApi = {
   start: (tourId, speed) => post('/replay/start', { tourId, speed }),
 };
 
+// ─── SOS inbox (dispatcher) ─────────────────────────────────────────────
+export const sosApi = {
+  list: () => get('/sos'),
+};
+
 // ─── Driver app (Slice 2) ─────────────────────────────────────────────
 export const driverApi = {
   myRoutes: () => get('/driver/routes'),
   accept: (routeId) => post(`/driver/routes/${routeId}/accept`, {}),
   start: (routeId) => post(`/driver/routes/${routeId}/start`, {}),
   slip: (routeId, kind, amount) => post(`/driver/routes/${routeId}/slips`, { kind, amount }),
-  sos: (lat, lng, routeId) => post('/driver/sos', { lat, lng, routeId }),
+  sos: (lat, lng, routeId, accuracyM, stale) =>
+    post('/driver/sos', { lat, lng, routeId, accuracyM, stale }),
   myTours: () => get('/driver/tours'),
   tourDuty: (tourId, status) => post(`/driver/tours/${tourId}/duty`, { status }),
   dutyLog: (tourId) => get(`/driver/tours/${tourId}/duty-log`),

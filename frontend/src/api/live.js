@@ -24,11 +24,32 @@ export function connectTicks(groupId, onTick, onStatus) {
     connectHeaders: token ? { Authorization: `Bearer ${token}` } : {},
   });
   let sub = null;
+  let backfillSub = null;
+  const feed = (body) => {
+    // Live tick object, or a backfill array pushed to our private queue.
+    const frames = Array.isArray(body) ? body : [body];
+    for (const tick of frames) {
+      try {
+        onTick(typeof tick === 'string' ? JSON.parse(tick) : tick);
+      } catch {
+        // ignore malformed frames; the next tick repairs the map
+      }
+    }
+  };
   client.onConnect = () => {
     onStatus?.(true);
+    // Reconnect backfill first: the server pushes buffered ticks missed
+    // while offline to this private queue on SUBSCRIBE.
+    backfillSub = client.subscribe('/user/queue/ticks-backfill', (msg) => {
+      try {
+        feed(JSON.parse(msg.body));
+      } catch {
+        // ignore malformed backfill; live ticks keep flowing
+      }
+    });
     sub = client.subscribe(`/topic/group/${groupId}`, (msg) => {
       try {
-        onTick(JSON.parse(msg.body));
+        feed(JSON.parse(msg.body));
       } catch {
         // ignore malformed frames; the next tick repairs the map
       }
@@ -40,6 +61,11 @@ export function connectTicks(groupId, onTick, onStatus) {
   return () => {
     try {
       sub?.unsubscribe();
+    } catch {
+      // already gone
+    }
+    try {
+      backfillSub?.unsubscribe();
     } catch {
       // already gone
     }

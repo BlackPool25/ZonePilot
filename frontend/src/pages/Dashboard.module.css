@@ -160,6 +160,21 @@
 .feedZone { display: block; font-size: 11px; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .feedTime { font-size: 10px; color: var(--text-tertiary); flex-shrink: 0; }
 
+/* ─── SOS inbox (left side, mirrors the breach feed) ─────────────── */
+.sosFeed {
+  position: absolute;
+  top: 60px;
+  left: 12px;
+  z-index: 1000;
+  background: var(--surface-0);
+  border: 1px solid var(--border-subtle);
+  border-left: 3px solid var(--red-500);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  width: 260px;
+  overflow: hidden;
+}
+
 /* ─── Legend ─────────────────────────────────────────────────────── */
 .legend {
   position: absolute;

@@ -8,12 +8,14 @@ import com.zonepilot.backend.dto.response.TourResponse;
 import com.zonepilot.backend.dto.response.TourTrackResponse;
 import com.zonepilot.backend.service.TourService;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
 @RequestMapping("/api/tours")
+@Tag(name = "Tours", description = "Manager tour endpoints: create, deliver/skip, approve, track")
 public class TourController {
 
     private final TourService tours;

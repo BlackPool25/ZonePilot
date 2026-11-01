@@ -10,4 +10,6 @@ import java.util.List;
 public interface SosAlertRepository extends JpaRepository<SosAlert, Long> {
 
     List<SosAlert> findByDriverIdOrderByCreatedAtDesc(Long driverId);
+
+    List<SosAlert> findAllByOrderByCreatedAtDesc();
 }

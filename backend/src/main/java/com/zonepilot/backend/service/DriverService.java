@@ -191,6 +191,10 @@ public class DriverService {
         SosAlert alert = new SosAlert();
         alert.setDriver(driver);
         alert.setRoute(route);
+        // Offline replay: last-known fix + accuracy + stale flag. Unknown
+        // location stays NULL (never 0,0); the dispatcher list flags it.
+        alert.setAccuracyM(request.getAccuracyM());
+        alert.setStale(Boolean.TRUE.equals(request.getStale()));
         // No GPS (offline queue, denied permission) => unknown location, never (0,0).
         if (request.getLat() != null && request.getLng() != null) {
             if (!GeoBounds.inBounds(request.getLat(), request.getLng())) {

@@ -1,20 +1,20 @@
 package com.zonepilot.backend.auth;
 
+import com.zonepilot.backend.exception.RateLimitExceededException;
 import com.zonepilot.backend.exception.ResourceNotFoundException;
 import com.zonepilot.backend.exception.ValidationException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Instant;
-import java.util.ArrayDeque;
-import java.util.Deque;
 import java.util.HexFormat;
-import java.util.Map;
+import java.util.Optional;
 
 /**
  * Slice 1 auth: register / login / refresh rotation / me.
@@ -26,27 +26,21 @@ public class AuthService {
     private final AppUserRepository users;
     private final PasswordEncoder passwords;
     private final JwtService jwt;
-
-    // Basic per-email login bucket: 10 failures / 5 min, then 429-style deny.
-    // In-memory only (single instance); success clears the bucket. Bounded LRU
-    // (10k emails): an attacker cycling random addresses cannot grow this
-    // without bound. Per-IP throttling lives at the gateway/WAF, not here.
-    private final Map<String, Deque<Instant>> loginFailures =
-            java.util.Collections.synchronizedMap(new java.util.LinkedHashMap<>() {
-                @Override
-                protected boolean removeEldestEntry(java.util.Map.Entry<String, Deque<Instant>> e) {
-                    return size() > MAX_KEYS;
-                }
-            });
-    static final int MAX_FAILURES = 10;
-    static final int MAX_KEYS = 10_000;
-    private static final long WINDOW_SEC = 300;
+    private final LoginThrottleService throttle;
 
     public AuthService(AppUserRepository users,
                        PasswordEncoder passwords, JwtService jwt) {
+        this(users, passwords, jwt, new LoginThrottleService(Optional.empty()));
+    }
+
+    @Autowired
+    public AuthService(AppUserRepository users,
+                       PasswordEncoder passwords, JwtService jwt,
+                       LoginThrottleService throttle) {
         this.users = users;
         this.passwords = passwords;
         this.jwt = jwt;
+        this.throttle = throttle;
     }
 
     @Transactional
@@ -81,48 +75,23 @@ public class AuthService {
 
     @Transactional
     public TokenPair login(String email, String rawPassword) {
+        return login(email, rawPassword, null);
+    }
+
+    @Transactional
+    public TokenPair login(String email, String rawPassword, String clientIp) {
         String normalized = email == null ? null : email.toLowerCase();
-        checkLoginBucket(normalized);
+        // Shared bucket (Redis, memory fallback): throws 429 when full.
+        throttle.requireAllowed(normalized, clientIp);
         AppUser user = users.findByEmail(normalized)
                 .filter(u -> Boolean.TRUE.equals(u.getIsActive()))
                 .orElse(null);
         if (user == null || !passwords.matches(rawPassword, user.getPasswordHash())) {
-            recordLoginFailure(normalized);
+            throttle.recordFailure(normalized, clientIp);
             throw new BadCredentialsException("Invalid credentials");
         }
-        if (normalized != null) {
-            loginFailures.remove(normalized);
-        }
+        throttle.clearFailures(normalized);
         return issueTokens(user);
-    }
-
-    private void checkLoginBucket(String email) {
-        if (email == null) {
-            return;
-        }
-        Deque<Instant> attempts = loginFailures.get(email);
-        if (attempts == null) {
-            return;
-        }
-        synchronized (attempts) {
-            Instant cutoff = Instant.now().minusSeconds(WINDOW_SEC);
-            while (!attempts.isEmpty() && attempts.peekFirst().isBefore(cutoff)) {
-                attempts.pollFirst();
-            }
-            if (attempts.size() >= MAX_FAILURES) {
-                throw new AccessDeniedException("Too many login attempts, try again later");
-            }
-        }
-    }
-
-    private void recordLoginFailure(String email) {
-        if (email == null) {
-            return;
-        }
-        Deque<Instant> attempts = loginFailures.computeIfAbsent(email, k -> new ArrayDeque<>());
-        synchronized (attempts) {
-            attempts.addLast(Instant.now());
-        }
     }
 
     @Transactional

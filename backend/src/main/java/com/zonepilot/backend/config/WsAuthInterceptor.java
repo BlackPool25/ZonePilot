@@ -9,6 +9,7 @@ import com.zonepilot.backend.entity.FleetGroup;
 import com.zonepilot.backend.repository.DriverRepository;
 import com.zonepilot.backend.repository.FleetGroupRepository;
 import com.zonepilot.backend.repository.GroupDriverRepository;
+import com.zonepilot.backend.service.TickBroadcaster;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
@@ -17,6 +18,7 @@ import org.springframework.context.annotation.Lazy;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageChannel;
 import org.springframework.messaging.SubscribableChannel;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.messaging.simp.stomp.StompCommand;
 import org.springframework.messaging.simp.stomp.StompHeaderAccessor;
 import org.springframework.messaging.support.ChannelInterceptor;
@@ -47,11 +49,14 @@ public class WsAuthInterceptor implements ChannelInterceptor {
     private final DriverRepository drivers;
     private final GroupDriverRepository groupDrivers;
     private final SubscribableChannel outbound;
+    private final SimpMessagingTemplate template;
+    private final TickBroadcaster ticks;
 
     public WsAuthInterceptor(JwtService jwt, FleetGroupRepository groups, GroupScope scope,
                              AppUserRepository appUsers, DriverRepository drivers,
                              GroupDriverRepository groupDrivers,
-                             @Lazy @Qualifier("clientOutboundChannel") SubscribableChannel outbound) {
+                             @Lazy @Qualifier("clientOutboundChannel") SubscribableChannel outbound,
+                             @Lazy SimpMessagingTemplate template, @Lazy TickBroadcaster ticks) {
         this.jwt = jwt;
         this.groups = groups;
         this.scope = scope;
@@ -59,6 +64,8 @@ public class WsAuthInterceptor implements ChannelInterceptor {
         this.drivers = drivers;
         this.groupDrivers = groupDrivers;
         this.outbound = outbound;
+        this.template = template;
+        this.ticks = ticks;
     }
 
     @Override
@@ -122,14 +129,32 @@ public class WsAuthInterceptor implements ChannelInterceptor {
                     // Task 4: drivers own no groups but may listen to groups
                     // they are dispatched in.
                     if (principal.role() == Role.DRIVER && isGroupDriver(principal, groupId)) {
+                        pushBackfill(accessor, groupId);
                         return message;
                     }
                     return reject(accessor, e.getMessage());
                 }
+                pushBackfill(accessor, groupId);
             }
             return message;
         }
         return message;
+    }
+
+    /** Reconnect backfill: buffered ticks go to the subscriber's private
+     * queue (/user/queue/ticks-backfill) — a broadcast to /topic/group/{id}
+     * here would re-fan-out to every subscriber via the simple broker. */
+    private void pushBackfill(StompHeaderAccessor accessor, Long groupId) {
+        if (accessor.getUser() == null) {
+            return;
+        }
+        List<Map<String, Object>> missed =
+                ticks.recentTicks(groupId, null, TickBroadcaster.BACKFILL_PUSH);
+        if (missed.isEmpty()) {
+            return;
+        }
+        template.convertAndSendToUser(
+                accessor.getUser().getName(), "/queue/ticks-backfill", missed);
     }
 
     /** Group id prefix; trailing sub-paths (e.g. /topic/group/7/ticks) accepted. */

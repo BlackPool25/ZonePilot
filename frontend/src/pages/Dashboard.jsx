@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { vehiclesApi, zonesApi, breachesApi, groupsApi } from '../api/client.js';
+import { vehiclesApi, zonesApi, breachesApi, groupsApi, sosApi } from '../api/client.js';
 import { connectTicks } from '../api/live.js';
 import LiveMap from '../components/map/LiveMap.jsx';
 import Badge from '../components/atoms/Badge.jsx';
@@ -17,16 +17,20 @@ export default function Dashboard() {
   const [positions, setPositions] = useState({});
   const [zones, setZones] = useState([]);
   const [breaches, setBreaches] = useState([]);
+  const [sosAlerts, setSosAlerts] = useState([]);
   const [loading, setLoading] = useState(true);
   const pollRef = useRef(null);
 
   async function loadData() {
-    const [v, z, b, g] = await Promise.allSettled([
+    const [v, z, b, g, s] = await Promise.allSettled([
       vehiclesApi.list({ isActive: true }),
       zonesApi.active(),
       breachesApi.list({ unacknowledged: true }),
       groupsApi.list(),
+      sosApi.list(),
     ]);
+    const sosList = s.status === 'fulfilled' && Array.isArray(s.value) ? s.value : [];
+    setSosAlerts(sosList.filter(a => a.status === 'OPEN'));
     const vehicleList = v.status === 'fulfilled' ? v.value : [];
     setVehicles(vehicleList);
     setZones(z.status === 'fulfilled' ? z.value : []);
@@ -98,6 +102,8 @@ export default function Dashboard() {
   const activeVehicles = vehicles.length;
   const activeZones = zones.length;
   const unackedBreaches = breaches.length;
+  const openSos = sosAlerts.length;
+  const sosUnknown = sosAlerts.filter(a => a.unknown || a.stale).length;
 
   return (
     <div className={styles.page}>
@@ -164,7 +170,35 @@ export default function Dashboard() {
             <span className={styles.metricValue}>{unackedBreaches}</span>
             <span className={styles.metricLabel}>Open Breaches</span>
           </div>
+          <div className={styles.metricDivider} aria-hidden="true" />
+          <div className={`${styles.metricCard} ${openSos > 0 ? styles.metricAlert : ''}`}>
+            <span className={styles.metricValue}>{openSos}</span>
+            <span className={styles.metricLabel}>Open SOS</span>
+          </div>
         </div>
+
+        {/* SOS inbox: unknown/stale location warns the dispatcher to call the driver */}
+        {sosAlerts.length > 0 && (
+          <div className={styles.sosFeed} aria-label="Open SOS alerts">
+            <p className={styles.feedTitle}>🆘 Open SOS{sosUnknown > 0 ? ` — ${sosUnknown} no live fix` : ''}</p>
+            {sosAlerts.slice(0, 4).map(a => (
+              <div key={a.id} className={styles.feedItem} role="alert">
+                <span className={styles.feedDot} style={{ background: '#dc2626' }} aria-hidden="true" />
+                <div className={styles.feedInfo}>
+                  <span className={styles.feedReg}>{a.driverName ?? `Alert #${a.id}`}</span>
+                  <span className={styles.feedZone}>
+                    {a.unknown
+                      ? '⚠ location unknown — call driver'
+                      : a.stale
+                        ? `⚠ stale fix${a.accuracyM != null ? ` ±${Math.round(a.accuracyM)}m` : ''} — confirm on call`
+                        : `${Number(a.lat).toFixed(4)}, ${Number(a.lng).toFixed(4)}${a.accuracyM != null ? ` ±${Math.round(a.accuracyM)}m` : ''}`}
+                  </span>
+                </div>
+                <span className={styles.feedTime}>{formatRelative(a.createdAt)}</span>
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* Live activity feed */}
         {breaches.length > 0 && (

@@ -29,6 +29,14 @@ public class SosAlert {
     @JsonIgnore
     private Point location;
 
+    /** GPS accuracy in meters at alert time; null when the fix is unknown. */
+    @Column(name = "accuracy_m", nullable = true)
+    private Double accuracyM;
+
+    /** True when the fix is the last-known (offline queue replay), not live. */
+    @Column(nullable = false)
+    private boolean stale = false;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     private SosStatus status = SosStatus.OPEN;
@@ -49,6 +57,10 @@ public class SosAlert {
     public void setRoute(DispatchRoute route) { this.route = route; }
     public Point getLocation() { return location; }
     public void setLocation(Point location) { this.location = location; }
+    public Double getAccuracyM() { return accuracyM; }
+    public void setAccuracyM(Double accuracyM) { this.accuracyM = accuracyM; }
+    public boolean getStale() { return stale; }
+    public void setStale(boolean stale) { this.stale = stale; }
     public SosStatus getStatus() { return status; }
     public void setStatus(SosStatus status) { this.status = status; }
     public Instant getCreatedAt() { return createdAt; }

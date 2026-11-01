@@ -8,6 +8,9 @@ import { LoadingOverlay, EmptyState } from '../components/atoms/Spinner.jsx';
 import styles from './Driver.module.css';
 
 const QUEUE_KEY = 'zp-offline-queue';
+const LAST_FIX_KEY = 'zp-last-fix';
+/** A cached fix older than this replays as stale (dispatcher sees the warning). */
+const STALE_AFTER_MS = 60_000;
 
 const STRINGS = {
   en: { login: 'Driver login', email: 'Email', password: 'Password', logout: 'Logout',
@@ -40,6 +43,14 @@ const STRINGS = {
 };
 
 const readQueue = () => { try { return JSON.parse(localStorage.getItem(QUEUE_KEY) || '[]'); } catch { return []; } };
+// Last-known GPS fix: refreshed on every successful geolocation so an
+// offline SOS replays with coordinates instead of unknown. Never (0,0).
+const readLastFix = () => { try { return JSON.parse(localStorage.getItem(LAST_FIX_KEY) || 'null'); } catch { return null; } };
+const storeLastFix = (lat, lng, accuracy) => {
+  try {
+    localStorage.setItem(LAST_FIX_KEY, JSON.stringify({ lat, lng, accuracy: accuracy ?? null, ts: Date.now() }));
+  } catch { /* storage blocked: SOS still goes out without coords */ }
+};
 
 export default function Driver() {
   const { addToast } = useApp();
@@ -100,35 +111,56 @@ export default function Driver() {
     } finally { setBusy(null); }
   };
 
+  // Conflict resolution: queued ops replay in FIFO order with the server as
+  // authority. A 4xx means the world moved on (e.g. a deliver/skip replayed
+  // after the manager approved/closed the tour), so the item is DROPPED, not
+  // retried forever. Only network/5xx failures stay queued.
   const syncQueue = async () => {
     const pending = readQueue();
     const remaining = [];
+    let dropped = 0;
     for (const item of pending) {
       try {
         await fetch(`${import.meta.env.VITE_API_BASE_URL || 'https://zonepilot-backend.onrender.com'}/api${item.path}`,
           { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tokenStore.get()}` }, body: JSON.stringify(item.body) })
-          .then(async (r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); });
+          .then(async (r) => {
+            if (r.status >= 400 && r.status < 500) { dropped += 1; return; }
+            if (!r.ok) throw new Error(`HTTP ${r.status}`);
+          });
       } catch { remaining.push(item); }
     }
     persistQueue(remaining);
+    if (dropped > 0) addToast('info', `${dropped} queued op(s) dropped — already closed/approved`);
     if (!remaining.length) addToast('success', t.synced);
     load();
   };
 
   const sendSos = (routeId) => {
-    // No GPS (unsupported/denied/timeout): the distress signal still goes out
-    // with unknown location — never (0,0).
-    const sosWithoutFix = () => guarded(routeId, 'sos',
-      () => driverApi.sos(null, null, routeId).then(() => addToast('success', t.sosSent)),
-      '/driver/sos', { lat: null, lng: null, routeId });
+    // Offline/denied GPS: replay the last-known fix with a stale flag when
+    // one exists, else unknown location — never (0,0).
+    const sosWithoutFix = () => {
+      const last = readLastFix();
+      const body = last?.lat != null && last?.lng != null
+        ? { lat: last.lat, lng: last.lng, routeId, accuracyM: last.accuracy,
+            stale: Date.now() - (last.ts ?? 0) > STALE_AFTER_MS }
+        : { lat: null, lng: null, routeId, accuracyM: null, stale: true };
+      guarded(routeId, 'sos',
+        () => driverApi.sos(body.lat, body.lng, body.routeId, body.accuracyM, body.stale)
+          .then(() => addToast('success', t.sosSent)),
+        '/driver/sos', body);
+    };
     if (!navigator.geolocation) { sosWithoutFix(); return; }
     navigator.geolocation.getCurrentPosition(
-      (pos) => guarded(routeId, 'sos',
-        () => driverApi.sos(pos.coords.latitude, pos.coords.longitude, routeId).then(() => addToast('success', t.sosSent)),
-        '/driver/sos', { routeId }), // offline SOS replays without coords => unknown location
-      () => guarded(routeId, 'sos',
-        () => driverApi.sos(null, null, routeId).then(() => addToast('success', t.sosSent)),
-        '/driver/sos', { lat: null, lng: null, routeId }),
+      (pos) => {
+        storeLastFix(pos.coords.latitude, pos.coords.longitude, pos.coords.accuracy);
+        const body = { lat: pos.coords.latitude, lng: pos.coords.longitude, routeId,
+          accuracyM: pos.coords.accuracy ?? null, stale: false };
+        guarded(routeId, 'sos',
+          () => driverApi.sos(body.lat, body.lng, body.routeId, body.accuracyM, false)
+            .then(() => addToast('success', t.sosSent)),
+          '/driver/sos', body);
+      },
+      () => sosWithoutFix(),
       { timeout: 8000 });
   };
 
@@ -149,11 +181,14 @@ export default function Driver() {
     const noFix = () => addToast('error', t.noGps);
     if (!navigator.geolocation) { noFix(); return; }
     navigator.geolocation.getCurrentPosition(
-      (pos) => guarded(tour.id, `stop-${stop.id}`,
-        () => driverApi.deliverStop(tour.id, stop.id, pos.coords.latitude, pos.coords.longitude)
-          .then(() => addToast('success', t.stopClosed)),
-        `/driver/tours/${tour.id}/stops/${stop.id}/deliver`,
-        { lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      (pos) => {
+        storeLastFix(pos.coords.latitude, pos.coords.longitude, pos.coords.accuracy);
+        guarded(tour.id, `stop-${stop.id}`,
+          () => driverApi.deliverStop(tour.id, stop.id, pos.coords.latitude, pos.coords.longitude)
+            .then(() => addToast('success', t.stopClosed)),
+          `/driver/tours/${tour.id}/stops/${stop.id}/deliver`,
+          { lat: pos.coords.latitude, lng: pos.coords.longitude });
+      },
       () => noFix(),
       { timeout: 8000 });
   };

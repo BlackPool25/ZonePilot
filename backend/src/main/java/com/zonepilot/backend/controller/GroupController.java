@@ -1,14 +1,19 @@
 package com.zonepilot.backend.controller;
 
 import com.zonepilot.backend.dto.response.ApiResponse;
+import com.zonepilot.backend.auth.GroupScope;
 import com.zonepilot.backend.entity.FleetGroup;
+import com.zonepilot.backend.exception.ResourceNotFoundException;
+import com.zonepilot.backend.repository.FleetGroupRepository;
 import com.zonepilot.backend.service.GroupDispatchService;
 import com.zonepilot.backend.service.GroupService;
+import com.zonepilot.backend.service.TickBroadcaster;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 
@@ -20,10 +25,18 @@ public class GroupController {
 
     private final GroupService groupService;
     private final GroupDispatchService dispatchService;
+    private final FleetGroupRepository groups;
+    private final GroupScope scope;
+    private final TickBroadcaster ticks;
 
-    public GroupController(GroupService groupService, GroupDispatchService dispatchService) {
+    public GroupController(GroupService groupService, GroupDispatchService dispatchService,
+                           FleetGroupRepository groups, GroupScope scope,
+                           TickBroadcaster ticks) {
         this.groupService = groupService;
         this.dispatchService = dispatchService;
+        this.groups = groups;
+        this.scope = scope;
+        this.ticks = ticks;
     }
 
     @GetMapping
@@ -87,6 +100,20 @@ public class GroupController {
         return ResponseEntity.ok(ApiResponse.success(dispatchService.dispatchSolo(
                 request.vehicleId(), request.driverId(),
                 request.originLat(), request.originLng(), request.destLat(), request.destLng())));
+    }
+
+    @GetMapping("/{id}/ticks")
+    @Operation(summary = "Missed ticks since a timestamp (WS reconnect backfill)",
+            description = "Oldest first. Pass the last seen recordedAt as since; " +
+                    "omit for the newest frames. Same JWT group scope as the WS subscribe.")
+    public ResponseEntity<ApiResponse<List<Map<String, Object>>>> ticks(
+            @PathVariable Long id,
+            @RequestParam(required = false) Instant since,
+            @RequestParam(defaultValue = "20") int limit) {
+        FleetGroup group = groups.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("FleetGroup", "id", id));
+        scope.requireGroupAccess(group);
+        return ResponseEntity.ok(ApiResponse.success(ticks.recentTicks(id, since, limit)));
     }
 
     public record DispatchRequest(double originLat, double originLng, double destLat, double destLng) {}
