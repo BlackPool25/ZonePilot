@@ -11,6 +11,9 @@ public class ZoneResponse {
     private Object boundaryGeoJson;
     private RestrictionType restrictionType;
     private Boolean isActive;
+    private com.zonepilot.backend.enums.GeometryType geometryType;
+    private Double corridorWidthM;
+    private Long corridorRouteId;
     private List<ZoneRuleResponse> rules;
 
     public Long getId() { return id; }
@@ -25,6 +28,12 @@ public class ZoneResponse {
     public void setRestrictionType(RestrictionType restrictionType) { this.restrictionType = restrictionType; }
     public Boolean getIsActive() { return isActive; }
     public void setIsActive(Boolean isActive) { this.isActive = isActive; }
+    public com.zonepilot.backend.enums.GeometryType getGeometryType() { return geometryType; }
+    public void setGeometryType(com.zonepilot.backend.enums.GeometryType geometryType) { this.geometryType = geometryType; }
+    public Double getCorridorWidthM() { return corridorWidthM; }
+    public void setCorridorWidthM(Double corridorWidthM) { this.corridorWidthM = corridorWidthM; }
+    public Long getCorridorRouteId() { return corridorRouteId; }
+    public void setCorridorRouteId(Long corridorRouteId) { this.corridorRouteId = corridorRouteId; }
     public List<ZoneRuleResponse> getRules() { return rules; }
     public void setRules(List<ZoneRuleResponse> rules) { this.rules = rules; }
 
@@ -35,6 +44,8 @@ public class ZoneResponse {
         private String restrictionEndTime;
         private Short daysOfWeekBitmask;
         private Boolean isActive;
+        private Integer dwellThresholdMin;
+        private com.zonepilot.backend.enums.RuleDirection direction;
 
         public Long getId() { return id; }
         public void setId(Long id) { this.id = id; }
@@ -48,5 +59,9 @@ public class ZoneResponse {
         public void setDaysOfWeekBitmask(Short daysOfWeekBitmask) { this.daysOfWeekBitmask = daysOfWeekBitmask; }
         public Boolean getIsActive() { return isActive; }
         public void setIsActive(Boolean isActive) { this.isActive = isActive; }
+        public Integer getDwellThresholdMin() { return dwellThresholdMin; }
+        public void setDwellThresholdMin(Integer dwellThresholdMin) { this.dwellThresholdMin = dwellThresholdMin; }
+        public com.zonepilot.backend.enums.RuleDirection getDirection() { return direction; }
+        public void setDirection(com.zonepilot.backend.enums.RuleDirection direction) { this.direction = direction; }
     }
 }

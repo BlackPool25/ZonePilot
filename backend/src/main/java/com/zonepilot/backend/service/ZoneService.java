@@ -62,20 +62,44 @@ public class ZoneService {
 
     @Transactional
     public ZoneResponse createZone(com.zonepilot.backend.dto.request.CreateZoneRequest request) {
-        Polygon boundary;
+        com.zonepilot.backend.enums.GeometryType geometryType = parseGeometryType(request.getGeometryType());
+        org.locationtech.jts.geom.Geometry geom;
         try {
-            org.locationtech.jts.geom.Geometry geom = geoJsonReader.read(request.getBoundaryGeoJson());
-            if (!(geom instanceof Polygon)) {
+            geom = geoJsonReader.read(request.getBoundaryGeoJson());
+            if (geometryType == com.zonepilot.backend.enums.GeometryType.CORRIDOR) {
+                if (!(geom instanceof Polygon) && !(geom instanceof org.locationtech.jts.geom.LineString)) {
+                    throw new ValidationException("Corridor boundary must be a Polygon or LineString geometry");
+                }
+            } else if (!(geom instanceof Polygon)) {
                 throw new ValidationException("Boundary must be a Polygon geometry");
             }
-            boundary = (Polygon) geom;
-            boundary.setSRID(4326);
-            if (!boundary.isValid()) {
-                throw new ValidationException("Invalid polygon geometry");
+            if (!geom.isValid()) {
+                throw new ValidationException("Invalid boundary geometry");
             }
         } catch (ParseException e) {
             throw new ValidationException("Invalid GeoJSON: " + e.getMessage());
         }
+        if (geometryType == com.zonepilot.backend.enums.GeometryType.CORRIDOR) {
+            if (request.getCorridorWidthM() == null || request.getCorridorWidthM() <= 0) {
+                throw new ValidationException("Corridor zones require corridorWidthM > 0");
+            }
+            if (request.getCorridorRouteId() == null) {
+                throw new ValidationException("Corridor zones require corridorRouteId");
+            }
+        }
+        if (geometryType == com.zonepilot.backend.enums.GeometryType.CIRCLE
+                && (request.getCorridorWidthM() == null || request.getCorridorWidthM() <= 0)) {
+            throw new ValidationException("Circle zones require corridorWidthM (radius) > 0");
+        }
+
+        Polygon boundary;
+        if (geom instanceof Polygon) {
+            boundary = (Polygon) geom;
+        } else {
+            // Corridor centerline: buffer the line into a thin polygon for legacy ST_Covers readers.
+            boundary = (Polygon) geom.buffer(0.00001);
+        }
+        boundary.setSRID(4326);
 
         ZoneRestriction zone = new ZoneRestriction();
         zone.setName(request.getName());
@@ -83,6 +107,9 @@ public class ZoneService {
         zone.setBoundary(boundary);
         zone.setRestrictionType(com.zonepilot.backend.enums.RestrictionType.valueOf(request.getRestrictionType()));
         zone.setIsActive(request.getIsActive() != null ? request.getIsActive() : true);
+        zone.setGeometryType(geometryType);
+        zone.setCorridorWidthM(request.getCorridorWidthM());
+        zone.setCorridorRouteId(request.getCorridorRouteId());
 
         ZoneRestriction saved = zoneRestrictionRepository.save(zone);
 
@@ -114,6 +141,13 @@ public class ZoneService {
                     rule.setDaysOfWeekBitmask((short) 127);
                 }
                 rule.setIsActive(ruleReq.getIsActive() != null ? ruleReq.getIsActive() : true);
+                if (ruleReq.getDwellThresholdMin() != null) {
+                    if (ruleReq.getDwellThresholdMin() < 0) {
+                        throw new ValidationException("dwellThresholdMin must be >= 0");
+                    }
+                    rule.setDwellThresholdMin(ruleReq.getDwellThresholdMin());
+                }
+                rule.setDirection(parseDirection(ruleReq.getDirection()));
                 zoneRestrictionRuleRepository.save(rule);
             }
         }
@@ -121,6 +155,28 @@ public class ZoneService {
 
 
         return toResponse(saved);
+    }
+
+    private com.zonepilot.backend.enums.GeometryType parseGeometryType(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return com.zonepilot.backend.enums.GeometryType.POLYGON;
+        }
+        try {
+            return com.zonepilot.backend.enums.GeometryType.valueOf(raw.toUpperCase());
+        } catch (IllegalArgumentException e) {
+            throw new ValidationException("Unknown geometry type '" + raw + "'");
+        }
+    }
+
+    private com.zonepilot.backend.enums.RuleDirection parseDirection(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return com.zonepilot.backend.enums.RuleDirection.BOTH;
+        }
+        try {
+            return com.zonepilot.backend.enums.RuleDirection.valueOf(raw.toUpperCase());
+        } catch (IllegalArgumentException e) {
+            throw new ValidationException("Unknown rule direction '" + raw + "'");
+        }
     }
 
     @Transactional
@@ -140,6 +196,9 @@ public class ZoneService {
         r.setDescription(z.getDescription());
         r.setRestrictionType(z.getRestrictionType());
         r.setIsActive(z.getIsActive());
+        r.setGeometryType(z.getGeometryType());
+        r.setCorridorWidthM(z.getCorridorWidthM());
+        r.setCorridorRouteId(z.getCorridorRouteId());
         if (z.getBoundary() != null) {
             try {
                 String geoJsonStr = geoJsonWriter.write(z.getBoundary());
@@ -164,6 +223,8 @@ public class ZoneService {
                 ? rule.getRestrictionEndTime().toString() : null);
         r.setDaysOfWeekBitmask(rule.getDaysOfWeekBitmask());
         r.setIsActive(rule.getIsActive());
+        r.setDwellThresholdMin(rule.getDwellThresholdMin());
+        r.setDirection(rule.getDirection());
         return r;
     }
 }

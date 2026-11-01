@@ -88,7 +88,7 @@ class BreachWorkerTest {
     private void stubZoneMatch(List<Object[]> rows) {
         when(jdbcTemplate.query(argThat((String sql) -> sql.contains("ST_Covers")),
                 any(RowMapper.class),
-                anyDouble(), anyDouble(), anyString(), anyInt(),
+                anyDouble(), anyDouble(), anyDouble(), anyDouble(), anyString(), anyInt(),
                 any(java.sql.Time.class), any(java.sql.Time.class), any(java.sql.Time.class)))
                 .thenReturn((List) rows);
     }

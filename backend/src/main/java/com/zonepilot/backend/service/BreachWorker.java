@@ -5,6 +5,7 @@ import com.zonepilot.backend.entity.ZoneBreachLog;
 import com.zonepilot.backend.entity.ZoneRestriction;
 import com.zonepilot.backend.enums.BreachType;
 import com.zonepilot.backend.enums.PositionSource;
+import com.zonepilot.backend.enums.RuleDirection;
 import com.zonepilot.backend.repository.VehicleRepository;
 import com.zonepilot.backend.repository.ZoneBreachLogRepository;
 import com.zonepilot.backend.repository.ZoneRestrictionRepository;
@@ -52,6 +53,21 @@ public class BreachWorker {
     private static final double OFF_ROUTE_THRESHOLD_M = 50.0;
     /** An entry stays open while fixes keep arriving within this window (was: trigger V18). */
     private static final long EXTEND_WINDOW_SEC = 60L;
+    /** Corridor breach only after continuously outside the corridor this long. */
+    private static final long CORRIDOR_OUTSIDE_SEC = 60L;
+
+    /** vehicleId:zoneId -> first fix outside the corridor (streak start). */
+    private final java.util.concurrent.ConcurrentHashMap<String, Instant> corridorOutsideSince =
+            new java.util.concurrent.ConcurrentHashMap<>();
+    /** vehicleId:zoneId -> first fix of the current continuous inside-run. */
+    private final java.util.concurrent.ConcurrentHashMap<String, Instant> zoneEntrySince =
+            new java.util.concurrent.ConcurrentHashMap<>();
+    /** vehicleId:zoneId -> last inside fix (gap > window resets the entry). */
+    private final java.util.concurrent.ConcurrentHashMap<String, Instant> zoneLastSeen =
+            new java.util.concurrent.ConcurrentHashMap<>();
+    /** vehicleId -> zones the last fix was inside (zoneId -> ruleId), for EXIT detection. */
+    private final java.util.concurrent.ConcurrentHashMap<Long, java.util.Map<Long, Long>> insideByVehicle =
+            new java.util.concurrent.ConcurrentHashMap<>();
 
     /** Published by PositionTrackingService after a fix commits. All sources (incl. REPLAY) re-trigger. */
     public record PositionFix(long vehicleId, Long positionLogId,
@@ -107,12 +123,38 @@ public class BreachWorker {
         if (vehicle == null) {
             return;
         }
+        java.util.Map<Long, Long> currentInside = new java.util.HashMap<>();
         for (Object[] zoneRow : matchZones(fix, vehicle.getVehicleClass().name())) {
+            currentInside.put(((Number) zoneRow[0]).longValue(), ((Number) zoneRow[1]).longValue());
             try {
                 extendOrCreate(fix, vehicle, zoneRow);
             } catch (Exception e) {
                 log.warn("BreachWorker breach persist failed for vehicle {} zone {}: {}",
                         fix.vehicleId(), zoneRow[0], e.getMessage());
+            }
+        }
+        // Entry/exit split: zones left since the last fix fire EXIT-direction rules.
+        java.util.Map<Long, Long> previous =
+                insideByVehicle.getOrDefault(fix.vehicleId(), java.util.Map.of());
+        for (java.util.Map.Entry<Long, Long> exited : previous.entrySet()) {
+            if (!currentInside.containsKey(exited.getKey())) {
+                try {
+                    createExitBreach(fix, vehicle, exited.getKey(), exited.getValue());
+                } catch (Exception e) {
+                    log.warn("BreachWorker exit breach failed for vehicle {} zone {}: {}",
+                            fix.vehicleId(), exited.getKey(), e.getMessage());
+                }
+            }
+        }
+        insideByVehicle.put(fix.vehicleId(), currentInside);
+        // Corridor rule: breach only after >60s continuously outside the corridor.
+        Long routeId = vehicle.getActiveDispatchRouteId();
+        if (routeId != null) {
+            try {
+                evaluateCorridorBreaches(fix, vehicle, routeId);
+            } catch (Exception e) {
+                log.warn("BreachWorker corridor evaluation failed for vehicle {}: {}",
+                        fix.vehicleId(), e.getMessage());
             }
         }
     }
@@ -121,6 +163,10 @@ public class BreachWorker {
      * Ports fn_detect_zone_breach (V18): active zones covering the fix whose
      * rule matches vehicle class + IST day bitmask + time window. Pure PostGIS
      * on zone tables — never touches the road network.
+     *
+     * CORRIDOR zones are excluded here (own ST_DWithin check in
+     * matchCorridorZones); CIRCLE zones match within corridor_width_m
+     * (radius) of the boundary centroid.
      */
     private List<Object[]> matchZones(PositionFix fix, String vehicleClass) {
         try {
@@ -128,13 +174,17 @@ public class BreachWorker {
             int dayBit = 1 << (ist.getDayOfWeek().getValue() - 1); // Mon=bit0 .. Sun=bit6
             java.sql.Time now = java.sql.Time.valueOf(ist.toLocalTime());
 
-            return jdbcTemplate.query(
+            return nullSafe(jdbcTemplate.query(
                     "SELECT zr.id AS zone_id, zrr.id AS rule_id, zr.restriction_type AS restriction_type " +
                     "FROM zone_restriction zr " +
                     "JOIN zone_restriction_rule zrr ON zrr.zone_id = zr.id " +
                     "WHERE zr.is_active = TRUE " +
                     "AND zrr.is_active = TRUE " +
-                    "AND ST_Covers(zr.boundary, ST_SetSRID(ST_Point(?, ?), 4326)) " +
+                    "AND (zr.geometry_type IS NULL OR zr.geometry_type <> 'CORRIDOR') " +
+                    "AND (ST_Covers(zr.boundary, ST_SetSRID(ST_Point(?, ?), 4326)) " +
+                    "OR (zr.geometry_type = 'CIRCLE' AND ST_DWithin(" +
+                    "ST_SetSRID(ST_Point(?, ?), 4326)::geography, " +
+                    "ST_Centroid(zr.boundary)::geography, COALESCE(zr.corridor_width_m, 0)))) " +
                     "AND (zrr.applicable_vehicle_class = 'ALL' OR zrr.applicable_vehicle_class = ?) " +
                     "AND ((zrr.days_of_week_bitmask & ?) > 0) " +
                     "AND ((zrr.restriction_start_time IS NULL AND zrr.restriction_end_time IS NULL) " +
@@ -145,10 +195,85 @@ public class BreachWorker {
                     (rs, rowNum) -> new Object[]{
                             rs.getLong("zone_id"), rs.getLong("rule_id"),
                             rs.getString("restriction_type")},
-                    fix.lng(), fix.lat(), vehicleClass, dayBit, now, now, now);
+                    fix.lng(), fix.lat(), fix.lng(), fix.lat(), vehicleClass, dayBit, now, now, now));
         } catch (Exception e) {
             log.warn("BreachWorker zone match failed for vehicle {}: {}", fix.vehicleId(), e.getMessage());
             return Collections.emptyList();
+        }
+    }
+
+    /** Null-safe wrapper: an unstubbed/misbehaving JdbcTemplate yields no zones, never an NPE. */
+    private List<Object[]> nullSafe(List<Object[]> rows) {
+        return rows != null ? rows : Collections.emptyList();
+    }
+
+    /**
+     * CORRIDOR check: ST_DWithin(position, corridor centerline, width).
+     * Each row is [zoneId, ruleId, restrictionType, inside]. A null/empty
+     * result (e.g. road tables missing) degrades to "no corridor info".
+     */
+    private List<Object[]> matchCorridorZones(PositionFix fix, String vehicleClass, long routeId) {
+        try {
+            java.time.ZonedDateTime ist = fix.recordedAt().atZone(IST);
+            int dayBit = 1 << (ist.getDayOfWeek().getValue() - 1); // Mon=bit0 .. Sun=bit6
+            java.sql.Time now = java.sql.Time.valueOf(ist.toLocalTime());
+
+            List<Object[]> rows = jdbcTemplate.query(
+                    "SELECT zr.id AS zone_id, zrr.id AS rule_id, zr.restriction_type AS restriction_type, " +
+                    "ST_DWithin(ST_SetSRID(ST_Point(?, ?), 4326)::geography, " +
+                    "dr.planned_route_geometry::geography, zr.corridor_width_m) AS inside " +
+                    "FROM zone_restriction zr " +
+                    "JOIN zone_restriction_rule zrr ON zrr.zone_id = zr.id " +
+                    "JOIN dispatch_route dr ON dr.id = zr.corridor_route_id " +
+                    "WHERE zr.is_active = TRUE " +
+                    "AND zrr.is_active = TRUE " +
+                    "AND zr.geometry_type = 'CORRIDOR' " +
+                    "AND zr.corridor_route_id = ? " +
+                    "AND (zrr.applicable_vehicle_class = 'ALL' OR zrr.applicable_vehicle_class = ?) " +
+                    "AND ((zrr.days_of_week_bitmask & ?) > 0) " +
+                    "AND ((zrr.restriction_start_time IS NULL AND zrr.restriction_end_time IS NULL) " +
+                    "OR (zrr.restriction_start_time <= zrr.restriction_end_time " +
+                    "AND ? BETWEEN zrr.restriction_start_time AND zrr.restriction_end_time) " +
+                    "OR (zrr.restriction_start_time > zrr.restriction_end_time " +
+                    "AND (? >= zrr.restriction_start_time OR ? <= zrr.restriction_end_time)))",
+                    (rs, rowNum) -> new Object[]{
+                            rs.getLong("zone_id"), rs.getLong("rule_id"),
+                            rs.getString("restriction_type"), rs.getBoolean("inside")},
+                    fix.lng(), fix.lat(), routeId, vehicleClass, dayBit, now, now, now);
+            return rows != null ? rows : Collections.emptyList();
+        } catch (Exception e) {
+            log.warn("BreachWorker corridor match failed for vehicle {}: {}", fix.vehicleId(), e.getMessage());
+            return Collections.emptyList();
+        }
+    }
+
+    /**
+     * Corridor streak: an inside fix resets, an outside fix starts (or
+     * continues) the streak, and only &gt;60s continuously outside opens
+     * (or extends) a breach. Immediate creation would false-positive on
+     * every GPS jitter at the corridor edge.
+     */
+    private void evaluateCorridorBreaches(PositionFix fix, Vehicle vehicle, long routeId) {
+        for (Object[] corridorRow : matchCorridorZones(fix, vehicle.getVehicleClass().name(), routeId)) {
+            long vehicleId = fix.vehicleId();
+            Long zoneId = ((Number) corridorRow[0]).longValue();
+            boolean inside = corridorRow.length > 3 && Boolean.TRUE.equals(corridorRow[3]);
+            String key = vehicleId + ":" + zoneId;
+            if (inside) {
+                corridorOutsideSince.remove(key);
+                continue;
+            }
+            Instant streakStart = corridorOutsideSince.computeIfAbsent(key, k -> fix.recordedAt());
+            if (fix.recordedAt().minusSeconds(CORRIDOR_OUTSIDE_SEC).isBefore(streakStart)) {
+                continue; // outside, but not yet >60s continuously
+            }
+            try {
+                extendOrCreate(fix, vehicle,
+                        new Object[]{corridorRow[0], corridorRow[1], corridorRow[2]});
+            } catch (Exception e) {
+                log.warn("BreachWorker corridor breach persist failed for vehicle {} zone {}: {}",
+                        vehicleId, zoneId, e.getMessage());
+            }
         }
     }
 
@@ -157,6 +282,14 @@ public class BreachWorker {
         Long zoneId = ((Number) zoneRow[0]).longValue();
         Long ruleId = ((Number) zoneRow[1]).longValue();
         String restrictionType = (String) zoneRow[2];
+
+        // Dwell runs on the continuous inside-run: a gap > window restarts it.
+        String entryKey = vehicleId + ":" + zoneId;
+        Instant lastSeen = zoneLastSeen.get(entryKey);
+        if (lastSeen == null || fix.recordedAt().minusSeconds(EXTEND_WINDOW_SEC).isAfter(lastSeen)) {
+            zoneEntrySince.put(entryKey, fix.recordedAt());
+        }
+        zoneLastSeen.put(entryKey, fix.recordedAt());
 
         // One-per-entry guard: serialize concurrent fixes for one vehicle+zone
         // on a transaction-scoped advisory lock BEFORE the locked open-entry
@@ -174,6 +307,19 @@ public class BreachWorker {
                     vehicleId, zoneId, e.getMessage());
         }
 
+        // Entry/exit split: entering an EXIT-only zone is not a breach —
+        // the violation fires on the outside transition (createExitBreach).
+        var ruleOpt = ruleRepository.findById(ruleId);
+        RuleDirection direction = ruleOpt
+                .map(r -> r.getDirection() != null ? r.getDirection() : RuleDirection.BOTH)
+                .orElse(RuleDirection.BOTH);
+        if (direction == RuleDirection.EXIT) {
+            return;
+        }
+        int dwellMin = ruleOpt
+                .map(r -> r.getDwellThresholdMin() != null ? r.getDwellThresholdMin() : 0)
+                .orElse(0);
+
         Instant cutoff = fix.recordedAt().minusSeconds(EXTEND_WINDOW_SEC);
         // Row lock: concurrent fixes for one vehicle+zone serialize here
         // instead of opening duplicate rows (one-per-entry guard).
@@ -185,6 +331,15 @@ public class BreachWorker {
             breach.setPositionLogId(fix.positionLogId());
             breachLogRepository.save(breach);
             return;
+        }
+
+        // Dwell: breach only after inside continuously >= threshold. Extending
+        // an open entry is unaffected — the threshold gates creation only.
+        if (dwellMin > 0) {
+            Instant entered = zoneEntrySince.getOrDefault(entryKey, fix.recordedAt());
+            if (fix.recordedAt().minusSeconds((long) dwellMin * 60L).isBefore(entered)) {
+                return;
+            }
         }
 
         ZoneRestriction zone = zoneRepository.findById(zoneId).orElse(null);
@@ -218,6 +373,56 @@ public class BreachWorker {
             breachService.computeReroute(saved, vehicleId, fix.lat(), fix.lng());
         } catch (Exception e) {
             // Best-effort: the breach row stays, the reroute is skipped.
+            log.warn("BreachWorker reroute failed for breach {}: {}", saved.getId(), e.getMessage());
+        }
+    }
+
+    /**
+     * EXIT-direction rules fire on the inside→outside transition, never on
+     * entry. Same one-per-entry guard as the inside path: extend the open
+     * entry when one exists, otherwise open a single exit row.
+     */
+    private void createExitBreach(PositionFix fix, Vehicle vehicle, Long zoneId, Long ruleId) {
+        long vehicleId = fix.vehicleId();
+        var ruleOpt = ruleRepository.findById(ruleId);
+        RuleDirection direction = ruleOpt
+                .map(r -> r.getDirection() != null ? r.getDirection() : RuleDirection.BOTH)
+                .orElse(RuleDirection.BOTH);
+        if (direction != RuleDirection.EXIT) {
+            return;
+        }
+        try {
+            jdbcTemplate.execute("SELECT pg_advisory_xact_lock(" + vehicleId + ", " + zoneId + ")");
+        } catch (Exception e) {
+            log.debug("Breach advisory lock unavailable for vehicle {} zone {}: {}",
+                    vehicleId, zoneId, e.getMessage());
+        }
+        Instant cutoff = fix.recordedAt().minusSeconds(EXTEND_WINDOW_SEC);
+        var open = breachLogRepository.findOpenBreachForUpdate(vehicleId, zoneId, cutoff);
+        if (open.isPresent()) {
+            ZoneBreachLog breach = open.get();
+            breach.setEndTime(fix.recordedAt());
+            breachLogRepository.save(breach);
+            return;
+        }
+        ZoneRestriction zone = zoneRepository.findById(zoneId).orElse(null);
+        if (zone == null) {
+            return;
+        }
+        ZoneBreachLog breach = new ZoneBreachLog();
+        breach.setVehicle(vehicle);
+        breach.setZone(zone);
+        ruleOpt.ifPresent(breach::setRule);
+        breach.setPositionLogId(fix.positionLogId());
+        breach.setBreachTime(fix.recordedAt());
+        breach.setEndTime(fix.recordedAt());
+        breach.setBreachType(mapBreachType(zone.getRestrictionType() != null
+                ? zone.getRestrictionType().name() : "NO_ENTRY"));
+        breach.setDistanceM(0.0);
+        ZoneBreachLog saved = breachLogRepository.save(breach);
+        try {
+            breachService.computeReroute(saved, vehicleId, fix.lat(), fix.lng());
+        } catch (Exception e) {
             log.warn("BreachWorker reroute failed for breach {}: {}", saved.getId(), e.getMessage());
         }
     }

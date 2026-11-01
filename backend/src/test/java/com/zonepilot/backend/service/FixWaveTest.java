@@ -357,7 +357,7 @@ class FixWaveTest {
         List<Object[]> rows = new ArrayList<>();
         rows.add(new Object[]{1L, 9L, "NO_ENTRY"});
         when(jdbcTemplate.query(argThat((String sql) -> sql.contains("ST_Covers")),
-                any(RowMapper.class), anyDouble(), anyDouble(), anyString(), anyInt(),
+                any(RowMapper.class), anyDouble(), anyDouble(), anyDouble(), anyDouble(), anyString(), anyInt(),
                 any(java.sql.Time.class), any(java.sql.Time.class), any(java.sql.Time.class)))
                 .thenReturn((List) rows);
         lenient().when(breachLogs.findOpenBreach(any(), any(), any()))
@@ -392,7 +392,7 @@ class FixWaveTest {
         List<Object[]> rows = new ArrayList<>();
         rows.add(new Object[]{1L, 9L, "BOGUS_TYPE"});
         when(jdbcTemplate.query(argThat((String sql) -> sql.contains("ST_Covers")),
-                any(RowMapper.class), anyDouble(), anyDouble(), anyString(), anyInt(),
+                any(RowMapper.class), anyDouble(), anyDouble(), anyDouble(), anyDouble(), anyString(), anyInt(),
                 any(java.sql.Time.class), any(java.sql.Time.class), any(java.sql.Time.class)))
                 .thenReturn((List) rows);
         lenient().when(breachLogs.findOpenBreach(any(), any(), any()))

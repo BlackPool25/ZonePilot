@@ -224,4 +224,41 @@ class RouteComplianceServiceTest {
 
         assertNull(response.getTravelDurationSec());
     }
+
+    @Test
+    void validateRoute_corridorDeviation_marksNonCompliant() {
+        when(vehicleRepository.findById(5L)).thenReturn(Optional.of(vehicle));
+        when(routingService.findNearestNode(12.9, 77.6)).thenReturn(100L);
+        when(routingService.findNearestNode(12.91, 77.61)).thenReturn(200L);
+        when(routingService.computeRoute(100L, 200L)).thenReturn(mockRoute);
+        when(jdbcTemplate.queryForList(eq("SELECT * FROM sp_validate_route(?, ST_GeomFromText(?, 4326))"), eq(5L), anyString()))
+                .thenReturn(Collections.emptyList());
+
+        Map<String, Object> corridor = new HashMap<>();
+        corridor.put("zone_id", 7L);
+        corridor.put("zone_name", "ORR Corridor");
+        corridor.put("restriction_type", "NO_ENTRY");
+        when(jdbcTemplate.queryForList(argThat((String s) -> s != null && s.contains("CORRIDOR")),
+                org.mockito.ArgumentMatchers.<Object>any()))
+                .thenReturn(List.of(corridor));
+
+        when(jdbcTemplate.queryForObject(anyString(), eq(Integer.class), eq(100L), eq(200L))).thenReturn(0);
+        Object[] row = new Object[]{1, 10L, 5.0,
+                "LINESTRING(77.6 12.9,77.62 12.92)", 200L, 100L};
+        when(jdbcTemplate.query(contains("pgr_dijkstra"), any(RowMapper.class), anyString(), eq(100L), eq(200L)))
+                .thenReturn(Arrays.asList(row));
+        when(routingService.assembleRouteFromEdgeRows(anyList())).thenReturn(mockRoute);
+        when(timePredictionService.predictCumulativeArrivalsSec(any(), anyList(), any()))
+                .thenReturn(Collections.emptyList());
+        when(timePredictionService.predictTotalDurationSec(any(), anyList(), any())).thenReturn(300L);
+
+        DispatchRoute savedRoute = new DispatchRoute();
+        savedRoute.setId(900L);
+        when(dispatchRouteRepository.save(any(DispatchRoute.class))).thenReturn(savedRoute);
+
+        RouteValidationResponse response = complianceService.validateRoute(5L, 12.9, 77.6, 12.91, 77.61);
+
+        assertFalse(response.getCompliant());
+        assertEquals(7L, response.getViolations().get(0).getZoneId());
+    }
 }

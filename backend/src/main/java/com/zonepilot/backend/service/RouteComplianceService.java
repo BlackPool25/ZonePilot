@@ -36,6 +36,18 @@ public class RouteComplianceService {
     // IST timezone for curfew window calculations
     private static final ZoneId IST = ZoneId.of("Asia/Kolkata");
 
+    /**
+     * Corridor pre-check: any active CORRIDOR zone whose buffered centerline
+     * does not fully contain the route is a violation. Uses ST_Buffer (not
+     * ST_DWithin) because the whole route must stay inside the corridor.
+     */
+    static final String CORRIDOR_PRECHECK_SQL =
+            "SELECT zr.id AS zone_id, zr.name AS zone_name, zr.restriction_type AS restriction_type "
+            + "FROM zone_restriction zr JOIN dispatch_route dr ON dr.id = zr.corridor_route_id "
+            + "WHERE zr.is_active = TRUE AND zr.geometry_type = 'CORRIDOR' "
+            + "AND NOT ST_Within(ST_GeomFromText(?, 4326), "
+            + "ST_Buffer(dr.planned_route_geometry::geography, zr.corridor_width_m)::geometry)";
+
     private final VehicleRepository vehicleRepository;
     private final RoutingService routingService;
     private final DispatchRouteRepository dispatchRouteRepository;
@@ -476,6 +488,7 @@ public class RouteComplianceService {
     private List<RouteValidationResponse.ViolationDetail> validateRouteAgainstZones(
             Long vehicleId, LineString routeGeometry) {
         List<RouteValidationResponse.ViolationDetail> violations = new ArrayList<>();
+        violations.addAll(checkCorridorPrecheck(routeGeometry));
         List<Map<String, Object>> results = jdbcTemplate.queryForList(
                 "SELECT * FROM sp_validate_route(?, ST_GeomFromText(?, 4326))",
                 vehicleId, routeGeometry.toText());
@@ -497,6 +510,39 @@ public class RouteComplianceService {
     }
 
     // ── Inner types ───────────────────────────────────────────────────────────
+
+    /**
+     * Corridor pre-check, package-visible for unit tests. Returns one
+     * violation per active CORRIDOR zone the route leaves; empty when no
+     * corridor applies (or the probe fails — best-effort, never blocks).
+     */
+    List<RouteValidationResponse.ViolationDetail> checkCorridorPrecheck(LineString routeGeometry) {
+        List<Map<String, Object>> rows;
+        try {
+            rows = jdbcTemplate.queryForList(CORRIDOR_PRECHECK_SQL, routeGeometry.toText());
+        } catch (Exception e) {
+            log.warn("Corridor pre-check probe failed: {}", e.getMessage());
+            return List.of();
+        }
+        if (rows == null || rows.isEmpty()) {
+            return List.of();
+        }
+        List<RouteValidationResponse.ViolationDetail> out = new ArrayList<>();
+        for (Map<String, Object> row : rows) {
+            RouteValidationResponse.ViolationDetail detail = new RouteValidationResponse.ViolationDetail();
+            if (row.get("zone_id") != null) {
+                detail.setZoneId(((Number) row.get("zone_id")).longValue());
+            }
+            if (row.get("zone_name") != null) {
+                detail.setZoneName((String) row.get("zone_name"));
+            }
+            if (row.get("restriction_type") != null) {
+                detail.setBreachType((String) row.get("restriction_type"));
+            }
+            out.add(detail);
+        }
+        return out;
+    }
 
     private record RouteCandidate(
             LineString geometry,
