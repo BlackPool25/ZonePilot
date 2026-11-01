@@ -1,0 +1,126 @@
+package com.zonepilot.backend.config;
+
+import com.zonepilot.backend.auth.DepotPrincipal;
+import com.zonepilot.backend.auth.GroupScope;
+import com.zonepilot.backend.auth.JwtService;
+import com.zonepilot.backend.auth.Role;
+import com.zonepilot.backend.entity.FleetGroup;
+import com.zonepilot.backend.repository.FleetGroupRepository;
+import java.nio.charset.StandardCharsets;
+import java.util.List;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.context.annotation.Lazy;
+import org.springframework.messaging.Message;
+import org.springframework.messaging.MessageChannel;
+import org.springframework.messaging.SubscribableChannel;
+import org.springframework.messaging.simp.stomp.StompCommand;
+import org.springframework.messaging.simp.stomp.StompHeaderAccessor;
+import org.springframework.messaging.support.ChannelInterceptor;
+import org.springframework.messaging.support.MessageBuilder;
+import org.springframework.messaging.support.MessageHeaderAccessor;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.stereotype.Component;
+
+/**
+ * Task 3 scoped WS: JWT on the STOMP CONNECT frame, per-group SUBSCRIBE
+ * enforcement. Anonymous subscribes are rejected; OWNER passes every group,
+ * a manager passes only groups they manage (same rule as the REST scope).
+ */
+@Component
+public class WsAuthInterceptor implements ChannelInterceptor {
+
+    static final String PRINCIPAL_ATTR = "zp-principal";
+
+    private final JwtService jwt;
+    private final FleetGroupRepository groups;
+    private final GroupScope scope;
+    private final SubscribableChannel outbound;
+
+    public WsAuthInterceptor(JwtService jwt, FleetGroupRepository groups, GroupScope scope,
+                             @Lazy @Qualifier("clientOutboundChannel") SubscribableChannel outbound) {
+        this.jwt = jwt;
+        this.groups = groups;
+        this.scope = scope;
+        this.outbound = outbound;
+    }
+
+    @Override
+    public Message<?> preSend(Message<?> message, MessageChannel channel) {
+        StompHeaderAccessor accessor = MessageHeaderAccessor.getAccessor(message, StompHeaderAccessor.class);
+        if (accessor == null || accessor.getCommand() == null) {
+            return message;
+        }
+        if (accessor.getCommand() == StompCommand.CONNECT) {
+            DepotPrincipal principal = principalFrom(accessor.getFirstNativeHeader("Authorization"));
+            if (principal != null) {
+                accessor.setUser(new UsernamePasswordAuthenticationToken(principal, null,
+                        List.of(new SimpleGrantedAuthority("ROLE_" + principal.role().name()))));
+                accessor.getSessionAttributes().put(PRINCIPAL_ATTR, principal);
+            }
+            return message;
+        }
+        if (accessor.getCommand() == StompCommand.SUBSCRIBE) {
+            String dest = accessor.getDestination();
+            if (dest != null && dest.startsWith("/topic/")) {
+                DepotPrincipal principal = (DepotPrincipal) accessor.getSessionAttributes()
+                        .get(PRINCIPAL_ATTR);
+                // Throwing here is swallowed by the async inbound channel, so
+                // reject explicitly with an ERROR frame and drop the SUBSCRIBE.
+                if (principal == null) {
+                    return reject(accessor, "Login required");
+                }
+                if (dest.startsWith("/topic/group/")) {
+                    Long groupId = groupIdOf(dest);
+                    FleetGroup group = groupId == null ? null
+                            : groups.findById(groupId).orElse(null);
+                    if (group == null) {
+                        return reject(accessor, "No such group");
+                    }
+                    try {
+                        scope.requireGroupAccess(principal, group);
+                    } catch (AccessDeniedException e) {
+                        return reject(accessor, e.getMessage());
+                    }
+                }
+            }
+            return message;
+        }
+        return message;
+    }
+
+    private static Long groupIdOf(String dest) {
+        try {
+            return Long.parseLong(dest.substring("/topic/group/".length()));
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    /** ERROR frame to the session; null return drops the rejected SUBSCRIBE. */
+    private Message<?> reject(StompHeaderAccessor accessor, String reason) {
+        StompHeaderAccessor headers = StompHeaderAccessor.create(StompCommand.ERROR);
+        headers.setSessionId(accessor.getSessionId());
+        headers.setMessage(reason);
+        outbound.send(MessageBuilder.createMessage(
+                reason.getBytes(StandardCharsets.UTF_8), headers.getMessageHeaders()));
+        return null;
+    }
+
+    private DepotPrincipal principalFrom(String header) {
+        if (header == null || !header.startsWith("Bearer ")) {
+            return null;
+        }
+        String token = header.substring(7);
+        try {
+            if (jwt.isExpired(token) || jwt.isRefresh(token)) {
+                return null;
+            }
+            return new DepotPrincipal(jwt.getUsername(token), jwt.getDepotId(token),
+                    Role.valueOf(jwt.getRole(token)));
+        } catch (RuntimeException e) {
+            return null;
+        }
+    }
+}

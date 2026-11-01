@@ -1,5 +1,10 @@
 package com.zonepilot.backend.it;
 
+import com.zonepilot.backend.entity.DispatchRoute;
+import com.zonepilot.backend.entity.Driver;
+import com.zonepilot.backend.entity.FleetGroup;
+import com.zonepilot.backend.entity.Tour;
+import com.zonepilot.backend.entity.TourStatus;
 import com.zonepilot.backend.entity.Vehicle;
 import com.zonepilot.backend.enums.PositionSource;
 import com.zonepilot.backend.repository.PositionQuarantineRepository;
@@ -42,6 +47,14 @@ class TraccarIngestIT extends SliceIT {
     VehiclePositionLogRepository positionLogs;
     @Autowired
     PositionQuarantineRepository quarantine;
+    @Autowired
+    com.zonepilot.backend.repository.TourRepository tours;
+    @Autowired
+    com.zonepilot.backend.repository.DriverRepository drivers;
+    @Autowired
+    com.zonepilot.backend.repository.FleetGroupRepository groups;
+    @Autowired
+    com.zonepilot.backend.repository.DispatchRouteRepository routes;
     @Autowired
     com.zonepilot.backend.service.IngestState ingestState;
     @Autowired
@@ -95,6 +108,8 @@ class TraccarIngestIT extends SliceIT {
     @Test
     void traccarPosition_reachesDb_eventSurvives_redeliveryDedupes_teleportQuarantines() throws Exception {
         Vehicle vehicle = saveVehicle("KA09- mqtt-" + (System.nanoTime() % 100000));
+        // Strict keys (V38): the tour-less pipe resolves the tour from the active route.
+        wireTour(vehicle);
         String topic = "zonepilot/fleet/vehicles/" + vehicle.getId() + "/position";
 
         // 1. fixture position (ts = now, so quality + blind-box pass)
@@ -135,6 +150,33 @@ class TraccarIngestIT extends SliceIT {
         Thread.sleep(2000);
         assertThat(positionLogs.findByVehicleIdAndRecordedAtBetween(
                 vehicle.getId(), Instant.ofEpochMilli(0), Instant.ofEpochMilli(ts2 + 60_000))).hasSize(1);
+    }
+
+    /** Strict-key tour wiring: group + driver + tour + route linked as active. */
+    private void wireTour(Vehicle vehicle) {
+        FleetGroup g = new FleetGroup();
+        g.setName("MqttGroup " + System.nanoTime());
+        g.setActive(true);
+        groups.save(g);
+        Driver d = new Driver();
+        d.setName("Mqtt Driver");
+        d.setLicenceNo("LIC-MQ-" + System.nanoTime());
+        drivers.save(d);
+        Tour t = new Tour();
+        t.setGroup(g);
+        t.setVehicle(vehicle);
+        t.setDriver(d);
+        t.setStatus(TourStatus.ACTIVE);
+        tours.save(t);
+        DispatchRoute r = new DispatchRoute();
+        r.setVehicle(vehicle);
+        r.setDriver(d);
+        r.setTour(t);
+        r.setOriginPoint(gf.createPoint(new org.locationtech.jts.geom.Coordinate(77.60, 12.91)));
+        r.setDestinationPoint(gf.createPoint(new org.locationtech.jts.geom.Coordinate(77.62, 12.93)));
+        routes.save(r);
+        vehicle.setActiveDispatchRouteId(r.getId());
+        vehicles.save(vehicle);
     }
 
     @Test

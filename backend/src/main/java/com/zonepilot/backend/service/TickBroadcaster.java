@@ -7,8 +7,8 @@ import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 
 /**
- * Slice 3: broadcasts derived state (never raw echo) to the ops board and
- * driver app on the single fleet-wide topic {@code /topic/fleet}.
+ * Live pipe broadcaster: derived state (never raw echo) per fleet group on
+ * {@code /topic/group/{id}}. JWT-scoped subscribe enforced in WsConfig.
  */
 @Service
 public class TickBroadcaster {
@@ -19,10 +19,11 @@ public class TickBroadcaster {
         this.messaging = messaging;
     }
 
-    public void tick(long vehicleId, double lat, double lng,
+    public void tick(long groupId, long vehicleId, double lat, double lng,
                      BigDecimal speedKmh, Instant recordedAt, boolean breachDetected) {
-        messaging.convertAndSend("/topic/fleet", Map.of(
+        messaging.convertAndSend("/topic/group/" + groupId, Map.of(
                 "type", "tick",
+                "groupId", groupId,
                 "vehicleId", vehicleId,
                 "lat", lat,
                 "lng", lng,

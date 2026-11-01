@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
-import { vehiclesApi, zonesApi, breachesApi } from '../api/client.js';
+import { vehiclesApi, zonesApi, breachesApi, groupsApi } from '../api/client.js';
 import { connectTicks } from '../api/live.js';
-import { DEMO_VEHICLES, DEMO_ZONES, DEMO_POSITIONS, DEMO_BREACHES } from '../data/demo.js';
 import LiveMap from '../components/map/LiveMap.jsx';
 import Badge from '../components/atoms/Badge.jsx';
 import { useApp } from '../context/AppContext.jsx';
@@ -11,8 +10,9 @@ import styles from './Dashboard.module.css';
 const LAYER_LABELS = { vehicles: '🚛 Vehicles', zones: '⬡ Zones', breaches: '⚠ Breaches', routes: '↗ Routes', labels: '🏷 Labels' };
 
 export default function Dashboard() {
-  const { state, openDrawer, selectVehicle, selectZone, toggleMapLayer } = useApp();
+  const { state, openDrawer, selectVehicle, selectZone, toggleMapLayer, setWsOnline } = useApp();
   const [vehicles, setVehicles] = useState([]);
+  const [groupId, setGroupId] = useState(null);
   const [positions, setPositions] = useState({});
   const [zones, setZones] = useState([]);
   const [breaches, setBreaches] = useState([]);
@@ -20,15 +20,19 @@ export default function Dashboard() {
   const pollRef = useRef(null);
 
   async function loadData() {
-    const [v, z, b] = await Promise.allSettled([
+    const [v, z, b, g] = await Promise.allSettled([
       vehiclesApi.list({ isActive: true }),
       zonesApi.active(),
       breachesApi.list({ unacknowledged: true }),
+      groupsApi.list(),
     ]);
-    const vehicleList = v.status === 'fulfilled' ? v.value : DEMO_VEHICLES.filter(x => x.isActive);
+    const vehicleList = v.status === 'fulfilled' ? v.value : [];
     setVehicles(vehicleList);
-    setZones(z.status === 'fulfilled' ? z.value : DEMO_ZONES);
-    setBreaches(b.status === 'fulfilled' ? b.value : DEMO_BREACHES.filter(x => !x.isAcknowledged));
+    setZones(z.status === 'fulfilled' ? z.value : []);
+    setBreaches(b.status === 'fulfilled' ? b.value : []);
+    if (g.status === 'fulfilled' && Array.isArray(g.value) && g.value.length > 0) {
+      setGroupId(g.value[0].id);
+    }
 
     // Load latest positions for all active vehicles
     const posResults = await Promise.allSettled(
@@ -38,8 +42,6 @@ export default function Dashboard() {
     posResults.forEach(r => {
       if (r.status === 'fulfilled') posMap[r.value.id] = r.value.pos;
     });
-    // Fallback to demo positions
-    vehicleList.forEach(v => { if (!posMap[v.id] && DEMO_POSITIONS[v.id]) posMap[v.id] = DEMO_POSITIONS[v.id]; });
     setPositions(posMap);
     setLoading(false);
   }
@@ -50,11 +52,11 @@ export default function Dashboard() {
     return () => clearInterval(pollRef.current);
   }, []);
 
-  // Slice 3: live ticks merge into the same positions map the map renders;
+  // Live pipe: JWT-scoped per-group ticks merge into the positions map;
   // the 10s HTTP poll above stays as the reconnect-gap fallback.
   useEffect(() => {
-    if (vehicles.length === 0) return undefined;
-    const disconnect = connectTicks((tick) => {
+    if (groupId == null || vehicles.length === 0) return undefined;
+    const disconnect = connectTicks(groupId, (tick) => {
       if (tick.type !== 'tick' || tick.vehicleId == null) return;
       setPositions(prev => ({
         ...prev,
@@ -66,9 +68,9 @@ export default function Dashboard() {
           recordedAt: tick.recordedAt,
         },
       }));
-    });
+    }, setWsOnline);
     return () => disconnect();
-  }, [vehicles]);
+  }, [groupId, vehicles, setWsOnline]);
 
   function handleVehicleClick(vehicle) {
     selectVehicle(vehicle.id);

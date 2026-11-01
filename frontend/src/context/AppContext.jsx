@@ -15,6 +15,9 @@ const initialState = {
   // Global alerts
   toasts: [], // { id, type, message }
 
+  // Live tick connection (offline banner when the socket drops)
+  wsOnline: true,
+
   // Unacknowledged breach count (polled)
   unacknowledgedBreachCount: 0,
 
@@ -39,6 +42,7 @@ const actions = {
   ADD_TOAST: 'ADD_TOAST',
   REMOVE_TOAST: 'REMOVE_TOAST',
   SET_BREACH_COUNT: 'SET_BREACH_COUNT',
+  SET_WS_ONLINE: 'SET_WS_ONLINE',
   SET_RESTRICTION_COUNT: 'SET_RESTRICTION_COUNT',
   TOGGLE_NAV: 'TOGGLE_NAV',
   SET_LAST_ROUTE: 'SET_LAST_ROUTE',
@@ -64,6 +68,8 @@ function reducer(state, action) {
       return { ...state, toasts: state.toasts.filter(t => t.id !== action.id) };
     case actions.SET_BREACH_COUNT:
       return { ...state, unacknowledgedBreachCount: action.count };
+    case actions.SET_WS_ONLINE:
+      return { ...state, wsOnline: action.online };
     case actions.SET_RESTRICTION_COUNT:
       return { ...state, activeRestrictionsCount: action.count };
     case actions.TOGGLE_NAV:
@@ -117,6 +123,9 @@ export function AppProvider({ children }) {
   const setLastValidatedRoute = useCallback((route) =>
     dispatch({ type: actions.SET_LAST_ROUTE, route }), []);
 
+  const setWsOnline = useCallback((online) =>
+    dispatch({ type: actions.SET_WS_ONLINE, online }), []);
+
   return (
     <AppContext.Provider value={{
       state,
@@ -127,7 +136,20 @@ export function AppProvider({ children }) {
       setBreachCount, setRestrictionCount,
       toggleNav,
       setLastValidatedRoute,
+      setWsOnline,
     }}>
+      {!state.wsOnline && (
+        <div
+          role="alert"
+          style={{
+            position: 'fixed', top: 0, left: 0, right: 0, zIndex: 2000,
+            background: '#b91c1c', color: '#fff', textAlign: 'center',
+            padding: '6px 12px', fontSize: '13px', fontWeight: 600,
+          }}
+        >
+          Offline — live updates paused. Showing last known positions.
+        </div>
+      )}
       {children}
     </AppContext.Provider>
   );

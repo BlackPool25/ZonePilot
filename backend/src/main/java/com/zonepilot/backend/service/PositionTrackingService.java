@@ -189,8 +189,9 @@ public class PositionTrackingService {
             response.setBreaches(breachDetails);
         }
 
-        // Slice 3: every accepted fix fans out as a derived tick frame.
-        broadcaster.tick(vehicleId, finalLat, finalLng,
+        // Live pipe: every accepted fix fans out as a derived tick frame
+        // on the fix's group topic (/topic/group/{id}, JWT-scoped).
+        broadcaster.tick(groupId, vehicleId, finalLat, finalLng,
                 speedKmh, recordedAt, Boolean.TRUE.equals(response.getBreachDetected()));
 
         return response;

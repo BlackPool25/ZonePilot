@@ -43,11 +43,19 @@ public class GroupScope {
     }
 
     public void requireGroupAccess(FleetGroup group) {
-        if (isOwner()) {
+        requireGroupAccess(DepotScope.current(), group);
+    }
+
+    /** Principal-explicit variant for the WS channel (no SecurityContext there). */
+    public void requireGroupAccess(DepotPrincipal principal, FleetGroup group) {
+        if (principal != null && principal.isOwner()) {
             return;
         }
-        Long uid = currentUserId()
-                .orElseThrow(() -> new AccessDeniedException("Login required"));
+        Long uid = principal == null ? null : users.findByEmail(principal.username())
+                .map(AppUser::getId).orElse(null);
+        if (uid == null) {
+            throw new AccessDeniedException("Login required");
+        }
         if (group.getManager() == null || !group.getManager().getId().equals(uid)) {
             throw new AccessDeniedException("Not your group");
         }

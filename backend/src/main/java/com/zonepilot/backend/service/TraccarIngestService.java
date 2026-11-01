@@ -2,11 +2,13 @@ package com.zonepilot.backend.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.zonepilot.backend.dto.response.PositionRecordResponse;
 import com.zonepilot.backend.entity.Vehicle;
 import com.zonepilot.backend.entity.PositionQuarantine;
 import com.zonepilot.backend.enums.PositionSource;
+import com.zonepilot.backend.exception.ResourceNotFoundException;
+import com.zonepilot.backend.exception.ValidationException;
 import com.zonepilot.backend.repository.PositionQuarantineRepository;
-import com.zonepilot.backend.repository.VehiclePositionLogRepository;
 import com.zonepilot.backend.repository.VehicleRepository;
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -18,9 +20,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Slice 3: consumes the Traccar MQTT feed ({@code zonepilot/{depot}/vehicles/{id}/...}).
- * Position frames go through the quality filter into {@code recordPosition(TRACCAR)};
- * failures land in the quarantine table — never silently dropped, never scored.
+ * Live pipe: consumes the Traccar MQTT feed ({@code zonepilot/fleet/vehicles/{id}/...})
+ * and the HTTP burst endpoint. Position frames go through the quality filter
+ * into strict-key {@code recordPosition}; failures land in quarantine — never
+ * silently dropped, never scored. Broadcast is per-group inside recordPosition.
  */
 @Service
 public class TraccarIngestService {
@@ -28,29 +31,23 @@ public class TraccarIngestService {
     private static final Logger log = LoggerFactory.getLogger(TraccarIngestService.class);
 
     private final VehicleRepository vehicles;
-    private final VehiclePositionLogRepository positionLogs;
     private final PositionTrackingService positions;
     private final QualityFilter quality;
     private final IngestState state;
     private final PositionQuarantineRepository quarantine;
-    private final TickBroadcaster broadcaster;
     private final ObjectMapper mapper;
 
     public TraccarIngestService(VehicleRepository vehicles,
-                                VehiclePositionLogRepository positionLogs,
                                 PositionTrackingService positions,
                                 QualityFilter quality,
                                 IngestState state,
                                 PositionQuarantineRepository quarantine,
-                                TickBroadcaster broadcaster,
                                 ObjectMapper mapper) {
         this.vehicles = vehicles;
-        this.positionLogs = positionLogs;
         this.positions = positions;
         this.quality = quality;
         this.state = state;
         this.quarantine = quarantine;
-        this.broadcaster = broadcaster;
         this.mapper = mapper;
     }
 
@@ -104,45 +101,93 @@ public class TraccarIngestService {
             quarantine(vehicleId, null, "TOPIC_MISMATCH", payload);
             return;
         }
-        double lat = node.get("lat").asDouble();
-        double lng = node.get("lon").asDouble();
-        Instant ts = parseTs(node.get("ts"));
-        BigDecimal speed = node.hasNonNull("speedKmh") ? node.get("speedKmh").decimalValue() : null;
-        Double accuracy = null;
-        if (node.hasNonNull("accuracy")) {
-            accuracy = node.get("accuracy").asDouble();
-        } else if (node.hasNonNull("hdop")) {
-            accuracy = node.get("hdop").asDouble() * 5.0;
+        // Live pipe default is TRACCAR; batched replay frames carry source=REPLAY.
+        PositionSource source = PositionSource.TRACCAR;
+        if (node.hasNonNull("source")) {
+            try {
+                source = PositionSource.valueOf(node.get("source").asText().toUpperCase());
+            } catch (IllegalArgumentException e) {
+                quarantine(vehicleId, null, "BAD_SOURCE", payload);
+                return;
+            }
+            if (source != PositionSource.TRACCAR && source != PositionSource.LIVE
+                    && source != PositionSource.REPLAY) {
+                quarantine(vehicleId, null, "BAD_SOURCE", payload);
+                return;
+            }
         }
+        processFix(vehicleId, node.get("lat").asDouble(), node.get("lon").asDouble(),
+                parseTs(node.get("ts")),
+                node.hasNonNull("speedKmh") ? node.get("speedKmh").decimalValue() : null,
+                accuracyOf(node),
+                node.hasNonNull("heading") ? (short) node.get("heading").asInt() : null,
+                source,
+                node.hasNonNull("driverId") ? node.get("driverId").asLong() : null,
+                node.hasNonNull("tourId") ? node.get("tourId").asLong() : null,
+                node.hasNonNull("groupId") ? node.get("groupId").asLong() : null,
+                payload);
+    }
 
-        QualityFilter.Result check = quality.check(vehicleId, lat, lng, ts, speed, accuracy);
+    /**
+     * HTTP ingest (PWA burst upload, replay): same quality gate as MQTT, but
+     * rejections surface as 4xx instead of silent quarantine rows.
+     */
+    public PositionRecordResponse ingest(long vehicleId, double lat, double lng, Instant ts,
+                                         BigDecimal speedKmh, Double accuracyM, Short headingDeg,
+                                         PositionSource source, Long driverId, Long tourId,
+                                         Long groupId) {
+        Vehicle vehicle = vehicles.findById(vehicleId)
+                .orElseThrow(() -> new ResourceNotFoundException("Vehicle", "id", vehicleId));
+        Optional<PositionRecordResponse> accepted = processFix(vehicle.getId(), lat, lng, ts,
+                speedKmh, accuracyM, headingDeg, source, driverId, tourId, groupId, null);
+        // processFix quarantines before returning empty; surface the reason as 400.
+        return accepted.orElseThrow(() -> new ValidationException(
+                "Position rejected by ingest quality gate (see quarantine)"));
+    }
+
+    /**
+     * Shared MQTT + HTTP fix path. Empty = quarantined (reason already stored);
+     * the MQTT caller drops it, the HTTP caller 400s.
+     */
+    private Optional<PositionRecordResponse> processFix(long vehicleId, double lat, double lng,
+                                                        Instant ts, BigDecimal speedKmh,
+                                                        Double accuracyM, Short headingDeg,
+                                                        PositionSource source, Long driverId,
+                                                        Long tourId, Long groupId,
+                                                        String rawPayload) {
+        QualityFilter.Result check = quality.check(vehicleId, lat, lng, ts, speedKmh, accuracyM);
         if (!check.accepted()) {
-            quarantine(vehicleId, ts, check.reason(), payload);
-            return;
-        }
-        // QoS1 redelivery of an already-stored (vehicle, recorded_at): benign, ack and move on.
-        if (ts != null && positionLogs.existsByVehicleIdAndRecordedAt(vehicleId, ts)) {
-            log.debug("ingest.duplicate vehicle={} ts={}", vehicleId, ts);
-            return;
+            quarantine(vehicleId, ts, check.reason(), rawPayload);
+            return Optional.empty();
         }
         try {
-            var response = positions.recordPosition(vehicleId, lat, lng, ts, speed,
-                    node.hasNonNull("heading") ? (short) node.get("heading").asInt() : null,
-                    PositionSource.TRACCAR);
+            var response = positions.recordPosition(vehicleId, driverId, tourId, groupId,
+                    lat, lng, ts, speedKmh, headingDeg, source);
             state.saveFix(vehicleId, response.getPosition().getLatitude(),
                     response.getPosition().getLongitude(), response.getPosition().getRecordedAt());
-            broadcaster.tick(vehicleId,
-                    response.getPosition().getLatitude(), response.getPosition().getLongitude(),
-                    speed, response.getPosition().getRecordedAt(),
-                    Boolean.TRUE.equals(response.getBreachDetected()));
+            return Optional.of(response);
         } catch (DataIntegrityViolationException dup) {
-            // QoS1 redelivery of an already-stored (vehicle, recorded_at): benign, ack and move on.
+            // QoS1 redelivery of an already-stored (vehicle, tour, recorded_at): benign, ack and move on.
             log.debug("ingest.duplicate vehicle={} ts={}", vehicleId, ts);
+            return Optional.empty();
         } catch (RuntimeException e) {
+            if (rawPayload == null) {
+                throw e;
+            }
             // Never poison-loop on QoS1 redelivery: quarantine records the failure.
-            quarantine(vehicleId, ts, "INGEST_ERROR", payload);
+            quarantine(vehicleId, ts, "INGEST_ERROR", rawPayload);
             log.warn("ingest.error vehicle={} cause={}", vehicleId, e.toString());
+            return Optional.empty();
         }
+    }
+
+    private static Double accuracyOf(JsonNode node) {
+        if (node.hasNonNull("accuracy")) {
+            return node.get("accuracy").asDouble();
+        } else if (node.hasNonNull("hdop")) {
+            return node.get("hdop").asDouble() * 5.0;
+        }
+        return null;
     }
 
     private static Instant parseTs(JsonNode ts) {
