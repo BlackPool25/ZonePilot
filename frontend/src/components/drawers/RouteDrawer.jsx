@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { routesApi, simulationApi } from '../../api/client.js';
+import { routesApi, toursApi, breachesApi } from '../../api/client.js';
 import Badge from '../atoms/Badge.jsx';
 import { Spinner } from '../atoms/Spinner.jsx';
 import { useApp } from '../../context/AppContext.jsx';
@@ -9,26 +8,63 @@ import styles from './RouteDrawer.module.css';
 
 export default function RouteDrawer({ entityId, data: initialData }) {
   const { closeDrawer, addToast } = useApp();
-  const navigate = useNavigate();
   const [route, setRoute] = useState(initialData ?? null);
   const [loading, setLoading] = useState(!initialData || (initialData && !initialData.vehicle));
   const [deleting, setDeleting] = useState(false);
-  const [simulating, setSimulating] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
+  const [track, setTrack] = useState(null);
+  const [tourBreaches, setTourBreaches] = useState([]);
+  const [approving, setApproving] = useState(false);
+  const [timelineError, setTimelineError] = useState(null);
+  const tourId = route?.tour?.id ?? route?.tourId ?? null;
+  // Route payloads carry the vehicle nested; accept a flat vehicleId too.
+  const timelineVehicleId = route?.vehicle?.id ?? route?.vehicleId ?? null;
+  const trackStatus = track?.status ?? null;
 
-  async function handleSimulate() {
-    const routeId = route?.id ?? route?.dispatchRouteId ?? entityId;
-    if (!routeId) return;
-    setSimulating(true);
+  // Manager tour timeline: stops + PoD stamps from the track endpoint.
+  // Breach rows arrive eventually via the background worker, so poll them
+  // separately rather than expecting them on the tour payload. Polling stops
+  // once the tour is COMPLETED — nothing more will arrive.
+  useEffect(() => {
+    if (!tourId) return;
+    let live = true;
+    const load = () => {
+      toursApi.track(tourId)
+        .then(t => { if (live) { setTrack(t); setTimelineError(null); } })
+        .catch((err) => { if (live) setTimelineError(err.message || 'Failed to load tour timeline.'); });
+      if (timelineVehicleId) {
+        breachesApi.list({ vehicleId: timelineVehicleId })
+          .then(b => { if (live) setTourBreaches(b ?? []); })
+          .catch(() => {});
+      }
+    };
+    load();
+    if (trackStatus === 'COMPLETED') return () => { live = false; };
+    const timer = setInterval(load, 15000);
+    return () => { live = false; clearInterval(timer); };
+  }, [tourId, timelineVehicleId, trackStatus]);
+
+  async function handleApprove() {
+    if (!tourId || approving) return;
+    setApproving(true);
     try {
-      await simulationApi.startFromRoute({ dispatchRouteId: routeId });
-      addToast('success', 'Simulation started — go to Simulation page');
-      closeDrawer();
-      navigate('/simulation');
+      const updated = await toursApi.approve(tourId);
+      setTrack(t => (t ? { ...t, status: updated.status } : t));
+      // Refresh the route payload too so the history badge follows the tour.
+      const routeId = route?.id ?? route?.dispatchRouteId ?? entityId;
+      if (routeId) {
+        try {
+          const fresh = await routesApi.get(routeId);
+          setRoute(prev => ({ ...prev, ...fresh }));
+        } catch {
+          // track already updated; route refresh is best-effort
+        }
+      }
+      addToast('success', `Tour #${tourId} approved — vehicle released`);
     } catch (err) {
-      addToast('danger', err.message || 'Failed to start simulation.');
+      addToast('error', err.message || 'Failed to approve tour.');
     } finally {
-      setSimulating(false);
+      setApproving(false);
     }
   }
 
@@ -42,7 +78,7 @@ export default function RouteDrawer({ entityId, data: initialData }) {
       window.dispatchEvent(new CustomEvent('route-deleted', { detail: { id: routeId } }));
       closeDrawer();
     } catch (err) {
-      addToast('danger', err.message || 'Failed to delete route.');
+      addToast('error', err.message || 'Failed to delete route.');
     } finally {
       setDeleting(false);
     }
@@ -105,12 +141,6 @@ export default function RouteDrawer({ entityId, data: initialData }) {
             <span className="drawer-row-label">Owner</span>
             <span className="drawer-row-value">{vehicle.ownerName}</span>
           </div>
-          {vehicle.depot && (
-            <div className="drawer-row">
-              <span className="drawer-row-label">Depot</span>
-              <span className="drawer-row-value">{vehicle.depot.name}</span>
-            </div>
-          )}
         </div>
       )}
 
@@ -160,22 +190,69 @@ export default function RouteDrawer({ entityId, data: initialData }) {
         </div>
       )}
 
+      {tourId && (
+        <div className="drawer-section">
+          <p className="drawer-section-title">Tour #{tourId} timeline</p>
+          {timelineError && !track && (
+            <p style={{ color: 'var(--red-500)', fontSize: 13 }}>{timelineError}</p>
+          )}
+          {track ? (
+            <>
+              <div className="drawer-row">
+                <span className="drawer-row-label">Status</span>
+                <span className="drawer-row-value">
+                  <Badge variant={track.status === 'COMPLETED' ? 'green' : track.status === 'PENDING_APPROVAL' ? 'amber' : 'blue'} size="sm">
+                    {track.status}
+                  </Badge>
+                </span>
+              </div>
+              {(track.stops ?? []).map(s => (
+                <div key={s.id} className={styles.violation}>
+                  <span className={styles.violationDot} aria-hidden="true" />
+                  <div>
+                    <span className={styles.violationZone}>Stop #{s.seq} {s.address || ''}</span>
+                    <span className={styles.violationType}>
+                      {s.status}
+                      {s.status === 'DELIVERED' && s.deliveredAt ? ` · ${formatDateTime(s.deliveredAt)}` : ''}
+                      {s.status === 'DELIVERED' && s.podLat != null ? ` · PoD ${Number(s.podLat).toFixed(5)},${Number(s.podLng).toFixed(5)}` : ''}
+                      {s.status === 'SKIPPED' && s.skipReason ? ` · ${s.skipReason}` : ''}
+                    </span>
+                  </div>
+                </div>
+              ))}
+              {tourBreaches.length > 0 && (
+                <div className="drawer-row">
+                  <span className="drawer-row-label">Breaches</span>
+                  <span className="drawer-row-value">
+                    <Badge variant="red" size="sm">{tourBreaches.length} on this vehicle</Badge>
+                  </span>
+                </div>
+              )}
+              {track.status === 'PENDING_APPROVAL' && (
+                <button
+                  className={styles.simulateBtn}
+                  onClick={handleApprove}
+                  disabled={approving}
+                  type="button"
+                >
+                  {approving ? 'Approving…' : '✓ Approve tour — release vehicle'}
+                </button>
+              )}
+            </>
+          ) : (
+            <p style={{ color: 'var(--text-secondary)', fontSize: 13 }}>Loading tour timeline…</p>
+          )}
+        </div>
+      )}
+
       {/* Actions */}
       <div className={styles.actions}>
         {!showConfirm ? (
           <>
             <button
-              className={styles.simulateBtn}
-              onClick={handleSimulate}
-              disabled={simulating || deleting}
-              type="button"
-            >
-              {simulating ? 'Starting...' : '▶ Simulate Route'}
-            </button>
-            <button
               className={styles.deleteBtn}
               onClick={() => setShowConfirm(true)}
-              disabled={simulating || deleting}
+              disabled={deleting}
             >
               🗑 Delete Route
             </button>

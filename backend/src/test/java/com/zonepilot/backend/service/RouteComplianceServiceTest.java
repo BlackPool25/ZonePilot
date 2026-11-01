@@ -39,6 +39,8 @@ class RouteComplianceServiceTest {
     private TimePredictionService timePredictionService;
     @Mock
     private JdbcTemplate jdbcTemplate;
+    @Mock
+    private com.zonepilot.backend.repository.DispatchRouteAttemptRepository attemptRepository;
 
     private RouteComplianceService complianceService;
     private final GeometryFactory gf = new GeometryFactory(new PrecisionModel(), 4326);
@@ -89,12 +91,12 @@ class RouteComplianceServiceTest {
     }
 
     @Test
-    void validateRoute_withViolations_usesZoneExitWaypointRouting() {
+    void validateRoute_withViolations_retriesWithHugeCostAndAccepts() {
         when(vehicleRepository.findById(5L)).thenReturn(Optional.of(vehicle));
         when(routingService.findNearestNode(12.9, 77.6)).thenReturn(100L);
         when(routingService.findNearestNode(12.91, 77.61)).thenReturn(200L);
 
-        // Phase 1: direct route has a violation
+        // Attempt 1: direct route has a violation
         when(routingService.computeRoute(100L, 200L)).thenReturn(mockRoute);
 
         Map<String, Object> violation = new HashMap<>();
@@ -102,33 +104,161 @@ class RouteComplianceServiceTest {
         violation.put("violated_zone_name", "MG Road");
         violation.put("breach_type", "TIME_WINDOW");
 
-        // Phase 1 validation: violation. Phase 2 (waypoint route): compliant.
+        // Attempt 1: violation. Attempt 2 (retry): compliant.
         when(jdbcTemplate.queryForList(eq("SELECT * FROM sp_validate_route(?, ST_GeomFromText(?, 4326))"), eq(5L), anyString()))
-                .thenReturn(Arrays.asList(violation))   // direct route: violation
-                .thenReturn(Collections.emptyList());   // waypoint route: compliant
+                .thenReturn(Arrays.asList(violation))
+                .thenReturn(Collections.emptyList());
 
-        // Zone-exit node lookup (findZoneExitNodes)
-        when(jdbcTemplate.query(contains("blr_2po_4pgr_vertices_pgr"), any(RowMapper.class),
-                eq(1L), eq(1L), eq(100L), eq(1L)))
-                .thenReturn(Arrays.asList(150L));
+        // Endpoint not inside a zone -> retry allowed
+        when(jdbcTemplate.queryForObject(anyString(), eq(Integer.class), eq(100L), eq(200L))).thenReturn(0);
 
-        // Waypoint route: source(100) → exit(150) → target(200)
-        LineString seg1 = gf.createLineString(new Coordinate[]{new Coordinate(77.6, 12.9), new Coordinate(77.605, 12.905)});
-        LineString seg2 = gf.createLineString(new Coordinate[]{new Coordinate(77.605, 12.905), new Coordinate(77.61, 12.91)});
-        when(routingService.computeRoute(100L, 150L)).thenReturn(seg1);
-        when(routingService.computeRoute(150L, 200L)).thenReturn(seg2);
+        // Retry Dijkstra returns one edge row; assemble into rerouted geometry
+        LineString rerouted = gf.createLineString(new Coordinate[]{
+                new Coordinate(77.6, 12.9), new Coordinate(77.62, 12.92)});
+        Object[] row = new Object[]{1, 10L, 5.0,
+                "LINESTRING(77.6 12.9,77.62 12.92)", 200L, 100L};
+        when(jdbcTemplate.query(contains("pgr_dijkstra"), any(RowMapper.class), anyString(), eq(100L), eq(200L)))
+                .thenReturn(Arrays.asList(row));
+        when(routingService.assembleRouteFromEdgeRows(anyList())).thenReturn(rerouted);
 
         when(timePredictionService.predictTotalDurationSec(any(), anyList(), any())).thenReturn(350L);
 
         DispatchRoute savedRoute = new DispatchRoute();
         savedRoute.setId(600L);
         when(dispatchRouteRepository.save(any(DispatchRoute.class))).thenReturn(savedRoute);
+        complianceService.setAttemptRepository(attemptRepository);
 
         RouteValidationResponse response = complianceService.validateRoute(5L, 12.9, 77.6, 12.91, 77.61);
 
         assertTrue(response.getCompliant());
         assertEquals(600L, response.getDispatchRouteId());
+        assertNotNull(response.getAttempts());
+        assertEquals(2, response.getAttempts().size());
+        assertFalse(response.getAttempts().get(0).isAccepted());
+        assertEquals(List.of(1L), response.getAttempts().get(0).getViolatedZoneIds());
+        assertTrue(response.getAttempts().get(1).isAccepted());
         verify(vehicleRepository).save(vehicle);
         assertEquals(600L, vehicle.getActiveDispatchRouteId());
+        // Versioned attempt rows persisted with violation ids + reject reason
+        verify(attemptRepository, times(2)).save(any(com.zonepilot.backend.entity.DispatchRouteAttempt.class));
+    }
+
+    @Test
+    void validateRoute_threeStrikes_capsAtThreeAttempts() {        when(vehicleRepository.findById(5L)).thenReturn(Optional.of(vehicle));
+        when(routingService.findNearestNode(12.9, 77.6)).thenReturn(100L);
+        when(routingService.findNearestNode(12.91, 77.61)).thenReturn(200L);
+        when(routingService.computeRoute(100L, 200L)).thenReturn(mockRoute);
+
+        Map<String, Object> violation = new HashMap<>();
+        violation.put("violated_zone_id", 1L);
+        violation.put("violated_zone_name", "MG Road");
+        violation.put("breach_type", "TIME_WINDOW");
+
+        // All three attempts violated
+        when(jdbcTemplate.queryForList(eq("SELECT * FROM sp_validate_route(?, ST_GeomFromText(?, 4326))"), eq(5L), anyString()))
+                .thenReturn(Arrays.asList(violation))
+                .thenReturn(Arrays.asList(violation))
+                .thenReturn(Arrays.asList(violation))
+                .thenReturn(Arrays.asList(violation));
+        when(jdbcTemplate.queryForObject(anyString(), eq(Integer.class), eq(100L), eq(200L))).thenReturn(0);
+
+        Object[] row = new Object[]{1, 10L, 5.0,
+                "LINESTRING(77.6 12.9,77.62 12.92)", 200L, 100L};
+        when(jdbcTemplate.query(contains("pgr_dijkstra"), any(RowMapper.class), anyString(), eq(100L), eq(200L)))
+                .thenReturn(Arrays.asList(row));
+        when(routingService.assembleRouteFromEdgeRows(anyList())).thenReturn(mockRoute);
+
+        // Wait-state fallback deps
+        when(timePredictionService.predictCumulativeArrivalsSec(any(), anyList(), any()))
+                .thenReturn(Collections.emptyList());
+        when(timePredictionService.predictTotalDurationSec(any(), anyList(), any())).thenReturn(300L);
+
+        DispatchRoute savedRoute = new DispatchRoute();
+        savedRoute.setId(700L);
+        when(dispatchRouteRepository.save(any(DispatchRoute.class))).thenReturn(savedRoute);
+
+        RouteValidationResponse response = complianceService.validateRoute(5L, 12.9, 77.6, 12.91, 77.61);
+
+        assertNotNull(response.getAttempts());
+        assertEquals(3, response.getAttempts().size());
+        assertTrue(response.getAttempts().stream().noneMatch(RouteValidationResponse.AttemptDetail::isAccepted));
+    }
+
+    @Test
+    void validateRoute_exposesTravelDurationSec() {
+        when(vehicleRepository.findById(5L)).thenReturn(Optional.of(vehicle));
+        when(routingService.findNearestNode(12.9, 77.6)).thenReturn(100L);
+        when(routingService.findNearestNode(12.91, 77.61)).thenReturn(200L);
+        when(routingService.computeRoute(100L, 200L)).thenReturn(mockRoute);
+        when(jdbcTemplate.queryForList(eq("SELECT * FROM sp_validate_route(?, ST_GeomFromText(?, 4326))"), eq(5L), anyString()))
+                .thenReturn(Collections.emptyList());
+        when(timePredictionService.predictTotalDurationSec(any(), anyList(), any())).thenReturn(300L);
+
+        org.mockito.ArgumentCaptor<DispatchRoute> captor =
+                org.mockito.ArgumentCaptor.forClass(DispatchRoute.class);
+        DispatchRoute savedRoute = new DispatchRoute();
+        savedRoute.setId(800L);
+        when(dispatchRouteRepository.save(captor.capture())).thenReturn(savedRoute);
+
+        RouteValidationResponse response = complianceService.validateRoute(5L, 12.9, 77.6, 12.91, 77.61);
+
+        assertEquals(300L, response.getTravelDurationSec());
+        assertEquals(300L, captor.getValue().getTravelDurationSec());
+    }
+
+    @Test
+    void validateRoute_unknownTravelDuration_isNull() {
+        when(vehicleRepository.findById(5L)).thenReturn(Optional.of(vehicle));
+        when(routingService.findNearestNode(12.9, 77.6)).thenReturn(100L);
+        when(routingService.findNearestNode(12.91, 77.61)).thenReturn(200L);
+        when(routingService.computeRoute(100L, 200L)).thenReturn(mockRoute);
+        when(jdbcTemplate.queryForList(eq("SELECT * FROM sp_validate_route(?, ST_GeomFromText(?, 4326))"), eq(5L), anyString()))
+                .thenReturn(Collections.emptyList());
+        when(timePredictionService.predictTotalDurationSec(any(), anyList(), any())).thenReturn(-1L);
+
+        DispatchRoute savedRoute = new DispatchRoute();
+        savedRoute.setId(801L);
+        when(dispatchRouteRepository.save(any(DispatchRoute.class))).thenReturn(savedRoute);
+
+        RouteValidationResponse response = complianceService.validateRoute(5L, 12.9, 77.6, 12.91, 77.61);
+
+        assertNull(response.getTravelDurationSec());
+    }
+
+    @Test
+    void validateRoute_corridorDeviation_marksNonCompliant() {
+        when(vehicleRepository.findById(5L)).thenReturn(Optional.of(vehicle));
+        when(routingService.findNearestNode(12.9, 77.6)).thenReturn(100L);
+        when(routingService.findNearestNode(12.91, 77.61)).thenReturn(200L);
+        when(routingService.computeRoute(100L, 200L)).thenReturn(mockRoute);
+        when(jdbcTemplate.queryForList(eq("SELECT * FROM sp_validate_route(?, ST_GeomFromText(?, 4326))"), eq(5L), anyString()))
+                .thenReturn(Collections.emptyList());
+
+        Map<String, Object> corridor = new HashMap<>();
+        corridor.put("zone_id", 7L);
+        corridor.put("zone_name", "ORR Corridor");
+        corridor.put("restriction_type", "NO_ENTRY");
+        when(jdbcTemplate.queryForList(argThat((String s) -> s != null && s.contains("CORRIDOR")),
+                org.mockito.ArgumentMatchers.<Object>any()))
+                .thenReturn(List.of(corridor));
+
+        when(jdbcTemplate.queryForObject(anyString(), eq(Integer.class), eq(100L), eq(200L))).thenReturn(0);
+        Object[] row = new Object[]{1, 10L, 5.0,
+                "LINESTRING(77.6 12.9,77.62 12.92)", 200L, 100L};
+        when(jdbcTemplate.query(contains("pgr_dijkstra"), any(RowMapper.class), anyString(), eq(100L), eq(200L)))
+                .thenReturn(Arrays.asList(row));
+        when(routingService.assembleRouteFromEdgeRows(anyList())).thenReturn(mockRoute);
+        when(timePredictionService.predictCumulativeArrivalsSec(any(), anyList(), any()))
+                .thenReturn(Collections.emptyList());
+        when(timePredictionService.predictTotalDurationSec(any(), anyList(), any())).thenReturn(300L);
+
+        DispatchRoute savedRoute = new DispatchRoute();
+        savedRoute.setId(900L);
+        when(dispatchRouteRepository.save(any(DispatchRoute.class))).thenReturn(savedRoute);
+
+        RouteValidationResponse response = complianceService.validateRoute(5L, 12.9, 77.6, 12.91, 77.61);
+
+        assertFalse(response.getCompliant());
+        assertEquals(7L, response.getViolations().get(0).getZoneId());
     }
 }

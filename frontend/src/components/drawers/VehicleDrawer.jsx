@@ -36,7 +36,7 @@ export default function VehicleDrawer({ entityId }) {
       setRoutes(updatedHistory);
       setShowClearConfirm(false);
     } catch (err) {
-      addToast('danger', err.message || 'Failed to clear active route.');
+      addToast('error', err.message || 'Failed to clear active route.');
     } finally {
       setClearing(false);
     }
@@ -97,7 +97,6 @@ export default function VehicleDrawer({ entityId }) {
       <div className="drawer-section">
         <p className="drawer-section-title">Vehicle Details</p>
         <div className="drawer-row"><span className="drawer-row-label">Owner</span><span className="drawer-row-value">{vehicle.ownerName}</span></div>
-        <div className="drawer-row"><span className="drawer-row-label">Depot</span><span className="drawer-row-value">{vehicle.depotName}</span></div>
         <div className="drawer-row"><span className="drawer-row-label">Class</span><span className="drawer-row-value">{VEHICLE_CLASS_LABELS[vehicle.vehicleClass]}</span></div>
       </div>
 

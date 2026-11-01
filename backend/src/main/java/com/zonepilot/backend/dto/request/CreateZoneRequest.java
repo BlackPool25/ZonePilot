@@ -20,6 +20,10 @@ public class CreateZoneRequest {
 
     private Boolean isActive = true;
 
+    private String geometryType;
+    private Double corridorWidthM;
+    private Long corridorRouteId;
+
     @Valid
     private List<CreateZoneRuleRequest> rules;
 
@@ -33,6 +37,12 @@ public class CreateZoneRequest {
     public void setRestrictionType(String restrictionType) { this.restrictionType = restrictionType; }
     public Boolean getIsActive() { return isActive; }
     public void setIsActive(Boolean isActive) { this.isActive = isActive; }
+    public String getGeometryType() { return geometryType; }
+    public void setGeometryType(String geometryType) { this.geometryType = geometryType; }
+    public Double getCorridorWidthM() { return corridorWidthM; }
+    public void setCorridorWidthM(Double corridorWidthM) { this.corridorWidthM = corridorWidthM; }
+    public Long getCorridorRouteId() { return corridorRouteId; }
+    public void setCorridorRouteId(Long corridorRouteId) { this.corridorRouteId = corridorRouteId; }
     public List<CreateZoneRuleRequest> getRules() { return rules; }
     public void setRules(List<CreateZoneRuleRequest> rules) { this.rules = rules; }
 
@@ -42,6 +52,8 @@ public class CreateZoneRequest {
         private String restrictionEndTime;
         private Short daysOfWeekBitmask = 127;
         private Boolean isActive = true;
+        private Integer dwellThresholdMin;
+        private String direction;
 
         public String getApplicableVehicleClass() { return applicableVehicleClass; }
         public void setApplicableVehicleClass(String applicableVehicleClass) { this.applicableVehicleClass = applicableVehicleClass; }
@@ -53,5 +65,9 @@ public class CreateZoneRequest {
         public void setDaysOfWeekBitmask(Short daysOfWeekBitmask) { this.daysOfWeekBitmask = daysOfWeekBitmask; }
         public Boolean getIsActive() { return isActive; }
         public void setIsActive(Boolean isActive) { this.isActive = isActive; }
+        public Integer getDwellThresholdMin() { return dwellThresholdMin; }
+        public void setDwellThresholdMin(Integer dwellThresholdMin) { this.dwellThresholdMin = dwellThresholdMin; }
+        public String getDirection() { return direction; }
+        public void setDirection(String direction) { this.direction = direction; }
     }
 }

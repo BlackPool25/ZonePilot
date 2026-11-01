@@ -1,10 +1,12 @@
 package com.zonepilot.backend.controller;
 
+import com.zonepilot.backend.dto.request.AssignDriverRequest;
 import com.zonepilot.backend.dto.request.ValidateRouteRequest;
 import com.zonepilot.backend.dto.response.ApiResponse;
 import com.zonepilot.backend.dto.response.RouteValidationResponse;
 import com.zonepilot.backend.entity.DispatchRoute;
 import com.zonepilot.backend.repository.DispatchRouteRepository;
+import com.zonepilot.backend.service.DriverService;
 import com.zonepilot.backend.service.RouteComplianceService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -21,11 +23,14 @@ public class RouteController {
 
     private final RouteComplianceService routeComplianceService;
     private final DispatchRouteRepository dispatchRouteRepository;
+    private final DriverService driverService;
 
     public RouteController(RouteComplianceService routeComplianceService,
-                           DispatchRouteRepository dispatchRouteRepository) {
+                           DispatchRouteRepository dispatchRouteRepository,
+                           DriverService driverService) {
         this.routeComplianceService = routeComplianceService;
         this.dispatchRouteRepository = dispatchRouteRepository;
+        this.driverService = driverService;
     }
 
     @PostMapping("/validate")
@@ -39,6 +44,14 @@ public class RouteController {
                         request.getOriginLng(),
                         request.getDestLat(),
                         request.getDestLng())));
+    }
+
+    @PostMapping("/{id}/assign")
+    @Operation(summary = "Assign a driver to a route (eligibility gate: licence, on-trip, doc wall)")
+    public ResponseEntity<ApiResponse<DispatchRoute>> assignDriver(
+            @PathVariable Long id, @Valid @RequestBody AssignDriverRequest request) {
+        return ResponseEntity.ok(ApiResponse.success(
+                driverService.assign(id, request.getDriverId())));
     }
 
     @GetMapping("/{id}")

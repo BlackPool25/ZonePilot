@@ -23,15 +23,17 @@ public class BreachController {
     }
 
     @GetMapping
-    @Operation(summary = "List all breaches", description = "Returns breach logs with optional filters")
+    @Operation(summary = "List breaches", description = "Returns breach logs with optional filters; tourId/groupId scope to one tour or group (managers see own groups only)")
     public ResponseEntity<ApiResponse<List<BreachResponse>>> getBreaches(
             @RequestParam(required = false) Long vehicleId,
             @RequestParam(required = false) Long zoneId,
             @RequestParam(required = false) Instant from,
             @RequestParam(required = false) Instant to,
-            @RequestParam(required = false) Boolean unacknowledged) {
+            @RequestParam(required = false) Boolean unacknowledged,
+            @RequestParam(required = false) Long tourId,
+            @RequestParam(required = false) Long groupId) {
         return ResponseEntity.ok(ApiResponse.success(
-                breachQueryService.getBreaches(vehicleId, zoneId, from, to, unacknowledged)));
+                breachQueryService.getBreaches(vehicleId, zoneId, from, to, unacknowledged, tourId, groupId)));
     }
 
     @GetMapping("/{id}")

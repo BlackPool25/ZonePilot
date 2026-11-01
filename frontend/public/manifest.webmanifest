@@ -1,0 +1,13 @@
+{
+  "name": "ZonePilot Driver",
+  "short_name": "ZonePilot",
+  "description": "Driver tour, duty and SOS PWA with offline queue",
+  "start_url": "/driver",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#0f172a",
+  "icons": [
+    { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ]
+}

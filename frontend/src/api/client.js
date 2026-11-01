@@ -1,13 +1,29 @@
 const BASE = (import.meta.env.VITE_API_BASE_URL || 'https://zonepilot-backend.onrender.com') + '/api';
 
+const TOKEN_KEY = 'zp-access-token';
+export const tokenStore = {
+  get: () => localStorage.getItem(TOKEN_KEY),
+  set: (t) => (t ? localStorage.setItem(TOKEN_KEY, t) : localStorage.removeItem(TOKEN_KEY)),
+};
+
 async function request(path, options = {}) {
+  const token = tokenStore.get();
   const res = await fetch(`${BASE}${path}`, {
-    headers: { 'Content-Type': 'application/json', ...options.headers },
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...options.headers,
+    },
     ...options,
   });
-  const json = await res.json();
-  if (!json.success) {
-    const err = new Error(json.error?.message || 'Request failed');
+  let json = null;
+  try {
+    json = await res.json();
+  } catch {
+    throw Object.assign(new Error(`HTTP ${res.status}`), { status: res.status });
+  }
+  if (!res.ok || !json.success) {
+    const err = new Error(json.error?.message || `HTTP ${res.status}`);
     err.code = json.error?.code;
     err.fields = json.error?.fields;
     err.status = res.status;
@@ -40,13 +56,20 @@ export const vehiclesApi = {
   },
   recordPosition: (id, body) => post(`/vehicles/${id}/positions`, body),
   clearRoute: (id) => post(`/vehicles/${id}/clear-route`),
+  setAvailability: (id, availability) => post(`/vehicles/${id}/availability`, { availability }),
 };
 
-// ─── Depots ───────────────────────────────────────────────────────────
-export const depotsApi = {
-  list: () => get('/depots'),
-  get: (id) => get(`/depots/${id}`),
-  create: (body) => post('/depots', body),
+// ─── Groups ──────────────────────────────────────────────────────────
+export const groupsApi = {
+  list: () => get('/groups'),
+  create: (name) => post('/groups', { name }),
+  detail: (id) => get(`/groups/${id}`),
+  addVehicle: (id, vehicleId) => post(`/groups/${id}/vehicles/${vehicleId}`),
+  addDriver: (id, driverId) => post(`/groups/${id}/drivers/${driverId}`),
+  removeVehicle: (id, vehicleId) => del(`/groups/${id}/vehicles/${vehicleId}`),
+  removeDriver: (id, driverId) => del(`/groups/${id}/drivers/${driverId}`),
+  dispatch: (id, body) => post(`/groups/${id}/dispatch`, body),
+  dispatchSolo: (body) => post('/groups/dispatch-solo', body),
 };
 
 // ─── Zones ────────────────────────────────────────────────────────────
@@ -84,11 +107,39 @@ export const reportsApi = {
   activeRestrictions: () => get('/reports/active-restrictions'),
 };
 
-// ─── Simulation ───────────────────────────────────────────────────────
-export const simulationApi = {
-  start: (scenarios) => post('/simulation/start', { scenarios }),
-  startFromRoute: (body) => post('/simulation/start-from-route', body),
-  tick: () => post('/simulation/tick'),
-  state: () => get('/simulation/state'),
-  reset: () => post('/simulation/reset'),
+// ─── Tours (manager timeline + approve) ─────────────────────────────────
+export const toursApi = {
+  get: (id) => get(`/tours/${id}`),
+  track: (id) => get(`/tours/${id}/track`),
+  approve: (id) => post(`/tours/${id}/approve`),
+};
+
+// ─── Auth ─────────────────────────────────────────────────────────────
+export const authApi = {
+  login: (email, password) => post('/auth/login', { email, password }),
+};
+
+// ─── Replay ───────────────────────────────────────────────────────────
+export const replayApi = {
+  start: (tourId, speed) => post('/replay/start', { tourId, speed }),
+};
+
+// ─── SOS inbox (dispatcher) ─────────────────────────────────────────────
+export const sosApi = {
+  list: () => get('/sos'),
+};
+
+// ─── Driver app (Slice 2) ─────────────────────────────────────────────
+export const driverApi = {
+  myRoutes: () => get('/driver/routes'),
+  accept: (routeId) => post(`/driver/routes/${routeId}/accept`, {}),
+  start: (routeId) => post(`/driver/routes/${routeId}/start`, {}),
+  slip: (routeId, kind, amount) => post(`/driver/routes/${routeId}/slips`, { kind, amount }),
+  sos: (lat, lng, routeId, accuracyM, stale) =>
+    post('/driver/sos', { lat, lng, routeId, accuracyM, stale }),
+  myTours: () => get('/driver/tours'),
+  tourDuty: (tourId, status) => post(`/driver/tours/${tourId}/duty`, { status }),
+  dutyLog: (tourId) => get(`/driver/tours/${tourId}/duty-log`),
+  deliverStop: (tourId, stopId, lat, lng) => post(`/driver/tours/${tourId}/stops/${stopId}/deliver`, { lat, lng }),
+  skipStop: (tourId, stopId, reason) => post(`/driver/tours/${tourId}/stops/${stopId}/skip`, { reason }),
 };

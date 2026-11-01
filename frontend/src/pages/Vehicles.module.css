@@ -63,5 +63,4 @@
 .regCell { display: flex; align-items: center; gap: 8px; }
 .classEmoji { font-size: 16px; }
 .regNumber { font-family: var(--font-mono); font-size: 12px; font-weight: 600; color: var(--text-primary); }
-.ownerCell { color: var(--text-secondary); }
-.depotCell { color: var(--text-secondary); font-size: 12px; }
+.ownerCell { color: var(--text-secondary); font-weight: 500; }

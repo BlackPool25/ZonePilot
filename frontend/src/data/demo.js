@@ -1,21 +1,15 @@
 // Demo data matching the exact API response shapes from FRONTEND_API_REPORT.md
 // Used as fallback when backend is unavailable
 
-export const DEMO_DEPOTS = [
-  { id: 1, name: 'Koramangala Depot', address: 'Koramangala, Bengaluru', latitude: 12.9352, longitude: 77.6245 },
-  { id: 2, name: 'Yeshwantpur Depot', address: 'Yeshwantpur, Bengaluru', latitude: 13.0218, longitude: 77.5560 },
-  { id: 3, name: 'Electronic City Depot', address: 'Electronic City, Bengaluru', latitude: 12.8456, longitude: 77.6603 },
-];
-
 export const DEMO_VEHICLES = [
-  { id: 1, registrationNumber: 'KA01-TWO-0001', vehicleClass: 'TWO_WHEELER', ownerName: 'Fleet Owner 1', depotId: 1, depotName: 'Koramangala Depot', isActive: true },
-  { id: 2, registrationNumber: 'KA01-TWO-0002', vehicleClass: 'TWO_WHEELER', ownerName: 'Fleet Owner 2', depotId: 1, depotName: 'Koramangala Depot', isActive: true },
-  { id: 3, registrationNumber: 'KA01-LCV-0003', vehicleClass: 'LCV', ownerName: 'Fleet Owner 3', depotId: 2, depotName: 'Yeshwantpur Depot', isActive: true },
-  { id: 4, registrationNumber: 'KA01-LCV-0004', vehicleClass: 'LCV', ownerName: 'Fleet Owner 4', depotId: 1, depotName: 'Koramangala Depot', isActive: true },
-  { id: 5, registrationNumber: 'KA01-LCV-0005', vehicleClass: 'LCV', ownerName: 'Fleet Owner 5', depotId: 3, depotName: 'Electronic City Depot', isActive: true },
-  { id: 6, registrationNumber: 'KA01-HCV-0006', vehicleClass: 'HCV', ownerName: 'Fleet Owner 6', depotId: 2, depotName: 'Yeshwantpur Depot', isActive: false },
-  { id: 7, registrationNumber: 'KA01-HCV-0007', vehicleClass: 'HCV', ownerName: 'Fleet Owner 7', depotId: 2, depotName: 'Yeshwantpur Depot', isActive: true },
-  { id: 8, registrationNumber: 'KA01-HCV-0008', vehicleClass: 'HCV', ownerName: 'Fleet Owner 8', depotId: 3, depotName: 'Electronic City Depot', isActive: true },
+  { id: 1, registrationNumber: 'KA01-TWO-0001', vehicleClass: 'TWO_WHEELER', ownerName: 'Fleet Owner 1', isActive: true },
+  { id: 2, registrationNumber: 'KA01-TWO-0002', vehicleClass: 'TWO_WHEELER', ownerName: 'Fleet Owner 2', isActive: true },
+  { id: 3, registrationNumber: 'KA01-LCV-0003', vehicleClass: 'LCV', ownerName: 'Fleet Owner 3', isActive: true },
+  { id: 4, registrationNumber: 'KA01-LCV-0004', vehicleClass: 'LCV', ownerName: 'Fleet Owner 4', isActive: true },
+  { id: 5, registrationNumber: 'KA01-LCV-0005', vehicleClass: 'LCV', ownerName: 'Fleet Owner 5', isActive: true },
+  { id: 6, registrationNumber: 'KA01-HCV-0006', vehicleClass: 'HCV', ownerName: 'Fleet Owner 6', isActive: false },
+  { id: 7, registrationNumber: 'KA01-HCV-0007', vehicleClass: 'HCV', ownerName: 'Fleet Owner 7', isActive: true },
+  { id: 8, registrationNumber: 'KA01-HCV-0008', vehicleClass: 'HCV', ownerName: 'Fleet Owner 8', isActive: true },
 ];
 
 export const DEMO_ZONES = [

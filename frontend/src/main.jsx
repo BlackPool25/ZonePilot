@@ -13,3 +13,10 @@ ReactDOM.createRoot(document.getElementById('root')).render(
     </AppProvider>
   </React.StrictMode>
 );
+
+// PWA: offline shell for the driver app (API stays network-only + queue).
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(() => {});
+  });
+}

@@ -2,25 +2,35 @@ package com.zonepilot.backend.service;
 
 import com.zonepilot.backend.repository.DispatchRouteRepository;
 import com.zonepilot.backend.entity.Vehicle;
+import com.zonepilot.backend.entity.DispatchRoute;
+import com.zonepilot.backend.entity.Driver;
+import com.zonepilot.backend.entity.FleetGroup;
+import com.zonepilot.backend.entity.Tour;
 import com.zonepilot.backend.enums.PositionSource;
 import com.zonepilot.backend.enums.VehicleClass;
 import com.zonepilot.backend.exception.ResourceNotFoundException;
 import com.zonepilot.backend.exception.ValidationException;
 import com.zonepilot.backend.repository.VehiclePositionLogRepository;
+import com.zonepilot.backend.repository.TourRepository;
 import com.zonepilot.backend.repository.VehicleRepository;
-import com.zonepilot.backend.repository.ZoneBreachLogRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.junit.jupiter.api.AfterEach;
+import com.zonepilot.backend.auth.DepotPrincipal;
+import com.zonepilot.backend.auth.Role;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
 
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 
@@ -32,18 +42,47 @@ class PositionTrackingServiceTest {
 
     @Mock private VehicleRepository vehicleRepository;
     @Mock private VehiclePositionLogRepository positionLogRepository;
-    @Mock private ZoneBreachLogRepository breachLogRepository;
     @Mock private DispatchRouteRepository dispatchRouteRepository;
-    @Mock private BreachService breachService;
+    @Mock private TourRepository tourRepository;
     @Mock private JdbcTemplate jdbcTemplate;
+    @Mock private ApplicationEventPublisher events;
+    @Mock private TickBroadcaster broadcaster;
+    @Mock private com.zonepilot.backend.repository.DriverRepository driverRepository;
+    @Mock private com.zonepilot.backend.auth.AppUserRepository appUserRepository;
+    @Mock private com.zonepilot.backend.auth.GroupScope groupScope;
 
     private PositionTrackingService service;
 
     @BeforeEach
     void setUp() {
         service = new PositionTrackingService(
-                vehicleRepository, positionLogRepository, breachLogRepository,
-                dispatchRouteRepository, breachService, jdbcTemplate);
+                vehicleRepository, positionLogRepository,
+                dispatchRouteRepository, tourRepository, jdbcTemplate, events, broadcaster,
+                driverRepository, appUserRepository, groupScope,
+                mock(com.zonepilot.backend.repository.FleetGroupRepository.class),
+                mock(com.zonepilot.backend.repository.GroupVehicleRepository.class));
+        // Strict-keys default: active route 500 resolves to tour 3 (driver 9, group 7).
+        DispatchRoute route = mock(DispatchRoute.class);
+        Tour tour = mock(Tour.class);
+        Driver driver = mock(Driver.class);
+        FleetGroup group = mock(FleetGroup.class);
+        lenient().when(driver.getId()).thenReturn(9L);
+        lenient().when(group.getId()).thenReturn(7L);
+        lenient().when(tour.getId()).thenReturn(3L);
+        lenient().when(tour.getDriver()).thenReturn(driver);
+        lenient().when(tour.getGroup()).thenReturn(group);
+        lenient().when(route.getTour()).thenReturn(tour);
+        lenient().when(dispatchRouteRepository.findById(any())).thenReturn(Optional.of(route));
+        // Null-auth callers need worker identity since the audit pass; these
+        // logic tests run as OWNER instead.
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(
+                        new DepotPrincipal("owner@zp.test", null, Role.OWNER), null, java.util.List.of()));
+    }
+
+    @AfterEach
+    void clearAuth() {
+        SecurityContextHolder.clearContext();
     }
 
     @Test
@@ -60,7 +99,7 @@ class PositionTrackingServiceTest {
 
         assertThrows(ValidationException.class,
                 () -> service.recordPosition(1L, 12.9, 77.6, null, null, null, PositionSource.LIVE));
-        verify(positionLogRepository, never()).save(any());
+        verify(positionLogRepository, never()).saveAndFlush(any());
     }
 
     @ParameterizedTest
@@ -110,27 +149,20 @@ class PositionTrackingServiceTest {
     }
 
     @Test
-    void recordPosition_whenVehicleHasNoActiveRoute_doesNotPerformMapMatching() {
+    void recordPosition_whenVehicleHasNoActiveTour_rejectsBeforePersist() {
         Vehicle active = buildVehicle(1L, true);
         active.setActiveDispatchRouteId(null);
         when(vehicleRepository.findById(1L)).thenReturn(Optional.of(active));
 
-        com.zonepilot.backend.entity.VehiclePositionLog savedLog = new com.zonepilot.backend.entity.VehiclePositionLog();
-        savedLog.setId(100L);
-        when(positionLogRepository.save(any())).thenReturn(savedLog);
-        when(breachLogRepository.findByPositionLogId(100L)).thenReturn(Collections.emptyList());
+        assertThrows(ValidationException.class,
+                () -> service.recordPosition(1L, 12.9, 77.6, Instant.now(), null, null, PositionSource.LIVE));
 
-        com.zonepilot.backend.dto.response.PositionRecordResponse response =
-                service.recordPosition(1L, 12.9, 77.6, Instant.now(), null, null, PositionSource.LIVE);
-
-        assertNotNull(response);
-        assertEquals(12.9, response.getPosition().getLatitude());
-        assertEquals(77.6, response.getPosition().getLongitude());
+        verify(positionLogRepository, never()).saveAndFlush(any());
         verify(jdbcTemplate, never()).query(anyString(), any(org.springframework.jdbc.core.RowMapper.class), (Object[]) any());
     }
 
     @Test
-    void recordPosition_whenVehicleOnRoute_logsRawCoordinateAndResetsCounter() {
+    void recordPosition_whenVehicleOnRoute_logsRawCoordinateAndPublishesFixEvent() {
         Vehicle active = buildVehicle(1L, true);
         active.setActiveDispatchRouteId(500L);
         when(vehicleRepository.findById(1L)).thenReturn(Optional.of(active));
@@ -144,8 +176,7 @@ class PositionTrackingServiceTest {
 
         com.zonepilot.backend.entity.VehiclePositionLog savedLog = new com.zonepilot.backend.entity.VehiclePositionLog();
         savedLog.setId(100L);
-        when(positionLogRepository.save(any())).thenReturn(savedLog);
-        when(breachLogRepository.findByPositionLogId(100L)).thenReturn(Collections.emptyList());
+        when(positionLogRepository.saveAndFlush(any())).thenReturn(savedLog);
 
         com.zonepilot.backend.dto.response.PositionRecordResponse response =
                 service.recordPosition(1L, 12.9, 77.6, Instant.now(), null, null, PositionSource.LIVE);
@@ -154,6 +185,15 @@ class PositionTrackingServiceTest {
         // Should keep raw coordinate since heading was null and distance is within 30m
         assertEquals(12.9, response.getPosition().getLatitude());
         assertEquals(77.6, response.getPosition().getLongitude());
+        assertFalse(response.getBreachDetected());
+
+        // Task 5: ingest only publishes; the worker judges breach/off-route async.
+        ArgumentCaptor<BreachWorker.PositionFix> captor =
+                ArgumentCaptor.forClass(BreachWorker.PositionFix.class);
+        verify(events, times(1)).publishEvent(captor.capture());
+        assertEquals(1L, captor.getValue().vehicleId());
+        assertEquals(12.9, captor.getValue().lat());
+        assertEquals(77.6, captor.getValue().lng());
     }
 
     @Test
@@ -171,8 +211,7 @@ class PositionTrackingServiceTest {
 
         com.zonepilot.backend.entity.VehiclePositionLog savedLog = new com.zonepilot.backend.entity.VehiclePositionLog();
         savedLog.setId(100L);
-        when(positionLogRepository.save(any())).thenReturn(savedLog);
-        when(breachLogRepository.findByPositionLogId(100L)).thenReturn(Collections.emptyList());
+        when(positionLogRepository.saveAndFlush(any())).thenReturn(savedLog);
 
         // Send reversed heading of 180 degrees (South)
         com.zonepilot.backend.dto.response.PositionRecordResponse response =
@@ -182,15 +221,17 @@ class PositionTrackingServiceTest {
         // Reversed heading within 30m -> snaps to route's closest point
         assertEquals(12.905, response.getPosition().getLatitude());
         assertEquals(77.605, response.getPosition().getLongitude());
+        verify(events, times(1)).publishEvent(any(BreachWorker.PositionFix.class));
     }
 
     @Test
-    void recordPosition_whenOffRouteFirstPing_logsRawCoordinatesAndToleratesGlitch() {
+    void recordPosition_whenOffRoute_publishesFixAndLeavesJudgementToWorker() {
         Vehicle active = buildVehicle(1L, true);
         active.setActiveDispatchRouteId(500L);
         when(vehicleRepository.findById(1L)).thenReturn(Optional.of(active));
 
-        // dist_m = 60.0 (off-route)
+        // dist_m = 60.0 (off-route) — ingest passes the raw fix through twice;
+        // the worker counts the streak and reroutes (see BreachWorkerTest).
         List<Object[]> queryResult = new ArrayList<>();
         queryResult.add(new Object[]{60.0, 12.905, 77.605, 0.0});
         when(jdbcTemplate.query(anyString(), any(org.springframework.jdbc.core.RowMapper.class),
@@ -199,44 +240,73 @@ class PositionTrackingServiceTest {
 
         com.zonepilot.backend.entity.VehiclePositionLog savedLog = new com.zonepilot.backend.entity.VehiclePositionLog();
         savedLog.setId(100L);
-        when(positionLogRepository.save(any())).thenReturn(savedLog);
-        when(breachLogRepository.findByPositionLogId(100L)).thenReturn(Collections.emptyList());
+        when(positionLogRepository.saveAndFlush(any())).thenReturn(savedLog);
 
-        com.zonepilot.backend.dto.response.PositionRecordResponse response =
+        // Ping 1
+        com.zonepilot.backend.dto.response.PositionRecordResponse first =
                 service.recordPosition(1L, 12.9, 77.6, Instant.now(), null, null, PositionSource.LIVE);
+        assertNotNull(first);
+        assertEquals(12.9, first.getPosition().getLatitude());
+        assertEquals(77.6, first.getPosition().getLongitude());
 
-        assertNotNull(response);
-        assertEquals(12.9, response.getPosition().getLatitude());
-        assertEquals(77.6, response.getPosition().getLongitude());
-        // Verify off-route rerouting was NOT triggered on 1st off-route ping
-        verify(breachService, never()).computeOffRouteReroute(anyLong(), anyDouble(), anyDouble());
+        // Ping 2
+        service.recordPosition(1L, 12.9, 77.6, Instant.now(), null, null, PositionSource.LIVE);
+
+        // Both fixes published; no inline reroute decision in the ingest txn.
+        verify(events, times(2)).publishEvent(any(BreachWorker.PositionFix.class));
     }
 
     @Test
-    void recordPosition_whenOffRouteSecondConsecutivePing_triggersRerouteAndResetsCounter() {
+    void recordReplayFix_marksReplayAndEmitsNoBreachEvent() {
+        Vehicle active = buildVehicle(1L, true);
+        when(vehicleRepository.findById(1L)).thenReturn(Optional.of(active));
+        com.zonepilot.backend.entity.Tour tour = new com.zonepilot.backend.entity.Tour();
+        tour.setId(9L);
+        com.zonepilot.backend.entity.Driver driver = new com.zonepilot.backend.entity.Driver();
+        driver.setId(21L);
+        tour.setDriver(driver);
+        com.zonepilot.backend.entity.FleetGroup group = new com.zonepilot.backend.entity.FleetGroup();
+        group.setId(31L);
+        tour.setGroup(group);
+        when(tourRepository.findById(9L)).thenReturn(Optional.of(tour));
+        when(positionLogRepository.existsByVehicleIdAndTourIdAndRecordedAt(
+                eq(1L), eq(9L), any())).thenReturn(false);
+        com.zonepilot.backend.entity.VehiclePositionLog saved =
+                new com.zonepilot.backend.entity.VehiclePositionLog();
+        saved.setId(100L);
+        when(positionLogRepository.saveAndFlush(any())).thenReturn(saved);
+
+        service.recordReplayFix(1L, 21L, 9L, 31L, 12.9, 77.6,
+                Instant.now(), null, null, PositionSource.REPLAY);
+
+        ArgumentCaptor<com.zonepilot.backend.entity.VehiclePositionLog> captor =
+                ArgumentCaptor.forClass(com.zonepilot.backend.entity.VehiclePositionLog.class);
+        verify(positionLogRepository).saveAndFlush(captor.capture());
+        assertTrue(captor.getValue().isReplay());
+        // Breach-silent: no worker event, no live tick.
+        verify(events, never()).publishEvent(any());
+        verify(broadcaster, never()).tick(anyLong(), anyLong(), anyDouble(), anyDouble(), any(), any(), anyBoolean());
+    }
+
+    @Test
+    void recordPosition_marksLiveNotReplay() {
         Vehicle active = buildVehicle(1L, true);
         active.setActiveDispatchRouteId(500L);
         when(vehicleRepository.findById(1L)).thenReturn(Optional.of(active));
+        when(positionLogRepository.existsByVehicleIdAndTourIdAndRecordedAt(
+                eq(1L), eq(3L), any())).thenReturn(false);
+        com.zonepilot.backend.entity.VehiclePositionLog saved =
+                new com.zonepilot.backend.entity.VehiclePositionLog();
+        saved.setId(100L);
+        when(positionLogRepository.saveAndFlush(any())).thenReturn(saved);
 
-        // dist_m = 60.0 (off-route)
-        List<Object[]> queryResult = new ArrayList<>();
-        queryResult.add(new Object[]{60.0, 12.905, 77.605, 0.0});
-        when(jdbcTemplate.query(anyString(), any(org.springframework.jdbc.core.RowMapper.class),
-                anyDouble(), anyDouble(), anyDouble(), anyDouble(), anyDouble(), anyDouble(), anyLong()))
-                .thenReturn(queryResult);
-
-        com.zonepilot.backend.entity.VehiclePositionLog savedLog = new com.zonepilot.backend.entity.VehiclePositionLog();
-        savedLog.setId(100L);
-        when(positionLogRepository.save(any())).thenReturn(savedLog);
-        when(breachLogRepository.findByPositionLogId(100L)).thenReturn(Collections.emptyList());
-
-        // Ping 1 (increment off-route count to 1)
+        // Null keys resolve via the active route stubbed in setUp (tour 3).
         service.recordPosition(1L, 12.9, 77.6, Instant.now(), null, null, PositionSource.LIVE);
-        verify(breachService, never()).computeOffRouteReroute(anyLong(), anyDouble(), anyDouble());
 
-        // Ping 2 (increment off-route count to 2 -> trigger reroute and reset)
-        service.recordPosition(1L, 12.9, 77.6, Instant.now(), null, null, PositionSource.LIVE);
-        verify(breachService).computeOffRouteReroute(1L, 12.9, 77.6);
+        ArgumentCaptor<com.zonepilot.backend.entity.VehiclePositionLog> captor =
+                ArgumentCaptor.forClass(com.zonepilot.backend.entity.VehiclePositionLog.class);
+        verify(positionLogRepository).saveAndFlush(captor.capture());
+        assertFalse(captor.getValue().isReplay());
     }
 
     private Vehicle buildVehicle(Long id, boolean active) {

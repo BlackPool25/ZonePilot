@@ -33,8 +33,9 @@ public class TimePredictionService {
 
     private static final String ROUTES_API_URL = "https://routes.googleapis.com/directions/v2:computeRoutes";
     private static final int MAX_INTERMEDIATES = 25;
-    // Field mask: only request what we need — duration per leg
-    private static final String FIELD_MASK = "routes.legs.duration,routes.duration";
+    // Duration + static duration + distance + polyline + advisory for traffic enrichment
+    private static final String FIELD_MASK = "routes.duration,routes.staticDuration,routes.distanceMeters,"
+            + "routes.polyline.encodedPolyline,routes.travelAdvisory,routes.legs.duration";
 
     private final String apiKey;
     private final RestClient restClient;
@@ -144,6 +145,67 @@ public class TimePredictionService {
             log.warn("Google Routes API leg prediction failed: {}", e.getMessage());
             return List.of();
         }
+    }
+
+    /**
+     * Fetches full traffic enrichment: duration, static duration, distance,
+     * delay and Google polyline. Best-effort: nulls/-1 on missing key or failure.
+     */
+    @SuppressWarnings("unchecked")
+    public TrafficEnrichment fetchTrafficEnrichment(LineString routeGeometry,
+                                                    List<double[]> zoneEntryPoints,
+                                                    Instant departureTime) {
+        if (apiKey == null || apiKey.isBlank()) return TrafficEnrichment.empty();
+        try {
+            Coordinate[] coords = routeGeometry.getCoordinates();
+            if (coords.length < 2) return TrafficEnrichment.empty();
+            Map<String, Object> requestBody = new HashMap<>();
+            requestBody.put("origin", waypointFromCoord(coords[0]));
+            requestBody.put("destination", waypointFromCoord(coords[coords.length - 1]));
+            requestBody.put("intermediates", buildIntermediates(coords, zoneEntryPoints));
+            requestBody.put("travelMode", "DRIVE");
+            requestBody.put("routingPreference", "TRAFFIC_AWARE");
+            requestBody.put("departureTime", departureTime.toString());
+
+            Map<String, Object> response = restClient.post()
+                    .uri(ROUTES_API_URL)
+                    .header("X-Goog-Api-Key", apiKey)
+                    .header("X-Goog-FieldMask", FIELD_MASK)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(requestBody)
+                    .retrieve()
+                    .body(Map.class);
+            return parseEnrichment(response);
+        } catch (Exception e) {
+            log.warn("Google Routes enrichment failed: {}", e.getMessage());
+            return TrafficEnrichment.empty();
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    static TrafficEnrichment parseEnrichment(Map<String, Object> response) {
+        if (response == null) return TrafficEnrichment.empty();
+        List<Map<String, Object>> routes = (List<Map<String, Object>>) response.get("routes");
+        if (routes == null || routes.isEmpty()) return TrafficEnrichment.empty();
+        Map<String, Object> r = routes.get(0);
+        long duration = parseDurationString((String) r.get("duration"));
+        long staticDuration = r.containsKey("staticDuration")
+                ? parseDurationString((String) r.get("staticDuration")) : -1;
+        long distance = 0;
+        Object d = r.get("distanceMeters");
+        if (d instanceof Number n) distance = n.longValue();
+        else if (d instanceof String s) { try { distance = Long.parseLong(s); } catch (NumberFormatException ignored) {} }
+        String polyline = null;
+        Object p = r.get("polyline");
+        if (p instanceof Map<?, ?> pm) polyline = (String) pm.get("encodedPolyline");
+        long delay = (duration >= 0 && staticDuration >= 0) ? Math.max(0, duration - staticDuration) : -1;
+        return new TrafficEnrichment(duration, staticDuration, distance, delay, polyline);
+    }
+
+    public record TrafficEnrichment(long durationSec, long staticDurationSec,
+                                    long distanceMeters, long delaySec,
+                                    String googlePolyline) {
+        static TrafficEnrichment empty() { return new TrafficEnrichment(-1, -1, -1, -1, null); }
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────

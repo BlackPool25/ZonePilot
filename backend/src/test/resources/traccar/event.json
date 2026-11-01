@@ -1,0 +1,8 @@
+{
+  "vehicleId": 7,
+  "ts": 1782487260000,
+  "type": "overspeed",
+  "lat": 12.9361,
+  "lon": 77.6255,
+  "speedKmh": 95.0
+}

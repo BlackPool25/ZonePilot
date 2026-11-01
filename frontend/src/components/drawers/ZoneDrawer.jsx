@@ -27,7 +27,7 @@ export default function ZoneDrawer({ entityId }) {
       window.dispatchEvent(new CustomEvent('zone-deleted', { detail: { id: zone.id } }));
       closeDrawer();
     } catch (err) {
-      addToast('danger', err.message || 'Failed to delete zone.');
+      addToast('error', err.message || 'Failed to delete zone.');
     } finally {
       setDeleting(false);
     }

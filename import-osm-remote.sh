@@ -77,6 +77,43 @@ docker run --rm \
   postgres:16-alpine \
   sh -c "PGPASSWORD='$DB_PASSWORD' psql -h '$DB_HOST' -p '$DB_PORT' -U '$DB_USER' -d '$DB_NAME' -c 'SELECT COUNT(*) AS road_segments FROM blr_2po_4pgr;'"
 
+# Backfill cost_time_sec (time-based routing cost, mirrors Flyway V13 —
+# cf. fly/import-osm.sh). V13 is a no-op when the road table does not exist
+# yet at app startup, so the import script must populate this column after
+# loading OSM data.
+echo "-----------------------------------------------------------------"
+echo "Backfilling cost_time_sec (mirrors Flyway V13)..."
+echo "-----------------------------------------------------------------"
+docker run --rm \
+  postgres:16-alpine \
+  sh -c "PGPASSWORD='$DB_PASSWORD' psql -h '$DB_HOST' -p '$DB_PORT' -U '$DB_USER' -d '$DB_NAME' -v ON_ERROR_STOP=1 <<'SQL'
+ALTER TABLE blr_2po_4pgr ADD COLUMN IF NOT EXISTS cost_time_sec DOUBLE PRECISION;
+UPDATE blr_2po_4pgr
+SET cost_time_sec = length_m / (
+    CASE
+        WHEN kmh IS NOT NULL AND kmh > 0 THEN kmh
+        ELSE CASE clazz
+            WHEN 11 THEN 90.0
+            WHEN 12 THEN 60.0
+            WHEN 13 THEN 80.0
+            WHEN 14 THEN 50.0
+            WHEN 21 THEN 60.0
+            WHEN 22 THEN 40.0
+            WHEN 31 THEN 50.0
+            WHEN 32 THEN 30.0
+            WHEN 41 THEN 40.0
+            WHEN 51 THEN 30.0
+            WHEN 61 THEN 30.0
+            WHEN 62 THEN 10.0
+            WHEN 63 THEN 20.0
+            ELSE        30.0
+        END
+    END / 3.6
+)
+WHERE cost_time_sec IS NULL;
+CREATE INDEX IF NOT EXISTS idx_blr_2po_4pgr_cost_time_sec ON blr_2po_4pgr (cost_time_sec);
+SQL"
+
 echo "================================================================="
 echo "Ingestion verified. Your remote PostGIS/pgRouting database is ready!"
 echo "================================================================="

@@ -75,7 +75,9 @@ const NAV_ITEMS = [
   { to: '/routes',     icon: ICONS.routes,     label: 'Routes'     },
   { to: '/breaches',   icon: ICONS.breaches,   label: 'Breaches'   },
   { to: '/reports',    icon: ICONS.reports,    label: 'Reports'    },
-  { to: '/simulation', icon: ICONS.simulation, label: 'Simulation' },
+  { to: '/replay', icon: ICONS.simulation, label: 'Replay' },
+  { to: '/driver', icon: ICONS.vehicles, label: 'Driver' },
+  { to: '/groups', icon: ICONS.vehicles, label: 'Groups' },
 ];
 
 export default function AppShell() {

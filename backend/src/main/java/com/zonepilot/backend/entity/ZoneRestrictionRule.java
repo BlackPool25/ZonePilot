@@ -1,5 +1,6 @@
 package com.zonepilot.backend.entity;
 
+import com.zonepilot.backend.enums.RuleDirection;
 import com.zonepilot.backend.enums.VehicleClass;
 import jakarta.persistence.*;
 import java.time.LocalTime;
@@ -32,6 +33,14 @@ public class ZoneRestrictionRule {
     @Column(name = "is_active", nullable = false)
     private Boolean isActive = true;
 
+    /** Breach only after inside continuously >= this many minutes (NULL/0 = immediate). */
+    @Column(name = "dwell_threshold_min")
+    private Integer dwellThresholdMin;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "direction", nullable = false, length = 10)
+    private RuleDirection direction = RuleDirection.BOTH;
+
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
     public ZoneRestriction getZone() { return zone; }
@@ -46,4 +55,8 @@ public class ZoneRestrictionRule {
     public void setDaysOfWeekBitmask(Short daysOfWeekBitmask) { this.daysOfWeekBitmask = daysOfWeekBitmask; }
     public Boolean getIsActive() { return isActive; }
     public void setIsActive(Boolean isActive) { this.isActive = isActive; }
+    public Integer getDwellThresholdMin() { return dwellThresholdMin; }
+    public void setDwellThresholdMin(Integer dwellThresholdMin) { this.dwellThresholdMin = dwellThresholdMin; }
+    public RuleDirection getDirection() { return direction; }
+    public void setDirection(RuleDirection direction) { this.direction = direction; }
 }

@@ -1,5 +1,6 @@
 package com.zonepilot.backend.entity;
 
+import com.zonepilot.backend.enums.VehicleAvailability;
 import com.zonepilot.backend.enums.VehicleClass;
 import jakarta.persistence.*;
 import java.time.Instant;
@@ -22,15 +23,27 @@ public class Vehicle {
     @Column(name = "owner_name", nullable = false, length = 100)
     private String ownerName;
 
-    @ManyToOne(fetch = FetchType.EAGER)
-    @JoinColumn(name = "depot_id", nullable = false)
-    private Depot depot;
-
     @Column(name = "is_active", nullable = false)
     private Boolean isActive = true;
 
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
+    private VehicleAvailability availability = VehicleAvailability.AVAILABLE;
+
     @Column(name = "active_dispatch_route_id")
     private Long activeDispatchRouteId;
+
+    /**
+     * Per-device MQTT credential. When set, ingest frames for this vehicle
+     * must carry the matching {@code deviceKey} or they quarantine as
+     * AUTH_REJECT. Unset = legacy open pipe (provision a key to fail closed).
+     */
+    @Column(name = "device_api_key", length = 100)
+    private String deviceApiKey;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "model_id")
+    private VehicleModel model;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
@@ -48,12 +61,16 @@ public class Vehicle {
     public void setVehicleClass(VehicleClass vehicleClass) { this.vehicleClass = vehicleClass; }
     public String getOwnerName() { return ownerName; }
     public void setOwnerName(String ownerName) { this.ownerName = ownerName; }
-    public Depot getDepot() { return depot; }
-    public void setDepot(Depot depot) { this.depot = depot; }
     public Boolean getIsActive() { return isActive; }
     public void setIsActive(Boolean isActive) { this.isActive = isActive; }
     public Long getActiveDispatchRouteId() { return activeDispatchRouteId; }
     public void setActiveDispatchRouteId(Long activeDispatchRouteId) { this.activeDispatchRouteId = activeDispatchRouteId; }
+    public String getDeviceApiKey() { return deviceApiKey; }
+    public void setDeviceApiKey(String deviceApiKey) { this.deviceApiKey = deviceApiKey; }
+    public VehicleAvailability getAvailability() { return availability; }
+    public void setAvailability(VehicleAvailability availability) { this.availability = availability; }
+    public VehicleModel getModel() { return model; }
+    public void setModel(VehicleModel model) { this.model = model; }
     public Instant getCreatedAt() { return createdAt; }
     public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }
 }

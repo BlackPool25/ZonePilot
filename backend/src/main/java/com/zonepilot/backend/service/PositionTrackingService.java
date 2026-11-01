@@ -1,31 +1,56 @@
 package com.zonepilot.backend.service;
 
+import com.zonepilot.backend.auth.AppUser;
+import com.zonepilot.backend.auth.AppUserRepository;
+import com.zonepilot.backend.auth.DepotPrincipal;
+import com.zonepilot.backend.auth.DepotScope;
+import com.zonepilot.backend.auth.GroupScope;
+import com.zonepilot.backend.auth.Role;
 import com.zonepilot.backend.dto.response.PositionRecordResponse;
 import com.zonepilot.backend.entity.Vehicle;
 import com.zonepilot.backend.entity.VehiclePositionLog;
-import com.zonepilot.backend.entity.ZoneBreachLog;
+import com.zonepilot.backend.entity.Tour;
+import com.zonepilot.backend.entity.TourStatus;
+import com.zonepilot.backend.entity.Driver;
+import com.zonepilot.backend.entity.DispatchRoute;
 import com.zonepilot.backend.enums.PositionSource;
 import com.zonepilot.backend.exception.ResourceNotFoundException;
 import com.zonepilot.backend.exception.ValidationException;
 import com.zonepilot.backend.repository.DispatchRouteRepository;
+import com.zonepilot.backend.repository.DriverRepository;
+import com.zonepilot.backend.repository.FleetGroupRepository;
+import com.zonepilot.backend.repository.GroupVehicleRepository;
+import com.zonepilot.backend.repository.TourRepository;
 import com.zonepilot.backend.repository.VehiclePositionLogRepository;
 import com.zonepilot.backend.repository.VehicleRepository;
-import com.zonepilot.backend.repository.ZoneBreachLogRepository;
 import org.locationtech.jts.geom.Coordinate;
 import org.locationtech.jts.geom.GeometryFactory;
 import org.locationtech.jts.geom.Point;
 import org.locationtech.jts.geom.PrecisionModel;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.locationtech.jts.geom.Coordinate;
+import org.locationtech.jts.geom.GeometryFactory;
+import org.locationtech.jts.geom.Point;
+import org.locationtech.jts.geom.PrecisionModel;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.Instant;
-import java.util.ArrayList;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 @Service
@@ -33,49 +58,93 @@ public class PositionTrackingService {
 
     private static final Logger log = LoggerFactory.getLogger(PositionTrackingService.class);
 
-    private static final double BANGALORE_MIN_LAT = 12.8;
-    private static final double BANGALORE_MAX_LAT = 13.2;
-    private static final double BANGALORE_MIN_LNG = 77.4;
-    private static final double BANGALORE_MAX_LNG = 77.8;
-
-    // Cross-track thresholds (meters)
+    // Cross-track threshold (meters)
     // ≤ 30m: on-route (may be GPS glitch on opposite side of dual carriageway)
-    // > 50m for 2 consecutive pings: hard off-route → trigger reroute
     private static final double GLITCH_SNAP_THRESHOLD_M  = 30.0;
-    private static final double OFF_ROUTE_THRESHOLD_M    = 50.0;
 
     private final VehicleRepository vehicleRepository;
     private final VehiclePositionLogRepository positionLogRepository;
-    private final ZoneBreachLogRepository breachLogRepository;
     private final DispatchRouteRepository dispatchRouteRepository;
-    private final BreachService breachService;
+    private final TourRepository tourRepository;
     private final JdbcTemplate jdbcTemplate;
     private final GeometryFactory geometryFactory;
-
-    // Tracks consecutive off-route ping count per vehicleId
-    private final ConcurrentHashMap<Long, Integer> offRoutePingCount = new ConcurrentHashMap<>();
-    // BUG-NEW-009: tracks the last known active route ID per vehicle to detect route changes
-    private final ConcurrentHashMap<Long, Long> lastKnownRouteId = new ConcurrentHashMap<>();
+    private final ApplicationEventPublisher events;
+    private final TickBroadcaster broadcaster;
+    private final DriverRepository driverRepository;
+    private final AppUserRepository appUserRepository;
+    private final FleetGroupRepository fleetGroups;
+    private final GroupVehicleRepository groupVehicles;
+    private final GroupScope scope;
 
     public PositionTrackingService(VehicleRepository vehicleRepository,
                                    VehiclePositionLogRepository positionLogRepository,
-                                   ZoneBreachLogRepository breachLogRepository,
                                    DispatchRouteRepository dispatchRouteRepository,
-                                   BreachService breachService,
-                                   JdbcTemplate jdbcTemplate) {
+                                   TourRepository tourRepository,
+                                   JdbcTemplate jdbcTemplate,
+                                   ApplicationEventPublisher events,
+                                   TickBroadcaster broadcaster,
+                                   DriverRepository driverRepository,
+                                   AppUserRepository appUserRepository,
+                                   GroupScope scope,
+                                   FleetGroupRepository fleetGroups,
+                                   GroupVehicleRepository groupVehicles) {
         this.vehicleRepository = vehicleRepository;
         this.positionLogRepository = positionLogRepository;
-        this.breachLogRepository = breachLogRepository;
         this.dispatchRouteRepository = dispatchRouteRepository;
-        this.breachService = breachService;
+        this.tourRepository = tourRepository;
         this.jdbcTemplate = jdbcTemplate;
         this.geometryFactory = new GeometryFactory(new PrecisionModel(), 4326);
+        this.events = events;
+        this.broadcaster = broadcaster;
+        this.driverRepository = driverRepository;
+        this.appUserRepository = appUserRepository;
+        this.scope = scope;
+        this.fleetGroups = fleetGroups;
+        this.groupVehicles = groupVehicles;
     }
 
     @Transactional
     public PositionRecordResponse recordPosition(Long vehicleId, double lat, double lng,
                                                   Instant timestamp, BigDecimal speedKmh,
                                                   Short headingDeg, PositionSource source) {
+        return recordPosition(vehicleId, null, null, null, lat, lng,
+                timestamp, speedKmh, headingDeg, source);
+    }
+
+    /**
+     * Strict-keys ingest: every fix carries driver+tour+group. Null keys resolve
+     * from the vehicle's active dispatch route; with no active tour the fix is
+     * rejected (400, not a 500 FK blowup). Same-ms burst redelivery of an
+     * already-stored (vehicle, tour, recorded_at) is ignored, not a 500.
+     * Mid-tour driver/vehicle swaps are accepted: keys are scoped per fix,
+     * the tour-scoped unique only dedupes identical redeliveries.
+     */
+    @Transactional
+    public PositionRecordResponse recordPosition(Long vehicleId, Long driverId, Long tourId, Long groupId,
+                                                  double lat, double lng, Instant timestamp,
+                                                  BigDecimal speedKmh, Short headingDeg, PositionSource source) {
+        return doRecord(vehicleId, driverId, tourId, groupId, lat, lng,
+                timestamp, speedKmh, headingDeg, source, true);
+    }
+
+    /**
+     * Replay path: same binding + persistence as live ingest but breach-silent —
+     * never emits a BreachWorker event (replay rows are is_replay=TRUE and
+     * filtered from live views) and no per-fix tick — the replay caller
+     * emits one summary tick at the end.
+     */
+    @Transactional
+    public PositionRecordResponse recordReplayFix(Long vehicleId, Long driverId, Long tourId, Long groupId,
+                                                  double lat, double lng, Instant timestamp,
+                                                  BigDecimal speedKmh, Short headingDeg, PositionSource source) {
+        return doRecord(vehicleId, driverId, tourId, groupId, lat, lng,
+                timestamp, speedKmh, headingDeg, source, false);
+    }
+
+    private PositionRecordResponse doRecord(Long vehicleId, Long driverId, Long tourId, Long groupId,
+                                             double lat, double lng, Instant timestamp,
+                                             BigDecimal speedKmh, Short headingDeg, PositionSource source,
+                                             boolean broadcast) {
         validateBangaloreCoordinates(lat, lng);
 
         if (timestamp != null && timestamp.isAfter(Instant.now().plusSeconds(300))) {
@@ -89,37 +158,62 @@ public class PositionTrackingService {
             throw new ValidationException("Vehicle is inactive and cannot record positions.");
         }
 
+        Tour tour = resolveTour(tourId, vehicle);
+        // Client keys are untrusted: drivers bind to their owned tour,
+        // managers must own the tour's group (spoofed keys rejected here).
+        Long[] keys = bindKeys(tour, tourId, driverId, groupId);
+        driverId = keys[0];
+        groupId = keys[1];
+
         // Epic 3: cross-track check against active route
         double[] snappedPos = applyRouteMapMatching(vehicle, lat, lng, headingDeg);
         double finalLat = snappedPos[0];
         double finalLng = snappedPos[1];
 
         Instant recordedAt = timestamp != null ? timestamp : Instant.now();
+        recordedAt = recordedAt.truncatedTo(ChronoUnit.MILLIS);
+
+        // Burst redelivery of an already-stored fix: ignore, don't 500.
+        if (positionLogRepository.existsByVehicleIdAndTourIdAndRecordedAt(vehicleId, tour.getId(), recordedAt)) {
+            return duplicateResponse(vehicleId, tour.getId(), recordedAt);
+        }
+
         Point position = geometryFactory.createPoint(new Coordinate(finalLng, finalLat));
 
         VehiclePositionLog positionLog = new VehiclePositionLog();
         positionLog.setVehicleId(vehicleId);
+        positionLog.setDriverId(driverId);
+        positionLog.setTourId(tour.getId());
+        positionLog.setGroupId(groupId);
         positionLog.setPosition(position);
         positionLog.setRecordedAt(recordedAt);
         positionLog.setSpeedKmh(speedKmh);
         positionLog.setHeadingDeg(headingDeg);
         positionLog.setSource(source);
+        positionLog.setReplay(source == PositionSource.REPLAY);
 
-        VehiclePositionLog saved = positionLogRepository.save(positionLog);
+        VehiclePositionLog saved;
+        try {
+            saved = positionLogRepository.saveAndFlush(positionLog);
+        } catch (DataIntegrityViolationException dup) {
+            // Lost the race with a concurrent redelivery: ignore, don't 500.
+            return duplicateResponse(vehicleId, tour.getId(), recordedAt);
+        }
 
-        List<ZoneBreachLog> breaches;
-        if (saved.getId() != null) {
-            breaches = breachLogRepository.findByPositionLogId(saved.getId());
-            if (breaches.isEmpty()) {
-                breaches = breachLogRepository.findByVehicleIdAndBreachTime(vehicleId, recordedAt);
-            }
-        } else {
-            log.warn("Position log ID was null after save (partitioned table); falling back to vehicleId+timestamp query");
-            breaches = breachLogRepository.findByVehicleIdAndBreachTime(vehicleId, recordedAt);
+        // Live pipe only (own txn, AFTER_COMMIT in the worker): replay fixes
+        // (broadcast=false) never emit worker events — replay is breach-silent
+        // by design (is_replay rows are filtered from live views, so re-firing
+        // would double-count).
+        if (broadcast) {
+            events.publishEvent(new BreachWorker.PositionFix(
+                    vehicleId, saved.getId(), finalLat, finalLng, recordedAt, source));
+            // ELD motion feed: replay-silent (replay passes broadcast=false).
+            events.publishEvent(new DutyEvaluator.DutyFix(
+                    tour.getId(), vehicleId, driverId, groupId, recordedAt, speedKmh));
         }
 
         PositionRecordResponse response = new PositionRecordResponse();
-        response.setBreachDetected(!breaches.isEmpty());
+        response.setBreachDetected(false);
 
         PositionRecordResponse.PositionDetail posDetail = new PositionRecordResponse.PositionDetail();
         posDetail.setLatitude(finalLat);
@@ -129,52 +223,168 @@ public class PositionTrackingService {
         posDetail.setSource(source.name());
         response.setPosition(posDetail);
 
-        if (!breaches.isEmpty()) {
-            List<PositionRecordResponse.BreachDetail> breachDetails = new ArrayList<>();
-            for (ZoneBreachLog breach : breaches) {
-                breachService.computeReroute(breach, vehicleId, finalLat, finalLng);
-                PositionRecordResponse.BreachDetail detail = new PositionRecordResponse.BreachDetail();
-                detail.setBreachId(breach.getId());
-                detail.setZoneId(breach.getZone().getId());
-                detail.setZoneName(breach.getZone().getName());
-                detail.setBreachType(breach.getBreachType().name());
-                if (breach.getResolvedRouteGeometry() != null) {
-                    detail.setRerouteGeoJson(breach.getResolvedRouteGeometry().toText());
-                }
-                breachDetails.add(detail);
-            }
-            response.setBreaches(breachDetails);
+        // Live pipe: every accepted fix fans out as a derived tick frame
+        // on the fix's group topic (/topic/group/{id}, JWT-scoped).
+        // Replay passes broadcast=false and emits one summary tick instead.
+        if (broadcast) {
+            broadcaster.tick(groupId, vehicleId, finalLat, finalLng,
+                    speedKmh, recordedAt, false);
         }
 
         return response;
     }
 
     /**
-     * Epic 3 map-matching logic:
+     * Key binding for untrusted client keys. Driver callers ignore all
+     * client keys and bind to their owned tour (spoofed tourIds 403);
+     * manager callers must own the tour's group — including the null-tourId
+     * path (the resolved tour's group is checked, never defaulted).
+     * Null-auth callers are rejected unless they run as an authenticated
+     * worker (replay/purge jobs via {@link IngestWorkerContext}).
+     */
+    private Long[] bindKeys(Tour tour, Long tourId, Long driverId, Long groupId) {
+        DepotPrincipal caller = DepotScope.current();
+        if (caller != null && caller.role() == Role.DRIVER) {
+            Long userId = appUserRepository.findByEmail(caller.username())
+                    .map(AppUser::getId)
+                    .orElseThrow(() -> new AccessDeniedException("Unknown driver login"));
+            Driver me = driverRepository.findByUserId(userId)
+                    .orElseThrow(() -> new AccessDeniedException("No driver profile linked to this login"));
+            if (tour.getDriver() == null || !tour.getDriver().getId().equals(me.getId())) {
+                throw new AccessDeniedException("Tour is not your assignment");
+            }
+            return new Long[]{me.getId(), tour.getGroup().getId()};
+        }
+        if (caller == null && !IngestWorkerContext.isWorker()) {
+            // Background jobs must run with worker identity; anything else
+            // with no auth context cannot bind keys.
+            throw new AccessDeniedException("worker identity required");
+        }
+        if (IngestWorkerContext.isWorker()) {
+            // Trusted pipe (MQTT adapter, replay): no group-scope check, but
+            // untrusted keys are still validated — a forged groupId fails
+            // here instead of rebinding the fix to another group.
+            if (groupId != null && tour.getGroup() != null
+                    && !groupId.equals(tour.getGroup().getId())) {
+                throw new ValidationException("groupId does not match tour " + tour.getId());
+            }
+            if (driverId == null && tour.getDriver() != null) {
+                driverId = tour.getDriver().getId();
+            }
+            if (groupId == null && tour.getGroup() != null) {
+                groupId = tour.getGroup().getId();
+            }
+            return new Long[]{driverId, groupId};
+        }
+        if (caller != null && !IngestWorkerContext.isWorker()) {
+            // Managers bind to tours they own: explicit tourId AND the
+            // null-tourId (route-resolved) path both check the tour's group.
+            scope.requireGroupAccess(tour.getGroup());
+            // Untrusted keys on every pipe: MQTT frames carry no caller, so a
+            // forged groupId must fail here — never bind a fix to another group.
+            if (groupId != null && !groupId.equals(tour.getGroup().getId())) {
+                throw new ValidationException("groupId does not match tour " + tour.getId());
+            }
+            // Explicit driverId is never validated: mid-tour driver/vehicle
+            // swaps are accepted (keys are scoped per fix; the tour key rules).
+            // Attribution: the STORED driver is the fix caller when known
+            // (driver logins bind to their owned tour above), else the tour's
+            // assigned driver — per-fix keys, not a roster snapshot.
+        }
+        if (driverId == null) {
+            driverId = tour.getDriver().getId();
+        }
+        if (groupId == null) {
+            groupId = tour.getGroup().getId();
+        }
+        return new Long[]{driverId, groupId};
+    }
+
+    /**
+     * Null keys resolve from the vehicle's active dispatch route (group tour
+     * assign flow links route -&gt; tour). No active tour: 400, not a 500 FK blowup.
+     * Closed tours reject fixes: history is immutable once COMPLETED.
+     */
+    private Tour resolveTour(Long tourId, Vehicle vehicle) {
+        Tour tour;
+        if (tourId != null) {
+            tour = tourRepository.findById(tourId)
+                    .orElseThrow(() -> new ResourceNotFoundException("Tour", "id", tourId));
+        } else {
+            Long routeId = vehicle.getActiveDispatchRouteId();
+            if (routeId != null) {
+                Tour linked = dispatchRouteRepository.findById(routeId)
+                        .map(DispatchRoute::getTour)
+                        .orElse(null);
+                if (linked != null) {
+                    tour = linked;
+                } else {
+                    throw new ValidationException("Position requires an active tour for vehicle " + vehicle.getId());
+                }
+            } else {
+                throw new ValidationException("Position requires an active tour for vehicle " + vehicle.getId());
+            }
+        }
+        if (tour.getStatus() == TourStatus.COMPLETED) {
+            throw new ValidationException("Tour " + tour.getId() + " is COMPLETED, history is closed");
+        }
+        return tour;
+    }
+
+    /**
+     * HTTP duplicate redelivery: the row is already stored, so answer the
+     * stored fix (200) instead of 400. Quarantine rejections still 400 —
+     * only a stored row returns a response here.
+     */
+    public java.util.Optional<PositionRecordResponse> findStoredFix(
+            Long vehicleId, Instant recordedAt) {
+        if (vehicleId == null || recordedAt == null) {
+            return java.util.Optional.empty();
+        }
+        return positionLogRepository.findFirstByVehicleIdAndRecordedAt(vehicleId, recordedAt)
+                .map(this::responseOf);
+    }
+
+    private PositionRecordResponse responseOf(VehiclePositionLog existing) {
+        PositionRecordResponse response = new PositionRecordResponse();
+        response.setBreachDetected(false);
+
+        PositionRecordResponse.PositionDetail posDetail = new PositionRecordResponse.PositionDetail();
+        posDetail.setLatitude(existing.getPosition().getY());
+        posDetail.setLongitude(existing.getPosition().getX());
+        posDetail.setRecordedAt(existing.getRecordedAt());
+        posDetail.setSpeedKmh(existing.getSpeedKmh());
+        posDetail.setSource(existing.getSource().name());
+        response.setPosition(posDetail);
+        return response;
+    }
+
+    /**
+     * Already-stored fix redelivered: rebuild the accepted response from the
+     * stored row (no reroute recompute — the first insert already handled it).
+     */
+    private PositionRecordResponse duplicateResponse(Long vehicleId, Long tourId, Instant recordedAt) {
+        VehiclePositionLog existing = positionLogRepository
+                .findByVehicleIdAndTourIdAndRecordedAt(vehicleId, tourId, recordedAt)
+                .orElseThrow(() -> new ValidationException(
+                        "Duplicate position for vehicle " + vehicleId + " at " + recordedAt));
+        return responseOf(existing);
+    }
+
+    /**
+     * Epic 3 map-matching: pure coordinate correction. Queries only
+     * dispatch_route (never the road network) and keeps no counter state —
+     * off-route streak counting + reroute live in BreachWorker, so a failed
+     * probe here can never poison the ingest txn.
      *
-     * 1. If vehicle has no active route → pass through unchanged.
-     * 2. Query ST_Distance (geography) between ping and planned route geometry.
-     * 3. ≤ 30m: on-route. If heading is reversed (|delta| > 150°), snap to route's
-     *    nearest point (GPS glitch on opposite carriageway). Reset off-route counter.
-     * 4. > 50m: increment consecutive off-route counter.
-     *    - 1st ping: tolerate (could be single glitch).
-     *    - 2nd consecutive ping: hard off-route → trigger reroute via BreachService.
-     * 5. Between 30m and 50m: tolerate, reset counter.
+     * ≤ 30m: on-route; reversed heading (|delta| &gt; 150°) snaps to the
+     * route's nearest point (GPS glitch on opposite carriageway).
+     * Anything beyond passes through raw for the worker to judge.
      */
     private double[] applyRouteMapMatching(Vehicle vehicle, double lat, double lng, Short headingDeg) {
         Long routeId = vehicle.getActiveDispatchRouteId();
         if (routeId == null) {
-            offRoutePingCount.remove(vehicle.getId());
-            lastKnownRouteId.remove(vehicle.getId());
             return new double[]{lat, lng};
-        }
-
-        // BUG-NEW-009: reset off-route counter when the vehicle's active route changes
-        Long previousRouteId = lastKnownRouteId.put(vehicle.getId(), routeId);
-        if (previousRouteId != null && !previousRouteId.equals(routeId)) {
-            log.debug("Vehicle {} active route changed ({} → {}) — resetting off-route counter",
-                    vehicle.getId(), previousRouteId, routeId);
-            offRoutePingCount.remove(vehicle.getId());
         }
 
         try {
@@ -206,8 +416,6 @@ public class PositionTrackingService {
             double routeAzRad  = (double) rows.get(0)[3]; // radians, 0=north
 
             if (distM <= GLITCH_SNAP_THRESHOLD_M) {
-                offRoutePingCount.remove(vehicle.getId());
-
                 // Check if heading is reversed (GPS glitch on opposite carriageway)
                 if (headingDeg != null && headingDeg != 0) {
                     double routeHeadingDeg = Math.toDegrees(routeAzRad);
@@ -218,25 +426,8 @@ public class PositionTrackingService {
                         return new double[]{snapLat, snapLng};
                     }
                 }
-                return new double[]{lat, lng};
-
-            } else if (distM > OFF_ROUTE_THRESHOLD_M) {
-                int count = offRoutePingCount.merge(vehicle.getId(), 1, Integer::sum);
-                log.debug("Vehicle {} off-route by {}m (consecutive pings: {})", vehicle.getId(), distM, count);
-
-                if (count >= 2) {
-                    // Two consecutive pings > 50m off-route → trigger reroute
-                    offRoutePingCount.remove(vehicle.getId());
-                    log.info("Vehicle {} confirmed off-route ({}m) — triggering reroute", vehicle.getId(), distM);
-                    triggerOffRouteReroute(vehicle.getId(), lat, lng);
-                }
-                return new double[]{lat, lng};
-
-            } else {
-                // 30m < dist ≤ 50m: tolerate, reset counter
-                offRoutePingCount.remove(vehicle.getId());
-                return new double[]{lat, lng};
             }
+            return new double[]{lat, lng};
 
         } catch (Exception e) {
             log.warn("Route map-matching failed for vehicle {}: {}", vehicle.getId(), e.getMessage());
@@ -244,41 +435,105 @@ public class PositionTrackingService {
         }
     }
 
-    /**
-     * Triggers a reroute for a vehicle that is confirmed off-route.
-     * Creates a synthetic ZoneBreachLog-free reroute by delegating to BreachService
-     * via a direct reroute call using the vehicle's active dispatch route destination.
-     */
-    private void triggerOffRouteReroute(Long vehicleId, double lat, double lng) {
-        try {
-            // Reuse BreachService's destination-finding + zone-avoiding route logic
-            // by passing a null breach (off-route reroute, not a zone breach)
-            breachService.computeOffRouteReroute(vehicleId, lat, lng);
-        } catch (Exception e) {
-            log.warn("Off-route reroute failed for vehicle {}: {}", vehicleId, e.getMessage());
-        }
-    }
-
     private void validateBangaloreCoordinates(double lat, double lng) {
-        if (lat < BANGALORE_MIN_LAT || lat > BANGALORE_MAX_LAT
-                || lng < BANGALORE_MIN_LNG || lng > BANGALORE_MAX_LNG) {
+        if (!GeoBounds.inBounds(lat, lng)) {
             throw new ValidationException(
                     "Coordinates (" + lat + ", " + lng + ") are outside Bangalore bounding box");
         }
     }
 
+    /**
+     * Tour/group-scoped position history. A tour filter shows only that tour's
+     * fixes (cross-group tourIds 403); a group filter shows only that group's
+     * fixes. With no filter, managers are limited to vehicles in their own groups.
+     */
+    @Transactional(readOnly = true)
     public List<com.zonepilot.backend.dto.response.PositionResponse> getPositionHistory(
-            Long vehicleId, Instant from, Instant to) {
+            Long vehicleId, Instant from, Instant to, Long tourId, Long groupId) {
+        if (tourId != null) {
+            com.zonepilot.backend.entity.Tour tour = tourRepository.findById(tourId)
+                    .orElseThrow(() -> new ResourceNotFoundException("Tour", "id", tourId));
+            scope.requireGroupAccess(tour.getGroup());
+            if (!tour.getVehicle().getId().equals(vehicleId)) {
+                throw new ValidationException(
+                        "Tour " + tourId + " is not for vehicle " + vehicleId);
+            }
+            return toPositionResponses(positionLogsForTour(vehicleId, tourId, from, to));
+        }
+        if (groupId != null) {
+            com.zonepilot.backend.entity.FleetGroup group = fleetGroups.findById(groupId)
+                    .orElseThrow(() -> new ResourceNotFoundException("FleetGroup", "id", groupId));
+            scope.requireGroupAccess(group);
+            return toPositionResponses(positionLogsForGroup(vehicleId, groupId, from, to));
+        }
+        if (!scope.isOwner() && scope.currentUserId().isPresent()) {
+            boolean member = groupVehicles.findByVehicleId(vehicleId).stream()
+                    .anyMatch(gv -> {
+                        try {
+                            scope.requireGroupAccess(gv.getGroup());
+                            return true;
+                        } catch (AccessDeniedException denied) {
+                            return false;
+                        }
+                    });
+            if (!member) {
+                throw new AccessDeniedException("Not your group");
+            }
+        }
         List<VehiclePositionLog> logs;
         if (from != null && to != null) {
             logs = positionLogRepository.findByVehicleIdAndRecordedAtBetween(vehicleId, from, to);
         } else {
             logs = positionLogRepository.findByVehicleIdOrderByRecordedAtDesc(vehicleId);
         }
+        return toPositionResponses(logs);
+    }
+
+    private List<VehiclePositionLog> positionLogsForTour(
+            Long vehicleId, Long tourId, Instant from, Instant to) {
+        if (from != null && to != null) {
+            return positionLogRepository.findByVehicleIdAndTourIdAndRecordedAtBetween(
+                    vehicleId, tourId, from, to);
+        }
+        return positionLogRepository.findByVehicleIdAndTourIdOrderByRecordedAtDesc(vehicleId, tourId);
+    }
+
+    private List<VehiclePositionLog> positionLogsForGroup(
+            Long vehicleId, Long groupId, Instant from, Instant to) {
+        if (from != null && to != null) {
+            return positionLogRepository.findByVehicleIdAndGroupIdAndRecordedAtBetween(
+                    vehicleId, groupId, from, to);
+        }
+        return positionLogRepository.findByVehicleIdAndGroupIdOrderByRecordedAtDesc(vehicleId, groupId);
+    }
+
+    private List<com.zonepilot.backend.dto.response.PositionResponse> toPositionResponses(
+            List<VehiclePositionLog> logs) {
         return logs.stream().map(this::toPositionResponse).collect(Collectors.toList());
     }
 
     public com.zonepilot.backend.dto.response.PositionResponse getLatestPosition(Long vehicleId) {
+        // Manager endpoint: DRIVER logins use /api/driver routes, never this.
+        DepotPrincipal caller = DepotScope.current();
+        if (caller != null && caller.role() == Role.DRIVER) {
+            throw new AccessDeniedException("Driver login required — use /api/driver endpoints");
+        }
+        if (!scope.isOwner()) {
+            // Same membership rule as history: the vehicle must sit in one of
+            // the caller's groups. Null callers (no auth) are denied too.
+            boolean member = groupVehicles.findByVehicleId(vehicleId).stream()
+                    .anyMatch(gv -> {
+                        try {
+                            scope.requireGroupAccess(gv.getGroup());
+                            return true;
+                        } catch (AccessDeniedException denied) {
+                            return false;
+                        }
+                    });
+            if (!member) {
+                throw new AccessDeniedException("Not your group");
+            }
+        }
         return positionLogRepository.findLatestByVehicleId(vehicleId)
                 .map(this::toPositionResponse)
                 .orElseGet(() -> {
@@ -286,14 +541,10 @@ public class PositionTrackingService {
                             .orElseThrow(() -> new ResourceNotFoundException("Vehicle", "id", vehicleId));
                     com.zonepilot.backend.dto.response.PositionResponse r = new com.zonepilot.backend.dto.response.PositionResponse();
                     r.setVehicleId(vehicleId);
-                    if (vehicle.getDepot() != null && vehicle.getDepot().getLocation() != null) {
-                        r.setLatitude(vehicle.getDepot().getLocation().getY());
-                        r.setLongitude(vehicle.getDepot().getLocation().getX());
-                    }
                     r.setRecordedAt(vehicle.getCreatedAt());
                     r.setSpeedKmh(java.math.BigDecimal.ZERO);
                     r.setHeadingDeg((short) 0);
-                    r.setSource("DEPOT");
+                    r.setSource("NONE");
                     return r;
                 });
     }

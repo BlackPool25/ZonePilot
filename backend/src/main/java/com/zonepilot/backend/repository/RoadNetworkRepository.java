@@ -96,6 +96,40 @@ public class RoadNetworkRepository {
     }
 
     /**
+     * Runs pgr_dijkstra with a 1000x cost penalty on edges that intersect the given zone.
+     * Uses cost_time_sec (Epic 1) as the base cost.
+     *
+     * BUG-NEW-006: pgr_dijkstra requires its edge SQL as a server-evaluated string literal —
+     * JDBC bind parameters cannot be used inside it. Zone IDs are server-side Long values
+     * (never user-controlled input), so %d formatting is safe here. The outer pgr_dijkstra
+     * call uses JDBC bind parameters for sourceNode and targetNode.
+     *
+     * Rows are [seq, edge, cost, geom_wkt, node, source] — the same shape as
+     * {@link #computeDijkstraRoute}, for RoutingService.assembleRouteFromEdgeRows.
+     */
+    public List<Object[]> computeZoneAvoidingRoute(long sourceId, long targetId, long zoneId) {
+        String pgRoutingEdgeSql = String.format(
+                "SELECT id, source, target, " +
+                "CASE WHEN ST_Intersects(the_geom, (SELECT boundary FROM zone_restriction WHERE id = %d)) " +
+                "THEN cost_time_sec * 1000 ELSE cost_time_sec END AS cost, " +
+                "CASE WHEN reverse_cost > 0 AND ST_Intersects(the_geom, (SELECT boundary FROM zone_restriction WHERE id = %d)) " +
+                "THEN cost_time_sec * 1000 WHEN reverse_cost > 0 THEN cost_time_sec ELSE reverse_cost END AS reverse_cost " +
+                "FROM blr_2po_4pgr",
+                zoneId, zoneId);
+
+        return jdbcTemplate.query(
+                "SELECT seq, edge, cost, ST_AsText(pt.the_geom) AS geom, node, source " +
+                "FROM pgr_dijkstra(?, CAST(? AS BIGINT), CAST(? AS BIGINT), directed := true) AS di " +
+                "JOIN blr_2po_4pgr pt ON pt.id = di.edge ORDER BY seq",
+                (rs, rowNum) -> new Object[]{
+                        rs.getInt("seq"), rs.getLong("edge"),
+                        rs.getDouble("cost"), rs.getString("geom"),
+                        rs.getLong("node"), rs.getLong("source")
+                },
+                pgRoutingEdgeSql, sourceId, targetId);
+    }
+
+    /**
      * Generates interpolated waypoints along a route geometry at ~30m intervals.
      * Uses ST_LineInterpolatePoints for map-snapped tick positions.
      * Returns list of [lat, lng] double arrays.

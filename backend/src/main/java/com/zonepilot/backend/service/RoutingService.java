@@ -11,6 +11,8 @@ import org.locationtech.jts.io.WKTReader;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -105,6 +107,60 @@ public class RoutingService {
         }
 
         return geometryFactory.createLineString(coordinates.toArray(new Coordinate[0]));
+    }
+
+    /**
+     * Best-effort zone-avoiding reroute geometry, isolated in its OWN transaction.
+     * A failed road query aborts the whole Postgres txn it runs in — running it
+     * here (REQUIRES_NEW) keeps a missing/broken road network from rolling back
+     * the caller's breach insert. Returns null when no reroute is possible;
+     * never throws.
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public LineString computeZoneAvoidingReroute(double currentLat, double currentLng,
+                                                 double destLat, double destLng, long zoneId) {
+        try {
+            Long sourceNode = findNearestNodeOrNull(currentLat, currentLng);
+            if (sourceNode == null) {
+                return null;
+            }
+            Long targetNode = findNearestNodeOrNull(destLat, destLng);
+            if (targetNode == null) {
+                return null;
+            }
+            List<Object[]> rows = roadNetworkRepository.computeZoneAvoidingRoute(
+                    sourceNode, targetNode, zoneId);
+            if (rows.isEmpty()) {
+                return null;
+            }
+            return assembleRouteFromEdgeRows(rows);
+        } catch (Exception e) {
+            log.warn("Zone-avoiding reroute unavailable: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Best-effort direct reroute geometry, isolated like
+     * {@link #computeZoneAvoidingReroute}. Returns null when unavailable; never throws.
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public LineString computeDirectReroute(double currentLat, double currentLng,
+                                           double destLat, double destLng) {
+        try {
+            Long sourceNode = findNearestNodeOrNull(currentLat, currentLng);
+            if (sourceNode == null) {
+                return null;
+            }
+            Long targetNode = findNearestNodeOrNull(destLat, destLng);
+            if (targetNode == null) {
+                return null;
+            }
+            return computeRoute(sourceNode, targetNode);
+        } catch (Exception e) {
+            log.warn("Direct reroute unavailable: {}", e.getMessage());
+            return null;
+        }
     }
 
     private static Coordinate[] reverse(Coordinate[] coords) {

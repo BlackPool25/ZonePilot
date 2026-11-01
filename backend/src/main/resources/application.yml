@@ -1,13 +1,15 @@
 spring:
   application:
     name: zonepilot-backend
-
+  # Slice 3: virtual threads carry the MQTT fan-in + STOMP fan-out.
+  threads:
+    virtual:
+      enabled: true
   datasource:
     url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5434/ZonePilot}
     username: ${SPRING_DATASOURCE_USERNAME:zonepilot}
     password: ${SPRING_DATASOURCE_PASSWORD:zonepilot}
     driver-class-name: org.postgresql.Driver
-
   jpa:
     open-in-view: false
     hibernate:
@@ -16,14 +18,36 @@ spring:
     properties:
       hibernate:
         format_sql: true
-
   flyway:
     enabled: true
     locations: classpath:db/migration
     baseline-on-migrate: true
+  # Slice 3: Redis holds transient ingest state (last fix, off-route counters).
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+
+app:
+  jwt:
+    secret: ${APP_JWT_SECRET:zonepilot-dev-secret-change-me-32bytes!!}
+    access-ttl: ${APP_JWT_ACCESS_TTL:PT15M}
+    refresh-ttl: ${APP_JWT_REFRESH_TTL:P7D}
+
+# Dev/test default only — application-prod.yml overrides both entries with
+# required (no-default) placeholders so prod fails fast instead of failing open.
+cors:
+  allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000}
 
 server:
   port: ${PORT:8080}
+
+# Slice 3: Traccar native forward.type=mqtt target. Unset => no broker binding
+# (MqttConfig is @ConditionalOnProperty("mqtt.url")).
+mqtt:
+  url: ${EMQX_URL:}
+  username: ${EMQX_USER:}
+  password: ${EMQX_PASSWORD:}
 
 google:
   routes:

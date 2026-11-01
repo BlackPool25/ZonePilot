@@ -4,8 +4,8 @@ import Button from '../components/atoms/Button.jsx';
 import Input, { Select } from '../components/atoms/Input.jsx';
 import styles from './RegisterVehicleModal.module.css';
 
-export default function RegisterVehicleModal({ depots, onClose, onSuccess }) {
-  const [form, setForm] = useState({ registrationNumber: '', vehicleClass: '', ownerName: '', depotId: '', isActive: true });
+export default function RegisterVehicleModal({ onClose, onSuccess }) {
+  const [form, setForm] = useState({ registrationNumber: '', vehicleClass: '', ownerName: '', isActive: true });
   const [errors, setErrors] = useState({});
   const [submitting, setSubmitting] = useState(false);
 
@@ -20,12 +20,11 @@ export default function RegisterVehicleModal({ depots, onClose, onSuccess }) {
     if (!form.registrationNumber.trim()) errs.registrationNumber = 'Required';
     if (!form.vehicleClass) errs.vehicleClass = 'Required';
     if (!form.ownerName.trim()) errs.ownerName = 'Required';
-    if (!form.depotId) errs.depotId = 'Required';
     if (Object.keys(errs).length) { setErrors(errs); return; }
 
     setSubmitting(true);
     try {
-      await vehiclesApi.create({ ...form, depotId: Number(form.depotId) });
+      await vehiclesApi.create(form);
       onSuccess();
     } catch (err) {
       if (err.fields) setErrors(err.fields);
@@ -61,10 +60,6 @@ export default function RegisterVehicleModal({ depots, onClose, onSuccess }) {
               value={form.ownerName} onChange={e => set('ownerName', e.target.value)}
               error={errors.ownerName} required
             />
-            <Select id="reg-depot" label="Depot" value={form.depotId} onChange={e => set('depotId', e.target.value)} error={errors.depotId} required>
-              <option value="">Select depot…</option>
-              {depots.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-            </Select>
           </div>
           <div className={styles.footer}>
             <Button variant="secondary" onClick={onClose} type="button">Cancel</Button>

@@ -1,5 +1,6 @@
 package com.zonepilot.backend.dto.response;
 
+import com.zonepilot.backend.enums.VehicleAvailability;
 import com.zonepilot.backend.enums.VehicleClass;
 
 public class VehicleResponse {
@@ -8,9 +9,9 @@ public class VehicleResponse {
     private String registrationNumber;
     private VehicleClass vehicleClass;
     private String ownerName;
-    private Long depotId;
-    private String depotName;
     private Boolean isActive;
+
+    private VehicleAvailability availability;
 
     private Long activeDispatchRouteId;
 
@@ -22,13 +23,20 @@ public class VehicleResponse {
     public void setVehicleClass(VehicleClass vehicleClass) { this.vehicleClass = vehicleClass; }
     public String getOwnerName() { return ownerName; }
     public void setOwnerName(String ownerName) { this.ownerName = ownerName; }
-    public Long getDepotId() { return depotId; }
-    public void setDepotId(Long depotId) { this.depotId = depotId; }
-    public String getDepotName() { return depotName; }
-    public void setDepotName(String depotName) { this.depotName = depotName; }
     public Boolean getIsActive() { return isActive; }
     public void setIsActive(Boolean isActive) { this.isActive = isActive; }
+    public VehicleAvailability getAvailability() { return availability; }
+    public void setAvailability(VehicleAvailability availability) { this.availability = availability; }
     public Long getActiveDispatchRouteId() { return activeDispatchRouteId; }
     public void setActiveDispatchRouteId(Long activeDispatchRouteId) { this.activeDispatchRouteId = activeDispatchRouteId; }
+    private Long modelId;
+    private String modelName;
+    private Double payloadKg;
+    public Long getModelId() { return modelId; }
+    public void setModelId(Long modelId) { this.modelId = modelId; }
+    public String getModelName() { return modelName; }
+    public void setModelName(String modelName) { this.modelName = modelName; }
+    public Double getPayloadKg() { return payloadKg; }
+    public void setPayloadKg(Double payloadKg) { this.payloadKg = payloadKg; }
 }
 

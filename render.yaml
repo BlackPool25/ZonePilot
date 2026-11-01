@@ -5,6 +5,8 @@ services:
     dockerfilePath: ./backend/Dockerfile
     dockerContext: ./backend
     # Render injects PORT automatically; Spring binds to ${PORT:8080}
+    # Health check uses /v3/api-docs (springdoc enabled in prod); /actuator
+    # is disabled so do NOT point the health check there.
     healthCheckPath: /v3/api-docs
     autoDeploy: true
     envVars:
@@ -20,3 +22,28 @@ services:
         sync: false   # e.g. https://zonepilot.vercel.app
       - key: GOOGLE_ROUTES_API_KEY
         sync: false   # optional; leave blank to disable predictive compliance
+      - key: APP_JWT_SECRET
+        sync: false   # REQUIRED — 32+ bytes HS256 secret; boot fails fast when unset
+      - key: APP_JWT_ACCESS_TTL
+        sync: false   # optional; e.g. PT15M (defaults in application.yml apply)
+      - key: APP_JWT_REFRESH_TTL
+        sync: false   # optional; e.g. P7D
+      - key: REDIS_HOST
+        fromService:
+          type: redis
+          name: zonepilot-redis
+          property: host
+      - key: REDIS_PORT
+        fromService:
+          type: redis
+          name: zonepilot-redis
+          property: port
+
+# Slice 3: backend requires Redis for ingest state (no Redis => positions 500).
+# allkeys-lru: ingest keys are transient (last fix, off-route counters) and
+# safe to evict under memory pressure; noeviction would fail writes instead.
+  - type: redis
+    name: zonepilot-redis
+    plan: free
+    maxmemoryPolicy: allkeys-lru
+    ipAllowList: []
