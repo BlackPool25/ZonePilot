@@ -130,6 +130,7 @@ export const driverApi = {
   sos: (lat, lng, routeId) => post('/driver/sos', { lat, lng, routeId }),
   myTours: () => get('/driver/tours'),
   tourDuty: (tourId, status) => post(`/driver/tours/${tourId}/duty`, { status }),
+  dutyLog: (tourId) => get(`/driver/tours/${tourId}/duty-log`),
   deliverStop: (tourId, stopId, lat, lng) => post(`/driver/tours/${tourId}/stops/${stopId}/deliver`, { lat, lng }),
   skipStop: (tourId, stopId, reason) => post(`/driver/tours/${tourId}/stops/${stopId}/skip`, { reason }),
 };

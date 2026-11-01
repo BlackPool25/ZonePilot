@@ -2,6 +2,7 @@ package com.zonepilot.backend.service;
 
 import com.zonepilot.backend.dto.response.RouteValidationResponse;
 import com.zonepilot.backend.entity.*;
+import com.zonepilot.backend.enums.VehicleAvailability;
 import com.zonepilot.backend.repository.GroupDriverRepository;
 import com.zonepilot.backend.repository.GroupVehicleRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -27,6 +28,10 @@ class GroupDispatchServiceTest {
     @Mock
     private com.zonepilot.backend.repository.FleetGroupRepository fleetGroups;
     @Mock
+    private com.zonepilot.backend.repository.VehicleRepository vehicleRepository;
+    @Mock
+    private com.zonepilot.backend.repository.DriverRepository driverRepository;
+    @Mock
     private com.zonepilot.backend.auth.GroupScope groupScope;
     @Mock
     private DriverService driverService;
@@ -38,7 +43,8 @@ class GroupDispatchServiceTest {
     @BeforeEach
     void setUp() {
         dispatchService = new GroupDispatchService(
-                fleetGroups, groupScope, groupVehicles, groupDrivers, driverService, compliance);
+                fleetGroups, groupScope, groupVehicles, groupDrivers,
+                vehicleRepository, driverRepository, driverService, compliance);
     }
 
     @Test
@@ -93,5 +99,36 @@ class GroupDispatchServiceTest {
         assertEquals(1, result.skipped().size());
         assertTrue(result.skipped().get(0).reason().toLowerCase().contains("licence"));
         verify(compliance, never()).validateRoute(eq(11L), anyDouble(), anyDouble(), anyDouble(), anyDouble());
+    }
+
+    @Test
+    void dispatchGroup_maintenanceVehicleSkipped_noGoogleSpend() {
+        Long groupId = 2L;
+        com.zonepilot.backend.entity.FleetGroup fg = new com.zonepilot.backend.entity.FleetGroup();
+        when(fleetGroups.findById(groupId)).thenReturn(java.util.Optional.of(fg));
+
+        Vehicle v = new Vehicle();
+        v.setId(13L);
+        v.setRegistrationNumber("KA01-0013");
+        v.setAvailability(VehicleAvailability.MAINTENANCE);
+        GroupVehicle gv = mock(GroupVehicle.class);
+        when(gv.getVehicle()).thenReturn(v);
+        Driver d = new Driver();
+        d.setId(23L);
+        d.setName("Moe");
+        d.setLicenceExpiry(LocalDate.now().plusYears(1));
+        GroupDriver gd = mock(GroupDriver.class);
+        when(gd.getDriver()).thenReturn(d);
+        when(groupVehicles.findByGroupId(groupId)).thenReturn(List.of(gv));
+        when(groupDrivers.findByGroupId(groupId)).thenReturn(List.of(gd));
+
+        GroupDispatchService.DispatchResult result =
+                dispatchService.dispatchGroup(groupId, 12.9, 77.5, 13.0, 77.6);
+
+        assertTrue(result.dispatched().isEmpty());
+        assertEquals(1, result.skipped().size());
+        assertTrue(result.skipped().get(0).reason().contains("maintenance"));
+        verify(compliance, never()).validateRoute(anyLong(), anyDouble(), anyDouble(), anyDouble(), anyDouble());
+        verify(driverService, never()).checkEligible(any(), any());
     }
 }

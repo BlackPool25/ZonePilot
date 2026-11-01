@@ -65,8 +65,17 @@ public class VehicleController {
     @Operation(summary = "Set stored availability (e.g. manual MAINTENANCE)")
     public ResponseEntity<ApiResponse<VehicleResponse>> setAvailability(
             @PathVariable Long id, @RequestBody java.util.Map<String, String> body) {
-        return ResponseEntity.ok(ApiResponse.success(vehicleService.setAvailability(
-                id, VehicleAvailability.valueOf(body.get("availability")))));
+        String availability = body.get("availability");
+        if (availability == null) {
+            throw new com.zonepilot.backend.exception.ValidationException("availability is required");
+        }
+        try {
+            return ResponseEntity.ok(ApiResponse.success(vehicleService.setAvailability(
+                    id, VehicleAvailability.valueOf(availability))));
+        } catch (IllegalArgumentException e) {
+            throw new com.zonepilot.backend.exception.ValidationException(
+                    "unknown availability '" + availability + "'");
+        }
     }
 
     @GetMapping("/{id}/zones-at-location")

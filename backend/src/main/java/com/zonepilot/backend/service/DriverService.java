@@ -9,6 +9,7 @@ import com.zonepilot.backend.dto.request.CreateSlipRequest;
 import com.zonepilot.backend.dto.request.SosRequest;
 import com.zonepilot.backend.dto.response.DocumentResponse;
 import com.zonepilot.backend.dto.response.DriverResponse;
+import com.zonepilot.backend.dto.response.DutyLogResponse;
 import com.zonepilot.backend.dto.response.TourResponse;
 import com.zonepilot.backend.entity.*;
 import com.zonepilot.backend.enums.*;
@@ -49,6 +50,7 @@ public class DriverService {
     private final VehicleRepository vehicleRepository;
     private final TourRepository tourRepository;
     private final TourStopRepository tourStopRepository;
+    private final DutyLogRepository dutyLogs;
     private final AuthService authService;
     private final GeometryFactory geometryFactory =
             new GeometryFactory(new PrecisionModel(), 4326);
@@ -58,6 +60,7 @@ public class DriverService {
                           TripSlipRepository slips, SosAlertRepository sosAlerts,
                           AppUserRepository users, VehicleRepository vehicleRepository,
                           TourRepository tourRepository, TourStopRepository tourStopRepository,
+                          DutyLogRepository dutyLogs,
                           AuthService authService) {
         this.drivers = drivers;
         this.routes = routes;
@@ -68,6 +71,7 @@ public class DriverService {
         this.vehicleRepository = vehicleRepository;
         this.tourRepository = tourRepository;
         this.tourStopRepository = tourStopRepository;
+        this.dutyLogs = dutyLogs;
         this.authService = authService;
     }
 
@@ -205,17 +209,35 @@ public class DriverService {
 
     @Transactional
     public TourResponse setTourDuty(Long tourId, DutyStatus duty) {
-        Tour tour = requireOwnedTour(tourId);
+        Driver driver = currentDriver();
+        Tour tour = tourRepository.findById(tourId)
+                .orElseThrow(() -> new ResourceNotFoundException("Tour", "id", tourId));
+        if (tour.getDriver() == null || !tour.getDriver().getId().equals(driver.getId())) {
+            throw new AccessDeniedException("Tour is not your assignment");
+        }
         tour.setDutyStatus(duty);
-        // Duty drives stored availability: DRIVING means rolling.
-        if (duty == DutyStatus.DRIVING) {
+        // Duty drives stored availability: rolling means IN_TRANSIT.
+        if (duty == DutyStatus.DRIVING || duty == DutyStatus.IN_TRANSIT) {
             tour.getVehicle().setAvailability(VehicleAvailability.IN_TRANSIT);
         } else if (duty == DutyStatus.OFF_DUTY) {
             tour.getVehicle().setAvailability(VehicleAvailability.AVAILABLE);
         } else {
             tour.getVehicle().setAvailability(VehicleAvailability.RESERVED);
         }
+        DutyLog log = new DutyLog();
+        log.setTour(tour);
+        log.setDriver(driver);
+        log.setDutyStatus(duty);
+        log.setRecordedAt(Instant.now());
+        dutyLogs.save(log);
         return toTourResponse(tourId);
+    }
+
+    @Transactional(readOnly = true)
+    public List<DutyLogResponse> dutyLog(Long tourId) {
+        requireOwnedTour(tourId);
+        return dutyLogs.findByTourIdOrderByRecordedAtAscIdAsc(tourId).stream()
+                .map(DutyLogResponse::from).toList();
     }
 
     @Transactional(readOnly = true)

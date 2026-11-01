@@ -1,10 +1,16 @@
 // Minimal PWA shell: cache-first for same-origin GET assets, pass API through.
-// Versioned cache so deploys pick up fresh shells.
-const CACHE = 'zp-shell-v1';
-const SHELL = ['/', '/driver', '/manifest.webmanifest', '/favicon.svg'];
+// Versioned cache so deploys pick up fresh shells. Install only pins files
+// that always exist (SPA routes like /driver are cached lazily on first
+// visit, so a missing route can never fail the install).
+const CACHE = 'zp-shell-v2';
+const SHELL = ['/manifest.webmanifest', '/favicon.svg'];
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
+  e.waitUntil(
+    caches.open(CACHE)
+      .then((c) => Promise.allSettled(SHELL.map((u) => c.add(u))))
+      .then(() => self.skipWaiting()),
+  );
 });
 
 self.addEventListener('activate', (e) => {
@@ -24,8 +30,10 @@ self.addEventListener('fetch', (e) => {
   e.respondWith(
     caches.match(request).then(
       (hit) => hit || fetch(request).then((res) => {
-        const copy = res.clone();
-        caches.open(CACHE).then((c) => c.put(request, copy));
+        if (res.ok) {
+          const copy = res.clone();
+          caches.open(CACHE).then((c) => c.put(request, copy));
+        }
         return res;
       }),
     ),

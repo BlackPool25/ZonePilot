@@ -27,6 +27,8 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class TourService {
 
+    private static final double POD_PROXIMITY_M = 100.0;
+
     private final TourRepository tours;
     private final TourStopRepository stops;
     private final FleetGroupRepository groups;
@@ -76,6 +78,8 @@ public class TourService {
                 .mapToDouble(s -> s.getWeightKg() != null ? s.getWeightKg() : 0.0).sum();
         Double payloadKg = vehicle.getModel() != null ? vehicle.getModel().getPayloadKg() : null;
         LoadService.checkCapacity(payloadKg, plannedKg, vehicle.getRegistrationNumber());
+        // Fail fast before optimizer/Google spend: same gate group-dispatch uses.
+        driverService.checkEligible(driver, vehicle);
 
         Instant now = Instant.now();
         List<TourOptimizerService.StopPoint> points = req.getStops().stream()
@@ -153,12 +157,23 @@ public class TourService {
     }
 
     @Transactional
-    public TourResponse deliver(Long tourId, Long stopId, double lat, double lng) {
+    public TourResponse deliver(Long tourId, Long stopId, Double lat, Double lng) {
+        if (lat == null || lng == null) {
+            throw new ValidationException("GPS fix required for proof of delivery");
+        }
         Tour tour = tours.findByIdWithLock(tourId)
                 .orElseThrow(() -> new ResourceNotFoundException("Tour", "id", tourId));
         requireActive(tour);
         TourStop stop = loadStop(tourId, stopId);
         requireCurrent(tourId, stop);
+        // PoD must be at the stop: 100m proximity, re-validated server-side
+        // on every call (including offline-queue replays).
+        double distM = TourOptimizerService.haversineMeters(
+                lat, lng, stop.getPoint().getY(), stop.getPoint().getX());
+        if (distM > POD_PROXIMITY_M) {
+            throw new ValidationException("proof of delivery is " + Math.round(distM)
+                    + "m from stop " + stop.getSeq() + " (limit " + POD_PROXIMITY_M + "m)");
+        }
         stop.setStatus(StopStatus.DELIVERED);
         stop.setDeliveredAt(Instant.now());
         stop.setPodLat(lat);

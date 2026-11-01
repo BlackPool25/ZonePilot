@@ -16,24 +16,27 @@ const STRINGS = {
     sync: 'Sync pending', pending: 'pending', noTrips: 'No assigned trips right now.',
     synced: 'Queue synced', queued: 'Saved offline — will sync later', sosSent: 'SOS sent. Dispatch has been notified.',
     tours: 'My tours', duty: 'Duty', onDuty: 'On duty', driving: 'Driving', break: 'Break', offDuty: 'Off duty',
+    inTransit: 'In transit',
     delivered: 'Delivered ✓', skip: 'Skip', skipReason: 'Skip reason…', noTours: 'No active tours.',
-    dutySet: 'Duty updated', stopClosed: 'Stop recorded' },
+    dutySet: 'Duty updated', stopClosed: 'Stop recorded', noGps: 'GPS fix required for delivery' },
   kn: { login: 'ಚಾಲಕ ಲಾಗಿನ್', email: 'ಇಮೇಲ್', password: 'ಪಾಸ್‌ವರ್ಡ್', logout: 'ಲಾಗ್ಔಟ್',
     trips: 'ನನ್ನ ಪ್ರವಾಸಗಳು', accept: 'ಒಪ್ಪಿಕೊಳ್ಳಿ', start: 'ಪ್ರವಾಸ ಪ್ರಾರಂಭಿಸಿ', slip: 'ಚೀಟಿ ಸೇರಿಸಿ', sos: 'SOS',
     kind: 'ವಿಧ', amount: 'ಮೊತ್ತ (₹)', fuel: 'ಇಂಧನ', toll: 'ಸುಂಕ', send: 'SOS ಕಳುಹಿಸಿ',
     sync: 'ಬಾಕಿ ಸಿಂಕ್ ಮಾಡಿ', pending: 'ಬಾಕಿ', noTrips: 'ಸದ್ಯಕ್ಕೆ ಯಾವುದೇ ಪ್ರವಾಸಗಳಿಲ್ಲ.',
     synced: 'ಸಿಂಕ್ ಆಗಿದೆ', queued: 'ಆಫ್‌ಲೈನ್‌ನಲ್ಲಿ ಉಳಿಸಲಾಗಿದೆ', sosSent: 'SOS ಕಳುಹಿಸಲಾಗಿದೆ.',
     tours: 'ನನ್ನ ಟೂರ್‌ಗಳು', duty: 'ಕರ್ತವ್ಯ', onDuty: 'ಕರ್ತವ್ಯದಲ್ಲಿ', driving: 'ಚಾಲನೆ', break: 'ವಿರಾಮ', offDuty: 'ಕರ್ತವ್ಯ ಮುಕ್ತ',
+    inTransit: 'ಸಾಗಣೆಯಲ್ಲಿ',
     delivered: 'ತಲುಪಿದೆ ✓', skip: 'ಬಿಟ್ಟುಬಿಡಿ', skipReason: 'ಕಾರಣ…', noTours: 'ಯಾವುದೇ ಟೂರ್‌ಗಳಿಲ್ಲ.',
-    dutySet: 'ಕರ್ತವ್ಯ ಬದಲಾಗಿದೆ', stopClosed: 'ನಿಲ್ದಾಣ ದಾಖಲಾಗಿದೆ' },
+    dutySet: 'ಕರ್ತವ್ಯ ಬದಲಾಗಿದೆ', stopClosed: 'ನಿಲ್ದಾಣ ದಾಖಲಾಗಿದೆ', noGps: 'ವಿತರಣೆಗೆ GPS ಅಗತ್ಯವಿದೆ' },
   hi: { login: 'ड्राइवर लॉगिन', email: 'ईमेल', password: 'पासवर्ड', logout: 'लॉगआउट',
     trips: 'मेरी यात्राएं', accept: 'स्वीकार करें', start: 'यात्रा शुरू करें', slip: 'पर्ची जोड़ें', sos: 'SOS',
     kind: 'प्रकार', amount: 'राशि (₹)', fuel: 'ईंधन', toll: 'टोल', send: 'SOS भेजें',
     sync: 'बकाया सिंक करें', pending: 'बकाया', noTrips: 'अभी कोई यात्रा नहीं है।',
     synced: 'सिंक हो गया', queued: 'ऑफ़लाइन सहेजा गया', sosSent: 'SOS भेजा गया।',
     tours: 'मेरे टूर', duty: 'ड्यूटी', onDuty: 'ड्यूटी पर', driving: 'ड्राइविंग', break: 'ब्रेक', offDuty: 'छुट्टी',
+    inTransit: 'पारगमन में',
     delivered: 'पहुंचाया ✓', skip: 'छोड़ें', skipReason: 'कारण…', noTours: 'कोई सक्रिय टूर नहीं है।',
-    dutySet: 'ड्यूटी बदली', stopClosed: 'स्टॉप दर्ज' },
+    dutySet: 'ड्यूटी बदली', stopClosed: 'स्टॉप दर्ज', noGps: 'डिलीवरी के लिए GPS ज़रूरी है' },
 };
 
 const readQueue = () => { try { return JSON.parse(localStorage.getItem(QUEUE_KEY) || '[]'); } catch { return []; } };
@@ -66,12 +69,6 @@ export default function Driver() {
     }).catch((e) => addToast('error', e.message)).finally(() => setLoading(false));
   };
   useEffect(() => { if (token) load(); }, [token]); // eslint-disable-line react-hooks/exhaustive-deps
-  // Offline queue burst: replay as soon as connectivity returns.
-  useEffect(() => {
-    const onOnline = () => { if (readQueue().length) syncQueue(); };
-    window.addEventListener('online', onOnline);
-    return () => window.removeEventListener('online', onOnline);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const login = async (e) => {
     e.preventDefault();
@@ -130,15 +127,25 @@ export default function Driver() {
     guarded(tourId, `duty-${status}`,
       () => driverApi.tourDuty(tourId, status).then(() => addToast('success', t.dutySet)),
       `/driver/tours/${tourId}/duty`, { status });
+  // Offline queue burst: replay as soon as connectivity returns.
+  useEffect(() => {
+    const onOnline = () => { if (readQueue().length) syncQueue(); };
+    window.addEventListener('online', onOnline);
+    return () => window.removeEventListener('online', onOnline);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const deliverTap = (tour, stop) => {
-    const post = (lat, lng) => guarded(tour.id, `stop-${stop.id}`,
-      () => driverApi.deliverStop(tour.id, stop.id, lat, lng).then(() => addToast('success', t.stopClosed)),
-      `/driver/tours/${tour.id}/stops/${stop.id}/deliver`, { lat, lng });
-    if (!navigator.geolocation) { post(null, null); return; }
+    // Server rejects null GPS with 400 (never records (0,0)), so without a
+    // fix we toast locally instead of queueing an un-locatable PoD.
+    const noFix = () => addToast('error', t.noGps);
+    if (!navigator.geolocation) { noFix(); return; }
     navigator.geolocation.getCurrentPosition(
-      (pos) => post(pos.coords.latitude, pos.coords.longitude),
-      () => post(null, null), // unknown location, never (0,0)
+      (pos) => guarded(tour.id, `stop-${stop.id}`,
+        () => driverApi.deliverStop(tour.id, stop.id, pos.coords.latitude, pos.coords.longitude)
+          .then(() => addToast('success', t.stopClosed)),
+        `/driver/tours/${tour.id}/stops/${stop.id}/deliver`,
+        { lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      () => noFix(),
       { timeout: 8000 });
   };
 
@@ -194,10 +201,11 @@ export default function Driver() {
             <Badge variant={tour.status === 'ACTIVE' ? 'green' : 'blue'}>{tour.status} · {tour.dutyStatus}</Badge>
           </div>
           <div className={styles.actions} role="group" aria-label={t.duty}>
-            {['ON_DUTY', 'DRIVING', 'BREAK', 'OFF_DUTY'].map((s) => (
+            {['ON_DUTY', 'DRIVING', 'IN_TRANSIT', 'BREAK', 'OFF_DUTY'].map((s) => (
               <Button key={s} size="sm" variant={tour.dutyStatus === s ? 'primary' : 'ghost'}
                 disabled={busy === `${tour.id}-duty-${s}`} onClick={() => setDuty(tour.id, s)}>
-                {s === 'ON_DUTY' ? t.onDuty : s === 'DRIVING' ? t.driving : s === 'BREAK' ? t.break : t.offDuty}
+                {s === 'ON_DUTY' ? t.onDuty : s === 'DRIVING' ? t.driving
+                  : s === 'IN_TRANSIT' ? t.inTransit : s === 'BREAK' ? t.break : t.offDuty}
               </Button>
             ))}
             <Button variant="danger" size="sm" onClick={() => sendSos(tour.activeRouteId)}>{t.sos}</Button>

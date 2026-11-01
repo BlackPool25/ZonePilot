@@ -3,11 +3,13 @@ package com.zonepilot.backend.controller;
 import com.zonepilot.backend.dto.request.CreateSlipRequest;
 import com.zonepilot.backend.dto.request.SosRequest;
 import com.zonepilot.backend.dto.response.ApiResponse;
+import com.zonepilot.backend.dto.response.DutyLogResponse;
 import com.zonepilot.backend.dto.response.TourResponse;
 import com.zonepilot.backend.entity.DispatchRoute;
 import com.zonepilot.backend.entity.SosAlert;
 import com.zonepilot.backend.entity.TripSlip;
 import com.zonepilot.backend.enums.DutyStatus;
+import com.zonepilot.backend.exception.ValidationException;
 import com.zonepilot.backend.service.DriverService;
 import com.zonepilot.backend.service.TourService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -74,7 +76,24 @@ public class DriverAppController {
     public ResponseEntity<ApiResponse<TourResponse>> setDuty(
             @PathVariable Long id, @RequestBody java.util.Map<String, String> body) {
         return ResponseEntity.ok(ApiResponse.success(
-                driverService.setTourDuty(id, DutyStatus.valueOf(body.get("status")))));
+                driverService.setTourDuty(id, parseDuty(body.get("status")))));
+    }
+
+    @GetMapping("/tours/{id}/duty-log")
+    @Operation(summary = "Timestamped duty history on my tour (ELD log)")
+    public ResponseEntity<ApiResponse<List<DutyLogResponse>>> dutyLog(@PathVariable Long id) {
+        return ResponseEntity.ok(ApiResponse.success(driverService.dutyLog(id)));
+    }
+
+    private static DutyStatus parseDuty(String status) {
+        if (status == null) {
+            throw new ValidationException("duty status is required");
+        }
+        try {
+            return DutyStatus.valueOf(status);
+        } catch (IllegalArgumentException e) {
+            throw new ValidationException("unknown duty status '" + status + "'");
+        }
     }
 
     @PostMapping("/tours/{id}/stops/{stopId}/deliver")

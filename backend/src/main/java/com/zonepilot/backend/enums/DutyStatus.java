@@ -4,5 +4,6 @@ public enum DutyStatus {
     OFF_DUTY,
     ON_DUTY,
     DRIVING,
-    BREAK
+    BREAK,
+    IN_TRANSIT
 }
