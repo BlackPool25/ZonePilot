@@ -183,6 +183,15 @@ public class TourService {
     }
 
     @Transactional
+    public TourResponse completeBySeq(Long tourId, Integer seq, Double lat, Double lng) {
+        // Thin seq alias for deliver: order is still enforced inside deliver().
+        TourStop stop = stops.findByTourIdAndSeq(tourId, seq)
+                .orElseThrow(() -> new ResourceNotFoundException("TourStop", "seq",
+                        tourId + "/" + seq));
+        return deliver(tourId, stop.getId(), lat, lng);
+    }
+
+    @Transactional
     public TourResponse skip(Long tourId, Long stopId, String reason) {
         if (reason == null || reason.isBlank()) {
             throw new ValidationException("skip reason is required");
@@ -202,6 +211,7 @@ public class TourService {
     public TourResponse approve(Long tourId) {
         Tour tour = tours.findByIdWithLock(tourId)
                 .orElseThrow(() -> new ResourceNotFoundException("Tour", "id", tourId));
+        scope.requireGroupAccess(tour.getGroup());
         if (tour.getStatus() != TourStatus.PENDING_APPROVAL) {
             throw new ValidationException("tour is " + tour.getStatus()
                     + ", not PENDING_APPROVAL");
@@ -225,8 +235,8 @@ public class TourService {
         if (next == null) {
             // All stops closed: park for manager approval. The vehicle stays
             // IN_TRANSIT until approve() closes the tour + releases it.
+            // (Latest leg already completed above — no second call here.)
             tour.setStatus(TourStatus.PENDING_APPROVAL);
-            completeLatestRoute(tour.getId());
             return;
         }
         RouteValidationResponse leg = compliance.validateRoute(tour.getVehicle().getId(),

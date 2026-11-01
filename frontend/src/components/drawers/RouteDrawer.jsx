@@ -18,23 +18,33 @@ export default function RouteDrawer({ entityId, data: initialData }) {
   const [track, setTrack] = useState(null);
   const [tourBreaches, setTourBreaches] = useState([]);
   const [approving, setApproving] = useState(false);
+  const [timelineError, setTimelineError] = useState(null);
   const tourId = route?.tour?.id ?? route?.tourId ?? null;
+  const timelineVehicleId = route?.vehicle?.id ?? null;
+  const trackStatus = track?.status ?? null;
 
   // Manager tour timeline: stops + PoD stamps from the track endpoint.
   // Breach rows arrive eventually via the background worker, so poll them
-  // separately rather than expecting them on the tour payload.
+  // separately rather than expecting them on the tour payload. Polling stops
+  // once the tour is COMPLETED — nothing more will arrive.
   useEffect(() => {
     if (!tourId) return;
     let live = true;
     const load = () => {
-      toursApi.track(tourId).then(t => { if (live) setTrack(t); }).catch(() => {});
-      const vid = route?.vehicle?.id;
-      if (vid) breachesApi.list({ vehicleId: vid }).then(b => { if (live) setTourBreaches(b ?? []); }).catch(() => {});
+      toursApi.track(tourId)
+        .then(t => { if (live) { setTrack(t); setTimelineError(null); } })
+        .catch((err) => { if (live) setTimelineError(err.message || 'Failed to load tour timeline.'); });
+      if (timelineVehicleId) {
+        breachesApi.list({ vehicleId: timelineVehicleId })
+          .then(b => { if (live) setTourBreaches(b ?? []); })
+          .catch(() => {});
+      }
     };
     load();
+    if (trackStatus === 'COMPLETED') return () => { live = false; };
     const timer = setInterval(load, 15000);
     return () => { live = false; clearInterval(timer); };
-  }, [tourId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [tourId, timelineVehicleId, trackStatus]);
 
   async function handleApprove() {
     if (!tourId || approving) return;
@@ -42,6 +52,16 @@ export default function RouteDrawer({ entityId, data: initialData }) {
     try {
       const updated = await toursApi.approve(tourId);
       setTrack(t => (t ? { ...t, status: updated.status } : t));
+      // Refresh the route payload too so the history badge follows the tour.
+      const routeId = route?.id ?? route?.dispatchRouteId ?? entityId;
+      if (routeId) {
+        try {
+          const fresh = await routesApi.get(routeId);
+          setRoute(prev => ({ ...prev, ...fresh }));
+        } catch {
+          // track already updated; route refresh is best-effort
+        }
+      }
       addToast('success', `Tour #${tourId} approved — vehicle released`);
     } catch (err) {
       addToast('error', err.message || 'Failed to approve tour.');
@@ -191,6 +211,9 @@ export default function RouteDrawer({ entityId, data: initialData }) {
       {tourId && (
         <div className="drawer-section">
           <p className="drawer-section-title">Tour #{tourId} timeline</p>
+          {timelineError && !track && (
+            <p style={{ color: 'var(--red-500)', fontSize: 13 }}>{timelineError}</p>
+          )}
           {track ? (
             <>
               <div className="drawer-row">

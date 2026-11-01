@@ -52,6 +52,15 @@ public class TourController {
                 ApiResponse.success(tours.skip(tourId, stopId, req.getReason())));
     }
 
+    @PostMapping("/{tourId}/stops/{seq}/complete")
+    @Operation(summary = "Proof of delivery by stop sequence (thin alias for deliver)")
+    public ResponseEntity<ApiResponse<TourResponse>> completeBySeq(@PathVariable Long tourId,
+                                                                   @PathVariable Integer seq,
+                                                                   @Valid @RequestBody DeliverStopRequest req) {
+        return ResponseEntity.ok(ApiResponse.success(
+                tours.completeBySeq(tourId, seq, req.getLat(), req.getLng())));
+    }
+
     @PostMapping("/{tourId}/approve")
     @Operation(summary = "Manager approve: close a delivered tour, release the vehicle")
     public ResponseEntity<ApiResponse<TourResponse>> approve(@PathVariable Long tourId) {

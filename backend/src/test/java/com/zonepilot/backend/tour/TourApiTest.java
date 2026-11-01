@@ -292,11 +292,11 @@ class TourApiTest {
                 Map.of("reason", "gate closed"), ownerToken);
         assertThat(skipped.get("status")).isEqualTo(200);
 
-        // Deliver the final stop → tour PENDING_APPROVAL, then approve → COMPLETED.
+        // Deliver the final stop by seq (thin alias) → PENDING_APPROVAL, then approve → COMPLETED.
         List<Map<String, Object>> mid =
                 (List<Map<String, Object>>) tour(tourId).get("stops");
         Map<String, Object> done = post(
-                "/api/tours/" + tourId + "/stops/" + mid.get(1).get("id") + "/deliver",
+                "/api/tours/" + tourId + "/stops/" + mid.get(1).get("seq") + "/complete",
                 Map.of("lat", 12.935, "lng", 77.640), ownerToken);
         assertThat(done.get("status")).isEqualTo(200);
         assertThat(tour(tourId).get("status")).isEqualTo("PENDING_APPROVAL");

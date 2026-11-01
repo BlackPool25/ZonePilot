@@ -109,4 +109,48 @@ class PodApprovalTest {
         assertTrue(e.getMessage().contains("PENDING_APPROVAL"), e.getMessage());
         assertEquals(TourStatus.ACTIVE, tour.getStatus());
     }
+
+    @Test
+    void approve_crossGroup_denied() {
+        tourService.deliver(23L, 24L, 12.9305, 77.6205);
+        org.mockito.Mockito.doThrow(
+                new org.springframework.security.access.AccessDeniedException("Not your group"))
+                .when(scope).requireGroupAccess(org.mockito.Mockito.any());
+        assertThrows(org.springframework.security.access.AccessDeniedException.class,
+                () -> tourService.approve(23L));
+        assertEquals(TourStatus.PENDING_APPROVAL, tour.getStatus());
+        assertEquals(VehicleAvailability.IN_TRANSIT, vehicle.getAvailability());
+    }
+
+    @Test
+    void completeBySeq_delegatesToDeliver() {
+        lenient().when(stops.findByTourIdAndSeq(23L, 0)).thenReturn(Optional.of(stop));
+        var response = tourService.completeBySeq(23L, 0, 12.9305, 77.6205);
+        assertEquals("PENDING_APPROVAL", response.getStatus());
+        assertEquals(StopStatus.DELIVERED, stop.getStatus());
+    }
+
+    @Test
+    void completeBySeq_unknownSeq_notFound() {
+        lenient().when(stops.findByTourIdAndSeq(23L, 7)).thenReturn(Optional.empty());
+        assertThrows(com.zonepilot.backend.exception.ResourceNotFoundException.class,
+                () -> tourService.completeBySeq(23L, 7, 12.93, 77.62));
+        assertEquals(StopStatus.PENDING, stop.getStatus());
+    }
+
+    @Test
+    void completeBySeq_outOfOrder_rejected() {
+        TourStop second = new TourStop();
+        second.setId(25L);
+        second.setTour(tour);
+        second.setSeq(1);
+        second.setPoint(GF.createPoint(new Coordinate(77.63, 12.94)));
+        second.setStatus(StopStatus.PENDING);
+        lenient().when(stops.findById(25L)).thenReturn(Optional.of(second));
+        lenient().when(stops.findByTourIdAndSeq(23L, 1)).thenReturn(Optional.of(second));
+        lenient().when(stops.findByTourIdOrderBySeqAsc(23L)).thenReturn(List.of(stop, second));
+        ValidationException e = assertThrows(ValidationException.class,
+                () -> tourService.completeBySeq(23L, 1, 12.94, 77.63));
+        assertTrue(e.getMessage().contains("current stop"), e.getMessage());
+    }
 }
