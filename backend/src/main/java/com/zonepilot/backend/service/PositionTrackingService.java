@@ -207,6 +207,9 @@ public class PositionTrackingService {
         if (broadcast) {
             events.publishEvent(new BreachWorker.PositionFix(
                     vehicleId, saved.getId(), finalLat, finalLng, recordedAt, source));
+            // ELD motion feed: replay-silent (replay passes broadcast=false).
+            events.publishEvent(new DutyEvaluator.DutyFix(
+                    tour.getId(), vehicleId, driverId, groupId, recordedAt, speedKmh));
         }
 
         PositionRecordResponse response = new PositionRecordResponse();

@@ -87,6 +87,13 @@ public class DriverAppController {
         return ResponseEntity.ok(ApiResponse.success(driverService.dutyLog(id)));
     }
 
+    @GetMapping("/tours/{id}/hos")
+    @Operation(summary = "HOS counters + alarm flags from the ELD duty log")
+    public ResponseEntity<ApiResponse<com.zonepilot.backend.service.DutyEvaluator.HosStatus>> hos(
+            @PathVariable Long id) {
+        return ResponseEntity.ok(ApiResponse.success(driverService.hosStatus(id)));
+    }
+
     private static DutyStatus parseDuty(String status) {
         if (status == null) {
             throw new ValidationException("duty status is required");

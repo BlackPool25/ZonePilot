@@ -38,6 +38,10 @@ public interface VehiclePositionLogRepository extends JpaRepository<VehiclePosit
 
     List<VehiclePositionLog> findByTourIdOrderByRecordedAtAsc(Long tourId);
 
+    /** Bounded window for the ELD sustained-motion check (auto-DRIVING / stopped). */
+    List<VehiclePositionLog> findByTourIdAndRecordedAtBetweenOrderByRecordedAtAsc(
+            Long tourId, Instant from, Instant to);
+
     // Tour/group-scoped history (live reads only, like the vehicle queries above).
     @Query("SELECT p FROM VehiclePositionLog p WHERE p.vehicleId = :vehicleId AND p.tourId = :tourId "
             + "AND p.replay = FALSE AND p.groupId NOT IN (SELECT g.id FROM FleetGroup g WHERE g.name = 'HISTORIC') "

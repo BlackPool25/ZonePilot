@@ -71,6 +71,17 @@ public class TickBroadcaster {
         store(groupId, frame);
     }
 
+    public void hosAlarm(long groupId, long tourId, long vehicleId, String reason) {
+        Map<String, Object> frame = Map.of(
+                "type", "hos-alarm",
+                "groupId", groupId,
+                "tourId", tourId,
+                "vehicleId", vehicleId,
+                "reason", reason);
+        messaging.convertAndSend("/topic/group/" + groupId, frame);
+        store(groupId, frame);
+    }
+
     /**
      * Missed ticks for a group, oldest first. {@code since} is exclusive
      * (pass the last seen recordedAt); null returns the newest {@code limit}.

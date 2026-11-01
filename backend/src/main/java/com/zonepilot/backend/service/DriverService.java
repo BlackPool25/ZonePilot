@@ -334,6 +334,13 @@ public class DriverService {
     }
 
     @Transactional(readOnly = true)
+    public DutyEvaluator.HosStatus hosStatus(Long tourId) {
+        requireOwnedTour(tourId);
+        return DutyEvaluator.computeHos(
+                dutyLogs.findByTourIdOrderByRecordedAtAscIdAsc(tourId), Instant.now());
+    }
+
+    @Transactional(readOnly = true)
     public Tour requireOwnedTour(Long tourId) {
         Driver driver = currentDriver();
         Tour tour = tourRepository.findById(tourId)
