@@ -98,12 +98,13 @@ class PodValidationTest {
     }
 
     @Test
-    void nearPod_acceptedAndCompletesTour() {
-        // ~70m away: inside the fence; single stop so the tour completes.
+    void nearPod_acceptedAndParksForApproval() {
+        // ~70m away: inside the fence; single stop parks the tour for
+        // manager approval instead of auto-completing.
         var response = tourService.deliver(23L, 24L, 12.9305, 77.6205);
-        assertEquals("COMPLETED", response.getStatus());
+        assertEquals("PENDING_APPROVAL", response.getStatus());
         assertEquals(StopStatus.DELIVERED, stop.getStatus());
-        assertEquals(VehicleAvailability.AVAILABLE, vehicle.getAvailability());
+        assertEquals(VehicleAvailability.IN_TRANSIT, vehicle.getAvailability());
     }
 
     @Test

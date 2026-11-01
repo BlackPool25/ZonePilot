@@ -178,7 +178,11 @@ class DispatchAvailabilityTest {
 
         TourResponse done = tourService.deliver(62L, 70L, 12.93, 77.62);
 
-        assertEquals("COMPLETED", done.getStatus());
+        // Last stop parks for approval; only approve releases the vehicle.
+        assertEquals("PENDING_APPROVAL", done.getStatus());
+        assertEquals(VehicleAvailability.IN_TRANSIT, vehicle.getAvailability());
+        TourResponse approved = tourService.approve(62L);
+        assertEquals("COMPLETED", approved.getStatus());
         assertEquals(VehicleAvailability.AVAILABLE, vehicle.getAvailability());
     }
 

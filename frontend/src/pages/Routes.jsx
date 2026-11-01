@@ -314,6 +314,11 @@ export default function Routes() {
                   <span className={styles.historyDate}>{formatDateTime(r.createdAt)}</span>
                 </div>
                 <Badge variant={r.compliant ? 'green' : 'red'} size="sm">{r.compliant ? 'Compliant' : 'Violations'}</Badge>
+                {(r.tour?.status ?? r.tourStatus) && (
+                  <Badge variant={(r.tour?.status ?? r.tourStatus) === 'COMPLETED' ? 'green' : 'amber'} size="sm">
+                    Tour {(r.tour?.status ?? r.tourStatus).replace('_', ' ')}
+                  </Badge>
+                )}
               </button>
             ))}
           </div>

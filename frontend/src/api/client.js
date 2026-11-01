@@ -107,6 +107,13 @@ export const reportsApi = {
   activeRestrictions: () => get('/reports/active-restrictions'),
 };
 
+// ─── Tours (manager timeline + approve) ─────────────────────────────────
+export const toursApi = {
+  get: (id) => get(`/tours/${id}`),
+  track: (id) => get(`/tours/${id}/track`),
+  approve: (id) => post(`/tours/${id}/approve`),
+};
+
 // ─── Auth ─────────────────────────────────────────────────────────────
 export const authApi = {
   login: (email, password) => post('/auth/login', { email, password }),

@@ -198,6 +198,20 @@ public class TourService {
         return toResponse(tourId);
     }
 
+    @Transactional
+    public TourResponse approve(Long tourId) {
+        Tour tour = tours.findByIdWithLock(tourId)
+                .orElseThrow(() -> new ResourceNotFoundException("Tour", "id", tourId));
+        if (tour.getStatus() != TourStatus.PENDING_APPROVAL) {
+            throw new ValidationException("tour is " + tour.getStatus()
+                    + ", not PENDING_APPROVAL");
+        }
+        tour.setStatus(TourStatus.COMPLETED);
+        tour.getVehicle().setAvailability(VehicleAvailability.AVAILABLE);
+        completeLatestRoute(tour.getId());
+        return toResponse(tourId);
+    }
+
     // current stop = first PENDING stop in seq order; mid-tour order is frozen.
     private void advance(Tour tour, TourStop done) {
         // The leg that brought the driver here is complete — the driver is
@@ -209,8 +223,9 @@ public class TourService {
                 .findFirst()
                 .orElse(null);
         if (next == null) {
-            tour.setStatus(TourStatus.COMPLETED);
-            tour.getVehicle().setAvailability(VehicleAvailability.AVAILABLE);
+            // All stops closed: park for manager approval. The vehicle stays
+            // IN_TRANSIT until approve() closes the tour + releases it.
+            tour.setStatus(TourStatus.PENDING_APPROVAL);
             completeLatestRoute(tour.getId());
             return;
         }

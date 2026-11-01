@@ -52,6 +52,12 @@ public class TourController {
                 ApiResponse.success(tours.skip(tourId, stopId, req.getReason())));
     }
 
+    @PostMapping("/{tourId}/approve")
+    @Operation(summary = "Manager approve: close a delivered tour, release the vehicle")
+    public ResponseEntity<ApiResponse<TourResponse>> approve(@PathVariable Long tourId) {
+        return ResponseEntity.ok(ApiResponse.success(tours.approve(tourId)));
+    }
+
     @GetMapping("/{tourId}/track")
     @Operation(summary = "Live tracing: stops with ETAs, per-leg route geometries, latest position")
     public ResponseEntity<ApiResponse<TourTrackResponse>> track(@PathVariable Long tourId) {

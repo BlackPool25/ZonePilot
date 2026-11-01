@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { routesApi, simulationApi } from '../../api/client.js';
+import { routesApi, simulationApi, toursApi, breachesApi } from '../../api/client.js';
 import Badge from '../atoms/Badge.jsx';
 import { Spinner } from '../atoms/Spinner.jsx';
 import { useApp } from '../../context/AppContext.jsx';
@@ -15,6 +15,40 @@ export default function RouteDrawer({ entityId, data: initialData }) {
   const [deleting, setDeleting] = useState(false);
   const [simulating, setSimulating] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
+  const [track, setTrack] = useState(null);
+  const [tourBreaches, setTourBreaches] = useState([]);
+  const [approving, setApproving] = useState(false);
+  const tourId = route?.tour?.id ?? route?.tourId ?? null;
+
+  // Manager tour timeline: stops + PoD stamps from the track endpoint.
+  // Breach rows arrive eventually via the background worker, so poll them
+  // separately rather than expecting them on the tour payload.
+  useEffect(() => {
+    if (!tourId) return;
+    let live = true;
+    const load = () => {
+      toursApi.track(tourId).then(t => { if (live) setTrack(t); }).catch(() => {});
+      const vid = route?.vehicle?.id;
+      if (vid) breachesApi.list({ vehicleId: vid }).then(b => { if (live) setTourBreaches(b ?? []); }).catch(() => {});
+    };
+    load();
+    const timer = setInterval(load, 15000);
+    return () => { live = false; clearInterval(timer); };
+  }, [tourId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function handleApprove() {
+    if (!tourId || approving) return;
+    setApproving(true);
+    try {
+      const updated = await toursApi.approve(tourId);
+      setTrack(t => (t ? { ...t, status: updated.status } : t));
+      addToast('success', `Tour #${tourId} approved — vehicle released`);
+    } catch (err) {
+      addToast('error', err.message || 'Failed to approve tour.');
+    } finally {
+      setApproving(false);
+    }
+  }
 
   async function handleSimulate() {
     const routeId = route?.id ?? route?.dispatchRouteId ?? entityId;
@@ -151,6 +185,58 @@ export default function RouteDrawer({ entityId, data: initialData }) {
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {tourId && (
+        <div className="drawer-section">
+          <p className="drawer-section-title">Tour #{tourId} timeline</p>
+          {track ? (
+            <>
+              <div className="drawer-row">
+                <span className="drawer-row-label">Status</span>
+                <span className="drawer-row-value">
+                  <Badge variant={track.status === 'COMPLETED' ? 'green' : track.status === 'PENDING_APPROVAL' ? 'amber' : 'blue'} size="sm">
+                    {track.status}
+                  </Badge>
+                </span>
+              </div>
+              {(track.stops ?? []).map(s => (
+                <div key={s.id} className={styles.violation}>
+                  <span className={styles.violationDot} aria-hidden="true" />
+                  <div>
+                    <span className={styles.violationZone}>Stop #{s.seq} {s.address || ''}</span>
+                    <span className={styles.violationType}>
+                      {s.status}
+                      {s.status === 'DELIVERED' && s.deliveredAt ? ` · ${formatDateTime(s.deliveredAt)}` : ''}
+                      {s.status === 'DELIVERED' && s.podLat != null ? ` · PoD ${Number(s.podLat).toFixed(5)},${Number(s.podLng).toFixed(5)}` : ''}
+                      {s.status === 'SKIPPED' && s.skipReason ? ` · ${s.skipReason}` : ''}
+                    </span>
+                  </div>
+                </div>
+              ))}
+              {tourBreaches.length > 0 && (
+                <div className="drawer-row">
+                  <span className="drawer-row-label">Breaches</span>
+                  <span className="drawer-row-value">
+                    <Badge variant="red" size="sm">{tourBreaches.length} on this vehicle</Badge>
+                  </span>
+                </div>
+              )}
+              {track.status === 'PENDING_APPROVAL' && (
+                <button
+                  className={styles.simulateBtn}
+                  onClick={handleApprove}
+                  disabled={approving}
+                  type="button"
+                >
+                  {approving ? 'Approving…' : '✓ Approve tour — release vehicle'}
+                </button>
+              )}
+            </>
+          ) : (
+            <p style={{ color: 'var(--text-secondary)', fontSize: 13 }}>Loading tour timeline…</p>
+          )}
         </div>
       )}
 
