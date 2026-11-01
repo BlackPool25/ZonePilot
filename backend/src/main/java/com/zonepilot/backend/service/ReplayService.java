@@ -20,9 +20,10 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Replays a tour's stored fixes as REPLAY-source inserts. Breach detection
- * is eventual: each re-insert publishes a worker event (same as live
- * ingest), so the replay UI must read breaches separately via /api/breaches.
+ * Replays a tour's stored live fixes as is_replay inserts. Breach-silent:
+ * replay inserts never emit BreachWorker events (re-firing would
+ * double-count breaches the live pass already judged), so the replay UI
+ * reads breaches separately via /api/breaches.
  *
  * <p>Bounded replay: at most {@link #MAX_POINTS} fixes, chunked in groups of
  * 100 with independent REQUIRES_NEW transactions per chunk (a failure loses
@@ -30,6 +31,8 @@ import java.util.List;
  * Overlong histories keep the <em>latest</em> 2000 fixes (the tail — the
  * oldest fixes are dropped). Per-fix ticks are suppressed; one summary tick
  * for the final fix fans out at the end.
+ *
+ * <p>Throttled: one replay per user+tour per minute (429 beyond that).
  */
 @Service
 public class ReplayService {
@@ -38,14 +41,44 @@ public class ReplayService {
     public static final int MAX_SPEED = 30;
     public static final int MAX_POINTS = 2000;
     static final int CHUNK = 100;
+    /** Replay throttle window: one replay per user+tour per minute. */
+    static final long REPLAY_MIN_INTERVAL_MS = 60_000;
 
-    /** Ops counter: replay attempts (live traffic shares the ingest path). */
+    /** Ops counter: admitted replays (rate-limited attempts don't count). */
     private static final java.util.concurrent.atomic.AtomicLong replayRuns =
             new java.util.concurrent.atomic.AtomicLong();
 
-    /** Ops counter: replay attempts (live traffic shares the ingest path). */
+    /** Ops counter: admitted replays (rate-limited attempts don't count). */
     public static long replayRunCount() {
         return replayRuns.get();
+    }
+
+    /** Per-user+tour last-admitted replay stamp (abuse throttle). */
+    private final java.util.concurrent.ConcurrentHashMap<String, Long> lastReplayAt =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
+    /** Test hook: clear the replay throttle. */
+    void resetRateLimits() {
+        lastReplayAt.clear();
+    }
+
+    /**
+     * Abuse throttle: one replay per user+tour per minute (429 beyond that).
+     * Caller identity comes from the JWT (never client params); unauthenticated
+     * paths (tests, workers) share the "anon" bucket per tour.
+     */
+    private void checkRateLimit(Long tourId) {
+        com.zonepilot.backend.auth.DepotPrincipal caller =
+                com.zonepilot.backend.auth.DepotScope.current();
+        String key = (caller != null ? caller.username() : "anon") + ":" + tourId;
+        long now = System.currentTimeMillis();
+        lastReplayAt.compute(key, (k, prev) -> {
+            if (prev != null && now - prev < REPLAY_MIN_INTERVAL_MS) {
+                throw new com.zonepilot.backend.exception.RateLimitExceededException(
+                        "replay for tour " + tourId + " rate-limited: one replay per minute");
+            }
+            return now;
+        });
     }
 
     public record ReplayResult(long tourId, int speed, int points) {}
@@ -91,6 +124,7 @@ public class ReplayService {
                 .orElseThrow(() -> new ResourceNotFoundException("Tour", "id", tourId));
         // Manager-only: drivers own no groups, so this rejects them (403).
         scope.requireGroupAccess(tour.getGroup());
+        checkRateLimit(tourId);
         replayRuns.incrementAndGet();
 
         // Paged tail: latest-2000 at SQL level, never a full-history load

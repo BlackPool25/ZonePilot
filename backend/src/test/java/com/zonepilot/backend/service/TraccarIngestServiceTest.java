@@ -135,6 +135,15 @@ class TraccarIngestServiceTest {
     }
 
     @Test
+    void quarantineCounter_countsByReason() {
+        long before = TraccarIngestService.quarantineCount("MALFORMED_JSON");
+        long totalBefore = TraccarIngestService.quarantineCount();
+        ingest.handle(TOPIC, "{not json");
+        assertThat(TraccarIngestService.quarantineCount("MALFORMED_JSON")).isEqualTo(before + 1);
+        assertThat(TraccarIngestService.quarantineCount()).isEqualTo(totalBefore + 1);
+    }
+
+    @Test
     void replaySource_accepted() {
         Instant ts = Instant.now();
         when(vehicles.findById(7L)).thenReturn(Optional.of(vehicleWithDepot()));

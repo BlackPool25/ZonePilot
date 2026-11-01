@@ -37,7 +37,11 @@ public class BreachQueryService {
         } else {
             breaches = breachLogRepository.findAll();
         }
-        return breaches.stream().map(this::toResponse).collect(Collectors.toList());
+        // HISTORIC dummy (V38 backfill target) is bookkeeping, not fleet.
+        return breaches.stream()
+                .filter(b -> b.getVehicle() == null
+                        || !"HISTORIC".equals(b.getVehicle().getRegistrationNumber()))
+                .map(this::toResponse).collect(Collectors.toList());
     }
 
     public BreachResponse getBreachById(Long id) {

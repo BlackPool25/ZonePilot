@@ -7,6 +7,7 @@ import com.zonepilot.backend.entity.Tour;
 import com.zonepilot.backend.entity.Vehicle;
 import com.zonepilot.backend.entity.VehiclePositionLog;
 import com.zonepilot.backend.enums.PositionSource;
+import com.zonepilot.backend.exception.RateLimitExceededException;
 import com.zonepilot.backend.exception.ResourceNotFoundException;
 import com.zonepilot.backend.exception.ValidationException;
 import com.zonepilot.backend.repository.TourRepository;
@@ -140,6 +141,33 @@ class ReplayServiceTest {
 
         assertThrows(ValidationException.class, () -> replay.start(9L, 5));
         verifyNoInteractions(tracking, broadcaster);
+    }
+
+    @Test
+    void start_secondCallWithinMinute_rateLimited429() {
+        Tour tour = buildTour(9L, 11L, 21L, 31L);
+        when(tours.findById(9L)).thenReturn(Optional.of(tour));
+        when(positions.findTop2000ByTourIdOrderByRecordedAtDesc(9L)).thenReturn(buildHistory(3));
+
+        replay.start(9L, 5);
+        assertThrows(RateLimitExceededException.class, () -> replay.start(9L, 5));
+        // Only the admitted replay ran: no second batch of inserts.
+        verify(tracking, times(3)).recordReplayFix(
+                any(), any(), any(), any(), anyDouble(), anyDouble(),
+                any(), any(), any(), eq(PositionSource.REPLAY));
+    }
+
+    @Test
+    void start_afterThrottleReset_admittedAgain() {
+        Tour tour = buildTour(9L, 11L, 21L, 31L);
+        when(tours.findById(9L)).thenReturn(Optional.of(tour));
+        when(positions.findTop2000ByTourIdOrderByRecordedAtDesc(9L)).thenReturn(buildHistory(1));
+
+        replay.start(9L, 5);
+        replay.resetRateLimits();
+        ReplayService.ReplayResult result = replay.start(9L, 5);
+
+        assertEquals(1, result.points());
     }
 
     @Test

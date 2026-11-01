@@ -239,6 +239,59 @@ class PositionTrackingServiceTest {
         verify(events, times(2)).publishEvent(any(BreachWorker.PositionFix.class));
     }
 
+    @Test
+    void recordReplayFix_marksReplayAndEmitsNoBreachEvent() {
+        Vehicle active = buildVehicle(1L, true);
+        when(vehicleRepository.findById(1L)).thenReturn(Optional.of(active));
+        com.zonepilot.backend.entity.Tour tour = new com.zonepilot.backend.entity.Tour();
+        tour.setId(9L);
+        com.zonepilot.backend.entity.Driver driver = new com.zonepilot.backend.entity.Driver();
+        driver.setId(21L);
+        tour.setDriver(driver);
+        com.zonepilot.backend.entity.FleetGroup group = new com.zonepilot.backend.entity.FleetGroup();
+        group.setId(31L);
+        tour.setGroup(group);
+        when(tourRepository.findById(9L)).thenReturn(Optional.of(tour));
+        when(positionLogRepository.existsByVehicleIdAndTourIdAndRecordedAt(
+                eq(1L), eq(9L), any())).thenReturn(false);
+        com.zonepilot.backend.entity.VehiclePositionLog saved =
+                new com.zonepilot.backend.entity.VehiclePositionLog();
+        saved.setId(100L);
+        when(positionLogRepository.saveAndFlush(any())).thenReturn(saved);
+
+        service.recordReplayFix(1L, 21L, 9L, 31L, 12.9, 77.6,
+                Instant.now(), null, null, PositionSource.REPLAY);
+
+        ArgumentCaptor<com.zonepilot.backend.entity.VehiclePositionLog> captor =
+                ArgumentCaptor.forClass(com.zonepilot.backend.entity.VehiclePositionLog.class);
+        verify(positionLogRepository).saveAndFlush(captor.capture());
+        assertTrue(captor.getValue().isReplay());
+        // Breach-silent: no worker event, no live tick.
+        verify(events, never()).publishEvent(any());
+        verify(broadcaster, never()).tick(anyLong(), anyLong(), anyDouble(), anyDouble(), any(), any(), anyBoolean());
+    }
+
+    @Test
+    void recordPosition_marksLiveNotReplay() {
+        Vehicle active = buildVehicle(1L, true);
+        active.setActiveDispatchRouteId(500L);
+        when(vehicleRepository.findById(1L)).thenReturn(Optional.of(active));
+        when(positionLogRepository.existsByVehicleIdAndTourIdAndRecordedAt(
+                eq(1L), eq(3L), any())).thenReturn(false);
+        com.zonepilot.backend.entity.VehiclePositionLog saved =
+                new com.zonepilot.backend.entity.VehiclePositionLog();
+        saved.setId(100L);
+        when(positionLogRepository.saveAndFlush(any())).thenReturn(saved);
+
+        // Null keys resolve via the active route stubbed in setUp (tour 3).
+        service.recordPosition(1L, 12.9, 77.6, Instant.now(), null, null, PositionSource.LIVE);
+
+        ArgumentCaptor<com.zonepilot.backend.entity.VehiclePositionLog> captor =
+                ArgumentCaptor.forClass(com.zonepilot.backend.entity.VehiclePositionLog.class);
+        verify(positionLogRepository).saveAndFlush(captor.capture());
+        assertFalse(captor.getValue().isReplay());
+    }
+
     private Vehicle buildVehicle(Long id, boolean active) {
         Vehicle v = new Vehicle();
         v.setId(id);

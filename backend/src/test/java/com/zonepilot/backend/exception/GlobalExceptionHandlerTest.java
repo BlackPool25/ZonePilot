@@ -54,6 +54,14 @@ class GlobalExceptionHandlerTest {
     }
 
     @Test
+    void rateLimitExceeded_returns429() {
+        RateLimitExceededException ex = new RateLimitExceededException("one replay per minute");
+        ResponseEntity<ApiResponse<Void>> response = handler.handleRateLimit(ex);
+        assertEquals(HttpStatus.TOO_MANY_REQUESTS, response.getStatusCode());
+        assertEquals("RATE_LIMITED", response.getBody().getError().getCode());
+    }
+
+    @Test
     void routingException_returns422() {
         RoutingException ex = new RoutingException("no path found");
         ResponseEntity<ApiResponse<Void>> response = handler.handleRouting(ex);

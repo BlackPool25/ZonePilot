@@ -30,6 +30,23 @@ public class TraccarIngestService {
 
     private static final Logger log = LoggerFactory.getLogger(TraccarIngestService.class);
 
+    /** Ops counter: quarantined fixes (spike = feed or map regression). */
+    private static final java.util.concurrent.atomic.AtomicLong quarantineTotal =
+            new java.util.concurrent.atomic.AtomicLong();
+    private static final java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicLong>
+            quarantineByReason = new java.util.concurrent.ConcurrentHashMap<>();
+
+    /** Ops counter: quarantined fixes (spike = feed or map regression). */
+    public static long quarantineCount() {
+        return quarantineTotal.get();
+    }
+
+    /** Ops counter: quarantines by reason (TELEPORT/BAD_TS/...). */
+    public static long quarantineCount(String reason) {
+        java.util.concurrent.atomic.AtomicLong n = quarantineByReason.get(reason);
+        return n != null ? n.get() : 0L;
+    }
+
     private final VehicleRepository vehicles;
     private final PositionTrackingService positions;
     private final QualityFilter quality;
@@ -231,6 +248,9 @@ public class TraccarIngestService {
         row.setReason(reason);
         row.setPayload(payload);
         quarantine.save(row);
+        quarantineTotal.incrementAndGet();
+        quarantineByReason.computeIfAbsent(reason, r -> new java.util.concurrent.atomic.AtomicLong())
+                .incrementAndGet();
         log.warn("ingest.quarantine vehicle={} reason={}", vehicleId, reason);
     }
 }

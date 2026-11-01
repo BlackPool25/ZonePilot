@@ -49,6 +49,9 @@ public class VehiclePositionLog {
     @Column(nullable = false, length = 10)
     private PositionSource source = PositionSource.LIVE;
 
+    @Column(name = "is_replay", nullable = false)
+    private boolean replay = false;
+
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
     public Instant getRecordedAt() { return recordedAt; }
@@ -71,4 +74,6 @@ public class VehiclePositionLog {
     public void setHeadingDeg(Short headingDeg) { this.headingDeg = headingDeg; }
     public PositionSource getSource() { return source; }
     public void setSource(PositionSource source) { this.source = source; }
+    public boolean isReplay() { return replay; }
+    public void setReplay(boolean replay) { this.replay = replay; }
 }

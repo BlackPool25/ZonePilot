@@ -120,8 +120,10 @@ public class PositionTrackingService {
     }
 
     /**
-     * Replay path: same binding + persistence as live ingest but no per-fix
-     * tick — the replay caller emits one summary tick at the end.
+     * Replay path: same binding + persistence as live ingest but breach-silent —
+     * never emits a BreachWorker event (replay rows are is_replay=TRUE and
+     * filtered from live views) and no per-fix tick — the replay caller
+     * emits one summary tick at the end.
      */
     @Transactional
     public PositionRecordResponse recordReplayFix(Long vehicleId, Long driverId, Long tourId, Long groupId,
@@ -180,6 +182,7 @@ public class PositionTrackingService {
         positionLog.setSpeedKmh(speedKmh);
         positionLog.setHeadingDeg(headingDeg);
         positionLog.setSource(source);
+        positionLog.setReplay(source == PositionSource.REPLAY);
 
         VehiclePositionLog saved;
         try {
@@ -189,11 +192,14 @@ public class PositionTrackingService {
             return duplicateResponse(vehicleId, tour.getId(), recordedAt);
         }
 
-        // Task 5: breach + reroute run in the background worker (own txn,
-        // AFTER_COMMIT). No pgRouting query may run here: a failed road query
-        // aborts the whole Postgres txn and the ingest would 500 (Task 3 Major).
-        events.publishEvent(new BreachWorker.PositionFix(
-                vehicleId, saved.getId(), finalLat, finalLng, recordedAt, source));
+        // Live pipe only (own txn, AFTER_COMMIT in the worker): replay fixes
+        // (broadcast=false) never emit worker events — replay is breach-silent
+        // by design (is_replay rows are filtered from live views, so re-firing
+        // would double-count).
+        if (broadcast) {
+            events.publishEvent(new BreachWorker.PositionFix(
+                    vehicleId, saved.getId(), finalLat, finalLng, recordedAt, source));
+        }
 
         PositionRecordResponse response = new PositionRecordResponse();
         response.setBreachDetected(false);
