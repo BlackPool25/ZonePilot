@@ -8,11 +8,23 @@ import org.springframework.stereotype.Repository;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 
 @Repository
 public interface ZoneBreachLogRepository extends JpaRepository<ZoneBreachLog, Long> {
 
     List<ZoneBreachLog> findByPositionLogId(Long positionLogId);
+
+    /**
+     * Task 5: the still-open entry for this vehicle+zone — a fix arriving
+     * within 60s of the last tick extends it instead of opening a new row.
+     */
+    @Query(value = "SELECT * FROM zone_breach_log WHERE vehicle_id = :vehicleId AND zone_id = :zoneId "
+            + "AND end_time >= :cutoff ORDER BY end_time DESC LIMIT 1", nativeQuery = true)
+    Optional<ZoneBreachLog> findOpenBreach(
+            @Param("vehicleId") Long vehicleId,
+            @Param("zoneId") Long zoneId,
+            @Param("cutoff") Instant cutoff);
 
     @Query(value = "SELECT * FROM zone_breach_log WHERE vehicle_id = :vehicleId AND breach_time >= :after ORDER BY breach_time DESC", nativeQuery = true)
     List<ZoneBreachLog> findByVehicleIdAndBreachTimeAfter(

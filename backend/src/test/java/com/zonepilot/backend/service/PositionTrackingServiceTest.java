@@ -13,19 +13,19 @@ import com.zonepilot.backend.exception.ValidationException;
 import com.zonepilot.backend.repository.VehiclePositionLogRepository;
 import com.zonepilot.backend.repository.TourRepository;
 import com.zonepilot.backend.repository.VehicleRepository;
-import com.zonepilot.backend.repository.ZoneBreachLogRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 
@@ -37,21 +37,19 @@ class PositionTrackingServiceTest {
 
     @Mock private VehicleRepository vehicleRepository;
     @Mock private VehiclePositionLogRepository positionLogRepository;
-    @Mock private ZoneBreachLogRepository breachLogRepository;
     @Mock private DispatchRouteRepository dispatchRouteRepository;
     @Mock private TourRepository tourRepository;
-    @Mock private BreachService breachService;
     @Mock private JdbcTemplate jdbcTemplate;
+    @Mock private ApplicationEventPublisher events;
     @Mock private TickBroadcaster broadcaster;
 
-    private final FakeIngestState state = new FakeIngestState();
     private PositionTrackingService service;
 
     @BeforeEach
     void setUp() {
         service = new PositionTrackingService(
-                vehicleRepository, positionLogRepository, breachLogRepository,
-                dispatchRouteRepository, tourRepository, breachService, jdbcTemplate, state, broadcaster);
+                vehicleRepository, positionLogRepository,
+                dispatchRouteRepository, tourRepository, jdbcTemplate, events, broadcaster);
         // Strict-keys default: active route 500 resolves to tour 3 (driver 9, group 7).
         DispatchRoute route = mock(DispatchRoute.class);
         Tour tour = mock(Tour.class);
@@ -143,7 +141,7 @@ class PositionTrackingServiceTest {
     }
 
     @Test
-    void recordPosition_whenVehicleOnRoute_logsRawCoordinateAndResetsCounter() {
+    void recordPosition_whenVehicleOnRoute_logsRawCoordinateAndPublishesFixEvent() {
         Vehicle active = buildVehicle(1L, true);
         active.setActiveDispatchRouteId(500L);
         when(vehicleRepository.findById(1L)).thenReturn(Optional.of(active));
@@ -158,7 +156,6 @@ class PositionTrackingServiceTest {
         com.zonepilot.backend.entity.VehiclePositionLog savedLog = new com.zonepilot.backend.entity.VehiclePositionLog();
         savedLog.setId(100L);
         when(positionLogRepository.saveAndFlush(any())).thenReturn(savedLog);
-        when(breachLogRepository.findByPositionLogId(100L)).thenReturn(Collections.emptyList());
 
         com.zonepilot.backend.dto.response.PositionRecordResponse response =
                 service.recordPosition(1L, 12.9, 77.6, Instant.now(), null, null, PositionSource.LIVE);
@@ -167,6 +164,15 @@ class PositionTrackingServiceTest {
         // Should keep raw coordinate since heading was null and distance is within 30m
         assertEquals(12.9, response.getPosition().getLatitude());
         assertEquals(77.6, response.getPosition().getLongitude());
+        assertFalse(response.getBreachDetected());
+
+        // Task 5: ingest only publishes; the worker judges breach/off-route async.
+        ArgumentCaptor<BreachWorker.PositionFix> captor =
+                ArgumentCaptor.forClass(BreachWorker.PositionFix.class);
+        verify(events, times(1)).publishEvent(captor.capture());
+        assertEquals(1L, captor.getValue().vehicleId());
+        assertEquals(12.9, captor.getValue().lat());
+        assertEquals(77.6, captor.getValue().lng());
     }
 
     @Test
@@ -185,7 +191,6 @@ class PositionTrackingServiceTest {
         com.zonepilot.backend.entity.VehiclePositionLog savedLog = new com.zonepilot.backend.entity.VehiclePositionLog();
         savedLog.setId(100L);
         when(positionLogRepository.saveAndFlush(any())).thenReturn(savedLog);
-        when(breachLogRepository.findByPositionLogId(100L)).thenReturn(Collections.emptyList());
 
         // Send reversed heading of 180 degrees (South)
         com.zonepilot.backend.dto.response.PositionRecordResponse response =
@@ -195,15 +200,17 @@ class PositionTrackingServiceTest {
         // Reversed heading within 30m -> snaps to route's closest point
         assertEquals(12.905, response.getPosition().getLatitude());
         assertEquals(77.605, response.getPosition().getLongitude());
+        verify(events, times(1)).publishEvent(any(BreachWorker.PositionFix.class));
     }
 
     @Test
-    void recordPosition_whenOffRouteFirstPing_logsRawCoordinatesAndToleratesGlitch() {
+    void recordPosition_whenOffRoute_publishesFixAndLeavesJudgementToWorker() {
         Vehicle active = buildVehicle(1L, true);
         active.setActiveDispatchRouteId(500L);
         when(vehicleRepository.findById(1L)).thenReturn(Optional.of(active));
 
-        // dist_m = 60.0 (off-route)
+        // dist_m = 60.0 (off-route) — ingest passes the raw fix through twice;
+        // the worker counts the streak and reroutes (see BreachWorkerTest).
         List<Object[]> queryResult = new ArrayList<>();
         queryResult.add(new Object[]{60.0, 12.905, 77.605, 0.0});
         when(jdbcTemplate.query(anyString(), any(org.springframework.jdbc.core.RowMapper.class),
@@ -213,43 +220,19 @@ class PositionTrackingServiceTest {
         com.zonepilot.backend.entity.VehiclePositionLog savedLog = new com.zonepilot.backend.entity.VehiclePositionLog();
         savedLog.setId(100L);
         when(positionLogRepository.saveAndFlush(any())).thenReturn(savedLog);
-        when(breachLogRepository.findByPositionLogId(100L)).thenReturn(Collections.emptyList());
 
-        com.zonepilot.backend.dto.response.PositionRecordResponse response =
+        // Ping 1
+        com.zonepilot.backend.dto.response.PositionRecordResponse first =
                 service.recordPosition(1L, 12.9, 77.6, Instant.now(), null, null, PositionSource.LIVE);
+        assertNotNull(first);
+        assertEquals(12.9, first.getPosition().getLatitude());
+        assertEquals(77.6, first.getPosition().getLongitude());
 
-        assertNotNull(response);
-        assertEquals(12.9, response.getPosition().getLatitude());
-        assertEquals(77.6, response.getPosition().getLongitude());
-        // Verify off-route rerouting was NOT triggered on 1st off-route ping
-        verify(breachService, never()).computeOffRouteReroute(anyLong(), anyDouble(), anyDouble());
-    }
-
-    @Test
-    void recordPosition_whenOffRouteSecondConsecutivePing_triggersRerouteAndResetsCounter() {
-        Vehicle active = buildVehicle(1L, true);
-        active.setActiveDispatchRouteId(500L);
-        when(vehicleRepository.findById(1L)).thenReturn(Optional.of(active));
-
-        // dist_m = 60.0 (off-route)
-        List<Object[]> queryResult = new ArrayList<>();
-        queryResult.add(new Object[]{60.0, 12.905, 77.605, 0.0});
-        when(jdbcTemplate.query(anyString(), any(org.springframework.jdbc.core.RowMapper.class),
-                anyDouble(), anyDouble(), anyDouble(), anyDouble(), anyDouble(), anyDouble(), anyLong()))
-                .thenReturn(queryResult);
-
-        com.zonepilot.backend.entity.VehiclePositionLog savedLog = new com.zonepilot.backend.entity.VehiclePositionLog();
-        savedLog.setId(100L);
-        when(positionLogRepository.saveAndFlush(any())).thenReturn(savedLog);
-        when(breachLogRepository.findByPositionLogId(100L)).thenReturn(Collections.emptyList());
-
-        // Ping 1 (increment off-route count to 1)
+        // Ping 2
         service.recordPosition(1L, 12.9, 77.6, Instant.now(), null, null, PositionSource.LIVE);
-        verify(breachService, never()).computeOffRouteReroute(anyLong(), anyDouble(), anyDouble());
 
-        // Ping 2 (increment off-route count to 2 -> trigger reroute and reset)
-        service.recordPosition(1L, 12.9, 77.6, Instant.now(), null, null, PositionSource.LIVE);
-        verify(breachService).computeOffRouteReroute(1L, 12.9, 77.6);
+        // Both fixes published; no inline reroute decision in the ingest txn.
+        verify(events, times(2)).publishEvent(any(BreachWorker.PositionFix.class));
     }
 
     private Vehicle buildVehicle(Long id, boolean active) {

@@ -44,9 +44,9 @@ public class BreachService {
      * The destination is taken from the vehicle's most recent dispatch route if available.
      * The resolved geometry is persisted on the breach log record.
      *
-     * Joins the caller's transaction (default REQUIRED): recordPosition invokes this
-     * inside its own txn, and suspending it with REQUIRES_NEW deadlocks on the
-     * partitioned position/breach tables.
+     * Called by BreachWorker inside the worker's own background txn (default
+     * REQUIRED joins it). Never call from the ingest txn: a failed pgRouting
+     * query aborts the whole Postgres txn and the ingest would 500.
      */
     @Transactional
     public void computeReroute(ZoneBreachLog breach, Long vehicleId,
@@ -85,7 +85,7 @@ public class BreachService {
      * Epic 3: Computes a reroute for a vehicle confirmed off-route (no zone breach).
      * Uses the vehicle's active dispatch route destination.
      *
-     * Joins the caller's transaction (default REQUIRED) — see computeReroute.
+     * Called by BreachWorker inside the worker's own background txn — see computeReroute.
      */
     @Transactional
     public void computeOffRouteReroute(Long vehicleId, double currentLat, double currentLng) {

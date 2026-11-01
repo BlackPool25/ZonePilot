@@ -3,7 +3,6 @@ package com.zonepilot.backend.service;
 import com.zonepilot.backend.dto.response.PositionRecordResponse;
 import com.zonepilot.backend.entity.Vehicle;
 import com.zonepilot.backend.entity.VehiclePositionLog;
-import com.zonepilot.backend.entity.ZoneBreachLog;
 import com.zonepilot.backend.entity.Tour;
 import com.zonepilot.backend.entity.DispatchRoute;
 import com.zonepilot.backend.enums.PositionSource;
@@ -13,13 +12,13 @@ import com.zonepilot.backend.repository.DispatchRouteRepository;
 import com.zonepilot.backend.repository.TourRepository;
 import com.zonepilot.backend.repository.VehiclePositionLogRepository;
 import com.zonepilot.backend.repository.VehicleRepository;
-import com.zonepilot.backend.repository.ZoneBreachLogRepository;
 import org.locationtech.jts.geom.Coordinate;
 import org.locationtech.jts.geom.GeometryFactory;
 import org.locationtech.jts.geom.Point;
 import org.locationtech.jts.geom.PrecisionModel;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -28,7 +27,6 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -37,41 +35,33 @@ public class PositionTrackingService {
 
     private static final Logger log = LoggerFactory.getLogger(PositionTrackingService.class);
 
-    // Cross-track thresholds (meters)
+    // Cross-track threshold (meters)
     // ≤ 30m: on-route (may be GPS glitch on opposite side of dual carriageway)
-    // > 50m for 2 consecutive pings: hard off-route → trigger reroute
     private static final double GLITCH_SNAP_THRESHOLD_M  = 30.0;
-    private static final double OFF_ROUTE_THRESHOLD_M    = 50.0;
 
     private final VehicleRepository vehicleRepository;
     private final VehiclePositionLogRepository positionLogRepository;
-    private final ZoneBreachLogRepository breachLogRepository;
     private final DispatchRouteRepository dispatchRouteRepository;
     private final TourRepository tourRepository;
-    private final BreachService breachService;
     private final JdbcTemplate jdbcTemplate;
     private final GeometryFactory geometryFactory;
-    private final IngestState state;
+    private final ApplicationEventPublisher events;
     private final TickBroadcaster broadcaster;
 
     public PositionTrackingService(VehicleRepository vehicleRepository,
                                    VehiclePositionLogRepository positionLogRepository,
-                                   ZoneBreachLogRepository breachLogRepository,
                                    DispatchRouteRepository dispatchRouteRepository,
                                    TourRepository tourRepository,
-                                   BreachService breachService,
                                    JdbcTemplate jdbcTemplate,
-                                   IngestState state,
+                                   ApplicationEventPublisher events,
                                    TickBroadcaster broadcaster) {
         this.vehicleRepository = vehicleRepository;
         this.positionLogRepository = positionLogRepository;
-        this.breachLogRepository = breachLogRepository;
         this.dispatchRouteRepository = dispatchRouteRepository;
         this.tourRepository = tourRepository;
-        this.breachService = breachService;
         this.jdbcTemplate = jdbcTemplate;
         this.geometryFactory = new GeometryFactory(new PrecisionModel(), 4326);
-        this.state = state;
+        this.events = events;
         this.broadcaster = broadcaster;
     }
 
@@ -150,19 +140,14 @@ public class PositionTrackingService {
             return duplicateResponse(vehicleId, tour.getId(), recordedAt);
         }
 
-        List<ZoneBreachLog> breaches;
-        if (saved.getId() != null) {
-            breaches = breachLogRepository.findByPositionLogId(saved.getId());
-            if (breaches.isEmpty()) {
-                breaches = breachLogRepository.findByVehicleIdAndBreachTime(vehicleId, recordedAt);
-            }
-        } else {
-            log.warn("Position log ID was null after save (partitioned table); falling back to vehicleId+timestamp query");
-            breaches = breachLogRepository.findByVehicleIdAndBreachTime(vehicleId, recordedAt);
-        }
+        // Task 5: breach + reroute run in the background worker (own txn,
+        // AFTER_COMMIT). No pgRouting query may run here: a failed road query
+        // aborts the whole Postgres txn and the ingest would 500 (Task 3 Major).
+        events.publishEvent(new BreachWorker.PositionFix(
+                vehicleId, saved.getId(), finalLat, finalLng, recordedAt, source));
 
         PositionRecordResponse response = new PositionRecordResponse();
-        response.setBreachDetected(!breaches.isEmpty());
+        response.setBreachDetected(false);
 
         PositionRecordResponse.PositionDetail posDetail = new PositionRecordResponse.PositionDetail();
         posDetail.setLatitude(finalLat);
@@ -172,27 +157,10 @@ public class PositionTrackingService {
         posDetail.setSource(source.name());
         response.setPosition(posDetail);
 
-        if (!breaches.isEmpty()) {
-            List<PositionRecordResponse.BreachDetail> breachDetails = new ArrayList<>();
-            for (ZoneBreachLog breach : breaches) {
-                breachService.computeReroute(breach, vehicleId, finalLat, finalLng);
-                PositionRecordResponse.BreachDetail detail = new PositionRecordResponse.BreachDetail();
-                detail.setBreachId(breach.getId());
-                detail.setZoneId(breach.getZone().getId());
-                detail.setZoneName(breach.getZone().getName());
-                detail.setBreachType(breach.getBreachType().name());
-                if (breach.getResolvedRouteGeometry() != null) {
-                    detail.setRerouteGeoJson(breach.getResolvedRouteGeometry().toText());
-                }
-                breachDetails.add(detail);
-            }
-            response.setBreaches(breachDetails);
-        }
-
         // Live pipe: every accepted fix fans out as a derived tick frame
         // on the fix's group topic (/topic/group/{id}, JWT-scoped).
         broadcaster.tick(groupId, vehicleId, finalLat, finalLng,
-                speedKmh, recordedAt, Boolean.TRUE.equals(response.getBreachDetected()));
+                speedKmh, recordedAt, false);
 
         return response;
     }
@@ -228,18 +196,8 @@ public class PositionTrackingService {
                 .orElseThrow(() -> new ValidationException(
                         "Duplicate position for vehicle " + vehicleId + " at " + recordedAt));
 
-        List<ZoneBreachLog> breaches;
-        if (existing.getId() != null) {
-            breaches = breachLogRepository.findByPositionLogId(existing.getId());
-            if (breaches.isEmpty()) {
-                breaches = breachLogRepository.findByVehicleIdAndBreachTime(vehicleId, recordedAt);
-            }
-        } else {
-            breaches = breachLogRepository.findByVehicleIdAndBreachTime(vehicleId, recordedAt);
-        }
-
         PositionRecordResponse response = new PositionRecordResponse();
-        response.setBreachDetected(!breaches.isEmpty());
+        response.setBreachDetected(false);
 
         PositionRecordResponse.PositionDetail posDetail = new PositionRecordResponse.PositionDetail();
         posDetail.setLatitude(existing.getPosition().getY());
@@ -252,32 +210,19 @@ public class PositionTrackingService {
     }
 
     /**
-     * Epic 3 map-matching logic:
+     * Epic 3 map-matching: pure coordinate correction. Queries only
+     * dispatch_route (never the road network) and keeps no counter state —
+     * off-route streak counting + reroute live in BreachWorker, so a failed
+     * probe here can never poison the ingest txn.
      *
-     * 1. If vehicle has no active route → pass through unchanged.
-     * 2. Query ST_Distance (geography) between ping and planned route geometry.
-     * 3. ≤ 30m: on-route. If heading is reversed (|delta| > 150°), snap to route's
-     *    nearest point (GPS glitch on opposite carriageway). Reset off-route counter.
-     * 4. > 50m: increment consecutive off-route counter.
-     *    - 1st ping: tolerate (could be single glitch).
-     *    - 2nd consecutive ping: hard off-route → trigger reroute via BreachService.
-     * 5. Between 30m and 50m: tolerate, reset counter.
+     * ≤ 30m: on-route; reversed heading (|delta| &gt; 150°) snaps to the
+     * route's nearest point (GPS glitch on opposite carriageway).
+     * Anything beyond passes through raw for the worker to judge.
      */
     private double[] applyRouteMapMatching(Vehicle vehicle, double lat, double lng, Short headingDeg) {
         Long routeId = vehicle.getActiveDispatchRouteId();
         if (routeId == null) {
-            state.clearOffRoute(vehicle.getId());
-            state.clearRoute(vehicle.getId());
             return new double[]{lat, lng};
-        }
-
-        // BUG-NEW-009: reset off-route counter when the vehicle's active route changes
-        Long previousRouteId = state.lastRouteId(vehicle.getId()).orElse(null);
-        state.saveRouteId(vehicle.getId(), routeId);
-        if (previousRouteId != null && !previousRouteId.equals(routeId)) {
-            log.debug("Vehicle {} active route changed ({} → {}) — resetting off-route counter",
-                    vehicle.getId(), previousRouteId, routeId);
-            state.clearOffRoute(vehicle.getId());
         }
 
         try {
@@ -309,8 +254,6 @@ public class PositionTrackingService {
             double routeAzRad  = (double) rows.get(0)[3]; // radians, 0=north
 
             if (distM <= GLITCH_SNAP_THRESHOLD_M) {
-                state.clearOffRoute(vehicle.getId());
-
                 // Check if heading is reversed (GPS glitch on opposite carriageway)
                 if (headingDeg != null && headingDeg != 0) {
                     double routeHeadingDeg = Math.toDegrees(routeAzRad);
@@ -321,44 +264,12 @@ public class PositionTrackingService {
                         return new double[]{snapLat, snapLng};
                     }
                 }
-                return new double[]{lat, lng};
-
-            } else if (distM > OFF_ROUTE_THRESHOLD_M) {
-                int count = state.incrOffRoute(vehicle.getId());
-                log.debug("Vehicle {} off-route by {}m (consecutive pings: {})", vehicle.getId(), distM, count);
-
-                if (count >= 2) {
-                    // Two consecutive pings > 50m off-route → trigger reroute
-                    state.clearOffRoute(vehicle.getId());
-                    log.info("Vehicle {} confirmed off-route ({}m) — triggering reroute", vehicle.getId(), distM);
-                    triggerOffRouteReroute(vehicle.getId(), lat, lng);
-                }
-                return new double[]{lat, lng};
-
-            } else {
-                // 30m < dist ≤ 50m: tolerate, reset counter
-                state.clearOffRoute(vehicle.getId());
-                return new double[]{lat, lng};
             }
+            return new double[]{lat, lng};
 
         } catch (Exception e) {
             log.warn("Route map-matching failed for vehicle {}: {}", vehicle.getId(), e.getMessage());
             return new double[]{lat, lng};
-        }
-    }
-
-    /**
-     * Triggers a reroute for a vehicle that is confirmed off-route.
-     * Creates a synthetic ZoneBreachLog-free reroute by delegating to BreachService
-     * via a direct reroute call using the vehicle's active dispatch route destination.
-     */
-    private void triggerOffRouteReroute(Long vehicleId, double lat, double lng) {
-        try {
-            // Reuse BreachService's destination-finding + zone-avoiding route logic
-            // by passing a null breach (off-route reroute, not a zone breach)
-            breachService.computeOffRouteReroute(vehicleId, lat, lng);
-        } catch (Exception e) {
-            log.warn("Off-route reroute failed for vehicle {}: {}", vehicleId, e.getMessage());
         }
     }
 
