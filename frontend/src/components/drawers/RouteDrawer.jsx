@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { routesApi, simulationApi, toursApi, breachesApi } from '../../api/client.js';
+import { routesApi, toursApi, breachesApi } from '../../api/client.js';
 import Badge from '../atoms/Badge.jsx';
 import { Spinner } from '../atoms/Spinner.jsx';
 import { useApp } from '../../context/AppContext.jsx';
@@ -9,11 +8,9 @@ import styles from './RouteDrawer.module.css';
 
 export default function RouteDrawer({ entityId, data: initialData }) {
   const { closeDrawer, addToast } = useApp();
-  const navigate = useNavigate();
   const [route, setRoute] = useState(initialData ?? null);
   const [loading, setLoading] = useState(!initialData || (initialData && !initialData.vehicle));
   const [deleting, setDeleting] = useState(false);
-  const [simulating, setSimulating] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [track, setTrack] = useState(null);
   const [tourBreaches, setTourBreaches] = useState([]);
@@ -67,22 +64,6 @@ export default function RouteDrawer({ entityId, data: initialData }) {
       addToast('error', err.message || 'Failed to approve tour.');
     } finally {
       setApproving(false);
-    }
-  }
-
-  async function handleSimulate() {
-    const routeId = route?.id ?? route?.dispatchRouteId ?? entityId;
-    if (!routeId) return;
-    setSimulating(true);
-    try {
-      await simulationApi.startFromRoute({ dispatchRouteId: routeId });
-      addToast('success', 'Simulation started — go to Simulation page');
-      closeDrawer();
-      navigate('/simulation');
-    } catch (err) {
-      addToast('error', err.message || 'Failed to start simulation.');
-    } finally {
-      setSimulating(false);
     }
   }
 
@@ -268,17 +249,9 @@ export default function RouteDrawer({ entityId, data: initialData }) {
         {!showConfirm ? (
           <>
             <button
-              className={styles.simulateBtn}
-              onClick={handleSimulate}
-              disabled={simulating || deleting}
-              type="button"
-            >
-              {simulating ? 'Starting...' : '▶ Simulate Route'}
-            </button>
-            <button
               className={styles.deleteBtn}
               onClick={() => setShowConfirm(true)}
-              disabled={simulating || deleting}
+              disabled={deleting}
             >
               🗑 Delete Route
             </button>

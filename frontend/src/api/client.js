@@ -119,13 +119,9 @@ export const authApi = {
   login: (email, password) => post('/auth/login', { email, password }),
 };
 
-// ─── Simulation ───────────────────────────────────────────────────────
-export const simulationApi = {
-  start: (scenarios) => post('/simulation/start', { scenarios }),
-  startFromRoute: (body) => post('/simulation/start-from-route', body),
-  tick: () => post('/simulation/tick'),
-  state: () => get('/simulation/state'),
-  reset: () => post('/simulation/reset'),
+// ─── Replay ───────────────────────────────────────────────────────────
+export const replayApi = {
+  start: (tourId, speed) => post('/replay/start', { tourId, speed }),
 };
 
 // ─── Driver app (Slice 2) ─────────────────────────────────────────────

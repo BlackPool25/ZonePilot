@@ -6,7 +6,7 @@ import Zones from './pages/Zones.jsx';
 import Routes from './pages/Routes.jsx';
 import Breaches from './pages/Breaches.jsx';
 import Reports from './pages/Reports.jsx';
-import Simulation from './pages/Simulation.jsx';
+import Replay from './pages/Replay.jsx';
 import Driver from './pages/Driver.jsx';
 import Groups from './pages/Groups.jsx';
 
@@ -21,7 +21,7 @@ export const router = createBrowserRouter([
       { path: 'routes', element: <Routes /> },
       { path: 'breaches', element: <Breaches /> },
       { path: 'reports', element: <Reports /> },
-      { path: 'simulation', element: <Simulation /> },
+      { path: 'replay', element: <Replay /> },
       { path: 'driver', element: <Driver /> },
       { path: 'groups', element: <Groups /> },
     ],

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import { useSearchParams, useNavigate } from 'react-router-dom';
-import { routesApi, vehiclesApi, zonesApi, simulationApi } from '../api/client.js';
+import { useSearchParams } from 'react-router-dom';
+import { routesApi, vehiclesApi, zonesApi } from '../api/client.js';
 import { DEMO_VEHICLES, DEMO_ZONES } from '../data/demo.js';
 import LiveMap from '../components/map/LiveMap.jsx';
 import Badge from '../components/atoms/Badge.jsx';
@@ -21,7 +21,6 @@ const PRESETS = [
 export default function Routes() {
   const { openDrawer, addToast, setMapCenter, setLastValidatedRoute } = useApp();
   const [searchParams] = useSearchParams();
-  const navigate = useNavigate();
   const vehicleIdParam = searchParams.get('vehicleId');
 
   const [vehicles, setVehicles] = useState([]);
@@ -29,7 +28,6 @@ export default function Routes() {
   const [history, setHistory] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [validating, setValidating] = useState(false);
-  const [simulating, setSimulating] = useState(false);
   const [result, setResult] = useState(null);
   const [selectedRoute, setSelectedRoute] = useState(null);
 
@@ -111,25 +109,6 @@ export default function Routes() {
     setForm(f => ({ ...f, ...preset }));
     setErrors({});
     setResult(null);
-  }
-
-  async function simulateRoute() {
-    if (!result?.dispatchRouteId) return;
-    setSimulating(true);
-    try {
-      const body = { dispatchRouteId: result.dispatchRouteId };
-      if (form.originLat && form.originLng) {
-        body.startLat = Number(form.originLat);
-        body.startLng = Number(form.originLng);
-      }
-      await simulationApi.startFromRoute(body);
-      addToast('success', 'Simulation started — go to Simulation page');
-      navigate('/simulation');
-    } catch (err) {
-      addToast('error', err.message || 'Failed to start simulation');
-    } finally {
-      setSimulating(false);
-    }
   }
 
   function setField(field, value) {
@@ -264,9 +243,6 @@ export default function Routes() {
                     <div style={{ display: 'flex', gap: '8px' }}>
                       <Button size="sm" variant="secondary" onClick={() => { setSelectedRoute(result); openDrawer('route', result.dispatchRouteId, result); }}>
                         View Route
-                      </Button>
-                      <Button size="sm" variant="primary" loading={simulating} onClick={simulateRoute}>
-                        ▶ Simulate
                       </Button>
                     </div>
                   )}

@@ -32,4 +32,6 @@ public interface VehiclePositionLogRepository extends JpaRepository<VehiclePosit
     boolean existsByVehicleIdAndTourIdAndRecordedAt(Long vehicleId, Long tourId, Instant recordedAt);
 
     Optional<VehiclePositionLog> findByVehicleIdAndTourIdAndRecordedAt(Long vehicleId, Long tourId, Instant recordedAt);
+
+    List<VehiclePositionLog> findByTourIdOrderByRecordedAtAsc(Long tourId);
 }
