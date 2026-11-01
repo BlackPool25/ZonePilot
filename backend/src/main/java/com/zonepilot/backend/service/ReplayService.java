@@ -15,6 +15,7 @@ import org.springframework.transaction.support.DefaultTransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -36,6 +37,15 @@ public class ReplayService {
     public static final int MAX_SPEED = 30;
     public static final int MAX_POINTS = 2000;
     static final int CHUNK = 100;
+
+    /** Ops counter: replay attempts (live traffic shares the ingest path). */
+    private static final java.util.concurrent.atomic.AtomicLong replayRuns =
+            new java.util.concurrent.atomic.AtomicLong();
+
+    /** Ops counter: replay attempts (live traffic shares the ingest path). */
+    public static long replayRunCount() {
+        return replayRuns.get();
+    }
 
     public record ReplayResult(long tourId, int speed, int points) {}
 
@@ -60,6 +70,17 @@ public class ReplayService {
     }
 
     public ReplayResult start(Long tourId, int speed) {
+        return start(tourId, speed, null);
+    }
+
+    /**
+     * Retry-safe entry: pass the first attempt's end stamp so a retried replay
+     * re-inserts identical timestamps — the tour-scoped dedupe key then makes
+     * the retry a no-op instead of a second shifted copy. Live traffic is not
+     * starved: replays run on the same bounded per-fix path (one summary tick),
+     * and replayRuns counts attempts for ops dashboards.
+     */
+    public ReplayResult start(Long tourId, int speed, Instant endAt) {
         if (speed < MIN_SPEED || speed > MAX_SPEED) {
             throw new ValidationException("speed must be 1-30");
         }
@@ -67,19 +88,31 @@ public class ReplayService {
                 .orElseThrow(() -> new ResourceNotFoundException("Tour", "id", tourId));
         // Manager-only: drivers own no groups, so this rejects them (403).
         scope.requireGroupAccess(tour.getGroup());
+        replayRuns.incrementAndGet();
 
-        List<VehiclePositionLog> history = positions.findByTourIdOrderByRecordedAtAsc(tourId);
-        if (history.isEmpty()) {
+        // Paged tail: latest-2000 at SQL level, never a full-history load
+        // (OOM guard on long tours). SubList caps in code too — the derived
+        // Top2000 query is the SQL guard, this is the memory guard.
+        List<VehiclePositionLog> desc = positions.findTop2000ByTourIdOrderByRecordedAtDesc(tourId);
+        if (desc.isEmpty()) {
             throw new ValidationException("no position history for tour " + tourId);
         }
-        List<VehiclePositionLog> batch = history.size() > MAX_POINTS
-                ? history.subList(history.size() - MAX_POINTS, history.size())
-                : history;
+        List<VehiclePositionLog> window =
+                desc.size() > MAX_POINTS ? desc.subList(0, MAX_POINTS) : desc;
+        List<VehiclePositionLog> batch = new ArrayList<>(window);
+        java.util.Collections.reverse(batch);
 
-        // Fresh stamps ending at now: ordered, under the +5min future guard,
+        // Fresh stamps ending at endAt: ordered, under the +5min future guard,
         // and clear of the original recorded_at dedupe keys. Spacing = speed.
+        // Retries pass the first attempt's end stamp so both runs re-insert
+        // identical timestamps — the tour-scoped dedupe key then makes the
+        // retry a no-op instead of a second shifted copy.
         long stepMs = 1000L / speed;
-        Instant base = Instant.now().minusMillis(stepMs * (batch.size() - 1));
+        Instant end = endAt != null ? endAt : Instant.now();
+        if (end.isAfter(Instant.now().plusSeconds(295))) {
+            end = Instant.now();
+        }
+        Instant base = end.minusMillis(stepMs * (batch.size() - 1));
         for (int from = 0; from < batch.size(); from += CHUNK) {
             List<VehiclePositionLog> chunk = batch.subList(from, Math.min(from + CHUNK, batch.size()));
             int offset = from;

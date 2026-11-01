@@ -108,7 +108,7 @@ class DispatchAvailabilityTest {
     }
 
     @Test
-    void dutyDriving_flipsInTransit_doneFlipsAvailable() {
+    void dutyDriving_flipsInTransit_doneKeepsReserved() {
         Tour tour = new Tour();
         tour.setId(60L);
         FleetGroup g = new FleetGroup();
@@ -125,8 +125,9 @@ class DispatchAvailabilityTest {
         assertEquals(VehicleAvailability.IN_TRANSIT, vehicle.getAvailability());
         assertEquals("DRIVING", driving.getDutyStatus());
 
+        // Mid-tour OFF_DUTY holds the vehicle (RESERVED); only tour close frees it.
         TourResponse done = driverService.setTourDuty(60L, DutyStatus.OFF_DUTY);
-        assertEquals(VehicleAvailability.AVAILABLE, vehicle.getAvailability());
+        assertEquals(VehicleAvailability.RESERVED, vehicle.getAvailability());
         assertEquals("OFF_DUTY", done.getDutyStatus());
         // Every transition is timestamped in the ELD log.
         verify(dutyLogs, times(2)).save(any(DutyLog.class));
@@ -168,7 +169,8 @@ class DispatchAvailabilityTest {
                 tourRepository, tourStops, mock(com.zonepilot.backend.repository.FleetGroupRepository.class),
                 vehicleRepository, drivers, routes, mock(com.zonepilot.backend.auth.GroupScope.class),
                 mock(TourOptimizerService.class), mock(RouteComplianceService.class),
-                driverService, mock(PositionTrackingService.class));
+                driverService, mock(PositionTrackingService.class),
+                mock(com.zonepilot.backend.repository.GroupVehicleRepository.class), mock(com.zonepilot.backend.repository.GroupDriverRepository.class));
         when(tourRepository.findByIdWithLock(62L)).thenReturn(Optional.of(tour));
         when(tourRepository.findById(62L)).thenReturn(Optional.of(tour));
         when(tourStops.findById(70L)).thenReturn(Optional.of(stop));

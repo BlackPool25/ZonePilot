@@ -56,10 +56,12 @@ public class QualityFilter {
 
     private static boolean teleports(IngestState.LastFix last, double lat, double lng, Instant at) {
         long dtSeconds = Duration.between(last.recordedAt(), at).getSeconds();
-        if (dtSeconds <= 0) {
-            return true; // out-of-order delivery against the last accepted fix
-        }
         double distM = haversineM(last.lat(), last.lng(), lat, lng);
+        if (dtSeconds <= 0) {
+            // Same-ms redelivery of the stored fix is benign (the tour-scoped
+            // dedupe key acks it); only an out-of-order jump in space teleports.
+            return distM > 1.0;
+        }
         double impliedKmh = distM / dtSeconds * 3.6;
         return impliedKmh > TELEPORT_SPEED_KMH;
     }

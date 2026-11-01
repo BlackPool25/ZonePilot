@@ -40,6 +40,14 @@ public class BreachWorker {
     private static final Logger log = LoggerFactory.getLogger(BreachWorker.class);
 
     private static final ZoneId IST = ZoneId.of("Asia/Kolkata");
+    /** Best-effort duplicate-create rejections: two fixes racing one entry. */
+    private static final java.util.concurrent.atomic.AtomicLong duplicateRejected =
+            new java.util.concurrent.atomic.AtomicLong();
+
+    /** Ops counter: duplicate breach-create attempts merged by the open-entry guard. */
+    public static long duplicateRejectedCount() {
+        return duplicateRejected.get();
+    }
     /** Matches the inline map-matching off-route threshold (PositionTrackingService). */
     private static final double OFF_ROUTE_THRESHOLD_M = 50.0;
     /** An entry stays open while fixes keep arriving within this window (was: trigger V18). */
@@ -151,7 +159,9 @@ public class BreachWorker {
         String restrictionType = (String) zoneRow[2];
 
         Instant cutoff = fix.recordedAt().minusSeconds(EXTEND_WINDOW_SEC);
-        var open = breachLogRepository.findOpenBreach(vehicleId, zoneId, cutoff);
+        // Row lock: concurrent fixes for one vehicle+zone serialize here
+        // instead of opening duplicate rows (one-per-entry guard).
+        var open = breachLogRepository.findOpenBreachForUpdate(vehicleId, zoneId, cutoff);
         if (open.isPresent()) {
             ZoneBreachLog breach = open.get();
             breach.setEndTime(fix.recordedAt());
@@ -175,7 +185,18 @@ public class BreachWorker {
         breach.setEndTime(fix.recordedAt());
         breach.setBreachType(mapBreachType(restrictionType));
         breach.setDistanceM(0.0);
-        ZoneBreachLog saved = breachLogRepository.save(breach);
+        ZoneBreachLog saved;
+        try {
+            saved = breachLogRepository.save(breach);
+        } catch (org.springframework.dao.DataIntegrityViolationException dup) {
+            // Lost the race on a concurrent open entry: fold into the winner.
+            duplicateRejected.incrementAndGet();
+            breachLogRepository.findOpenBreach(vehicleId, zoneId, cutoff).ifPresent(winner -> {
+                winner.setEndTime(fix.recordedAt());
+                breachLogRepository.save(winner);
+            });
+            return;
+        }
 
         try {
             breachService.computeReroute(saved, vehicleId, fix.lat(), fix.lng());
@@ -192,7 +213,7 @@ public class BreachWorker {
                     "ST_SetSRID(ST_Point(?, ?), 4326)::geography) " +
                     "FROM vehicle_position_log prev " +
                     "WHERE prev.vehicle_id = ? AND prev.recorded_at < ? " +
-                    "ORDER BY prev.recorded_at DESC LIMIT 1",
+                    "ORDER BY prev.recorded_at DESC, prev.id DESC LIMIT 1",
                     Double.class, fix.lng(), fix.lat(), fix.vehicleId(), fix.recordedAt());
             return d != null ? d : 0.0;
         } catch (Exception e) {
@@ -248,15 +269,23 @@ public class BreachWorker {
         }
     }
 
+    /**
+     * Explicit mapping of every known restriction type (mirrors the
+     * fn_detect_zone_breach CASE in V18). Unknown values fail loud — a
+     * silent default would mislabel breaches instead of flagging bad data.
+     */
     private static BreachType mapBreachType(String restrictionType) {
-        // Mirrors fn_detect_zone_breach CASE (V18).
         if ("NO_ENTRY".equals(restrictionType)) {
             return BreachType.NO_ENTRY;
         }
         if ("TIME_RESTRICTED".equals(restrictionType)) {
             return BreachType.TIME_WINDOW;
         }
-        return BreachType.VEHICLE_CLASS;
+        if ("VEHICLE_CLASS_RESTRICTED".equals(restrictionType)) {
+            return BreachType.VEHICLE_CLASS;
+        }
+        throw new com.zonepilot.backend.exception.ValidationException(
+                "unknown restriction type '" + restrictionType + "'");
     }
 
     private static double coalesce(Double d) {

@@ -14,7 +14,7 @@ import java.time.Instant;
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.HexFormat;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.Map;
 
 /**
  * Slice 1 auth: register / login / refresh rotation / me.
@@ -28,9 +28,18 @@ public class AuthService {
     private final JwtService jwt;
 
     // Basic per-email login bucket: 10 failures / 5 min, then 429-style deny.
-    // In-memory only (single instance); success clears the bucket.
-    private final ConcurrentHashMap<String, Deque<Instant>> loginFailures = new ConcurrentHashMap<>();
+    // In-memory only (single instance); success clears the bucket. Bounded LRU
+    // (10k emails): an attacker cycling random addresses cannot grow this
+    // without bound. Per-IP throttling lives at the gateway/WAF, not here.
+    private final Map<String, Deque<Instant>> loginFailures =
+            java.util.Collections.synchronizedMap(new java.util.LinkedHashMap<>() {
+                @Override
+                protected boolean removeEldestEntry(java.util.Map.Entry<String, Deque<Instant>> e) {
+                    return size() > MAX_KEYS;
+                }
+            });
     static final int MAX_FAILURES = 10;
+    static final int MAX_KEYS = 10_000;
     private static final long WINDOW_SEC = 300;
 
     public AuthService(AppUserRepository users,

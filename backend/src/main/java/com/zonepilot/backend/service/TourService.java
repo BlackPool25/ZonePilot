@@ -11,8 +11,10 @@ import com.zonepilot.backend.dto.response.TourTrackResponse;
 import com.zonepilot.backend.entity.*;
 import com.zonepilot.backend.enums.AssignmentStatus;
 import com.zonepilot.backend.enums.VehicleAvailability;
+import com.zonepilot.backend.exception.EligibilityException;
 import com.zonepilot.backend.exception.ResourceNotFoundException;
 import com.zonepilot.backend.exception.ValidationException;
+import org.springframework.security.access.AccessDeniedException;
 import com.zonepilot.backend.repository.*;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -38,6 +40,8 @@ public class TourService {
     private final VehicleRepository vehicles;
     private final DriverRepository drivers;
     private final DispatchRouteRepository routes;
+    private final GroupVehicleRepository groupVehicles;
+    private final GroupDriverRepository groupDrivers;
     private final GroupScope scope;
     private final TourOptimizerService optimizer;
     private final RouteComplianceService compliance;
@@ -49,7 +53,8 @@ public class TourService {
                        VehicleRepository vehicles, DriverRepository drivers,
                        DispatchRouteRepository routes, GroupScope scope,
                        TourOptimizerService optimizer, RouteComplianceService compliance,
-                       DriverService driverService, PositionTrackingService positions) {
+                       DriverService driverService, PositionTrackingService positions,
+                       GroupVehicleRepository groupVehicles, GroupDriverRepository groupDrivers) {
         this.tours = tours;
         this.stops = stops;
         this.groups = groups;
@@ -61,6 +66,8 @@ public class TourService {
         this.compliance = compliance;
         this.driverService = driverService;
         this.positions = positions;
+        this.groupVehicles = groupVehicles;
+        this.groupDrivers = groupDrivers;
     }
 
     @Transactional
@@ -72,6 +79,24 @@ public class TourService {
                 .orElseThrow(() -> new ResourceNotFoundException("Vehicle", "id", req.getVehicleId()));
         Driver driver = drivers.findById(req.getDriverId())
                 .orElseThrow(() -> new ResourceNotFoundException("Driver", "id", req.getDriverId()));
+        // Cross-group create is 403: tour members must belong to the tour group.
+        if (!groupVehicles.existsByGroupIdAndVehicleId(group.getId(), vehicle.getId())) {
+            throw new AccessDeniedException("Vehicle " + vehicle.getId()
+                    + " is not in group " + group.getId());
+        }
+        if (!groupDrivers.existsByGroupIdAndDriverId(group.getId(), driver.getId())) {
+            throw new AccessDeniedException("Driver " + driver.getId()
+                    + " is not in group " + group.getId());
+        }
+        // Double-book guard: a new tour starts from a free vehicle only.
+        // Leg continuation reuses the same vehicle while RESERVED, so this
+        // gate lives at create/dispatch time — never inside assign().
+        if (vehicle.getAvailability() == VehicleAvailability.IN_TRANSIT
+                || vehicle.getAvailability() == VehicleAvailability.RESERVED) {
+            throw new EligibilityException("Vehicle " + vehicle.getRegistrationNumber()
+                    + " is " + vehicle.getAvailability().name().toLowerCase()
+                    + ", not free for a new tour");
+        }
         if (req.getStops().size() > TourOptimizerService.MAX_STOPS) {
             throw new ValidationException("at most 12 stops per tour");
         }

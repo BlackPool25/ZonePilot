@@ -18,6 +18,7 @@ import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.mock;
 
 /**
  * Task 6: PoD tap within 100m + order auto-completes the stop; the last
@@ -49,7 +50,8 @@ class PodApprovalTest {
     @BeforeEach
     void setUp() {
         tourService = new TourService(tours, stops, groups, vehicles, drivers, routes,
-                scope, optimizer, compliance, driverService, positions);
+                scope, optimizer, compliance, driverService, positions,
+                mock(com.zonepilot.backend.repository.GroupVehicleRepository.class), mock(com.zonepilot.backend.repository.GroupDriverRepository.class));
         vehicle = new Vehicle();
         vehicle.setId(21L);
         vehicle.setRegistrationNumber("KA01-POD-21");

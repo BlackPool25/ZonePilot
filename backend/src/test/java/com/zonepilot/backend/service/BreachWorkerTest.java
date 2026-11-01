@@ -131,7 +131,7 @@ class BreachWorkerTest {
             if (b.getId() == null) b.setId(77L);
             return b;
         });
-        when(breachLogRepository.findOpenBreach(eq(5L), eq(1L), any(Instant.class)))
+        when(breachLogRepository.findOpenBreachForUpdate(eq(5L), eq(1L), any(Instant.class)))
                 .thenReturn(Optional.empty(), Optional.of(open), Optional.of(open));
 
         worker.onEvent(fix(t0, PositionSource.LIVE));
@@ -157,7 +157,7 @@ class BreachWorkerTest {
 
         when(breachLogRepository.save(any(ZoneBreachLog.class))).thenAnswer(inv -> inv.getArgument(0));
         // Gap > 60s: no open breach on re-entry.
-        when(breachLogRepository.findOpenBreach(eq(5L), eq(1L), any(Instant.class)))
+        when(breachLogRepository.findOpenBreachForUpdate(eq(5L), eq(1L), any(Instant.class)))
                 .thenReturn(Optional.empty());
 
         worker.onEvent(fix(t0, PositionSource.LIVE));
@@ -178,7 +178,7 @@ class BreachWorkerTest {
                 .when(breachService).computeReroute(any(), eq(5L), anyDouble(), anyDouble());
 
         when(breachLogRepository.save(any(ZoneBreachLog.class))).thenAnswer(inv -> inv.getArgument(0));
-        when(breachLogRepository.findOpenBreach(eq(5L), eq(1L), any(Instant.class)))
+        when(breachLogRepository.findOpenBreachForUpdate(eq(5L), eq(1L), any(Instant.class)))
                 .thenReturn(Optional.empty());
 
         assertDoesNotThrow(() -> worker.onEvent(fix(t0, PositionSource.LIVE)));
@@ -191,7 +191,7 @@ class BreachWorkerTest {
         stubZoneMatch(zoneRow(1L, 9L, "TIME_RESTRICTED"));
 
         when(breachLogRepository.save(any(ZoneBreachLog.class))).thenAnswer(inv -> inv.getArgument(0));
-        when(breachLogRepository.findOpenBreach(eq(5L), eq(1L), any(Instant.class)))
+        when(breachLogRepository.findOpenBreachForUpdate(eq(5L), eq(1L), any(Instant.class)))
                 .thenReturn(Optional.empty());
 
         worker.onEvent(fix(t0, PositionSource.REPLAY));

@@ -34,4 +34,10 @@ public interface VehiclePositionLogRepository extends JpaRepository<VehiclePosit
     Optional<VehiclePositionLog> findByVehicleIdAndTourIdAndRecordedAt(Long vehicleId, Long tourId, Instant recordedAt);
 
     List<VehiclePositionLog> findByTourIdOrderByRecordedAtAsc(Long tourId);
+
+    /** Replay window: latest-2000 tail at SQL level (never full-load history). */
+    List<VehiclePositionLog> findTop2000ByTourIdOrderByRecordedAtDesc(Long tourId);
+
+    /** Stored-fix lookup for HTTP duplicate redelivery (200, not 400). */
+    Optional<VehiclePositionLog> findFirstByVehicleIdAndRecordedAt(Long vehicleId, Instant recordedAt);
 }

@@ -37,6 +37,9 @@ public class WsAuthInterceptor implements ChannelInterceptor {
 
     static final String PRINCIPAL_ATTR = "zp-principal";
 
+    /** SEND allow-list: no /app handlers exist yet — everything rejects. */
+    private static final java.util.Set<String> ALLOWED_APP_DESTS = java.util.Set.of();
+
     private final JwtService jwt;
     private final FleetGroupRepository groups;
     private final GroupScope scope;
@@ -81,8 +84,16 @@ public class WsAuthInterceptor implements ChannelInterceptor {
             }
             return message;
         }
-        if (accessor.getCommand() == StompCommand.SUBSCRIBE) {
-            String dest = accessor.getDestination();
+        if (accessor.getCommand() == StompCommand.SEND) {
+            // No /app handlers are registered (see WsConfig): every SEND is an
+            // unknown destination. The allow-list stays explicit so adding a
+            // handler is a one-line change, not a bypass.
+            if (!ALLOWED_APP_DESTS.contains(accessor.getDestination())) {
+                return reject(accessor, "Unknown destination");
+            }
+            return message;
+        }
+        if (accessor.getCommand() == StompCommand.SUBSCRIBE) {            String dest = accessor.getDestination();
             if (dest != null && dest.startsWith("/topic/")) {
                 Map<String, Object> attrs = accessor.getSessionAttributes();
                 DepotPrincipal principal = attrs == null ? null
@@ -121,9 +132,15 @@ public class WsAuthInterceptor implements ChannelInterceptor {
         return message;
     }
 
+    /** Group id prefix; trailing sub-paths (e.g. /topic/group/7/ticks) accepted. */
     private static Long groupIdOf(String dest) {
         try {
-            return Long.parseLong(dest.substring("/topic/group/".length()));
+            String rest = dest.substring("/topic/group/".length());
+            int slash = rest.indexOf('/');
+            if (slash >= 0) {
+                rest = rest.substring(0, slash);
+            }
+            return Long.parseLong(rest);
         } catch (NumberFormatException e) {
             return null;
         }

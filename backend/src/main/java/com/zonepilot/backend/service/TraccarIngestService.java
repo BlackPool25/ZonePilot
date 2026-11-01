@@ -101,6 +101,16 @@ public class TraccarIngestService {
             quarantine(vehicleId, null, "TOPIC_MISMATCH", payload);
             return;
         }
+        // Present-but-unparseable ts quarantines as BAD_TS: silently storing
+        // it as now() would fabricate a fix time the device never sent.
+        Instant ts = parseTsOrNull(node.get("ts"));
+        if (ts == null && node.has("ts") && !node.get("ts").isNull()) {
+            quarantine(vehicleId, null, "BAD_TS", payload);
+            return;
+        }
+        if (ts == null) {
+            ts = Instant.now();
+        }
         // Live pipe default is TRACCAR; batched replay frames carry source=REPLAY.
         PositionSource source = PositionSource.TRACCAR;
         if (node.hasNonNull("source")) {
@@ -117,7 +127,7 @@ public class TraccarIngestService {
             }
         }
         processFix(vehicleId, node.get("lat").asDouble(), node.get("lon").asDouble(),
-                parseTs(node.get("ts")),
+                ts,
                 node.hasNonNull("speedKmh") ? node.get("speedKmh").decimalValue() : null,
                 accuracyOf(node),
                 node.hasNonNull("heading") ? (short) node.get("heading").asInt() : null,
@@ -130,7 +140,8 @@ public class TraccarIngestService {
 
     /**
      * HTTP ingest (PWA burst upload, replay): same quality gate as MQTT, but
-     * rejections surface as 4xx instead of silent quarantine rows.
+     * rejections surface as 4xx instead of silent quarantine rows. A retry of
+     * an already-stored fix answers the stored row (200), not 400.
      */
     public PositionRecordResponse ingest(long vehicleId, double lat, double lng, Instant ts,
                                          BigDecimal speedKmh, Double accuracyM, Short headingDeg,
@@ -140,9 +151,13 @@ public class TraccarIngestService {
                 .orElseThrow(() -> new ResourceNotFoundException("Vehicle", "id", vehicleId));
         Optional<PositionRecordResponse> accepted = processFix(vehicle.getId(), lat, lng, ts,
                 speedKmh, accuracyM, headingDeg, source, driverId, tourId, groupId, null);
-        // processFix quarantines before returning empty; surface the reason as 400.
-        return accepted.orElseThrow(() -> new ValidationException(
-                "Position rejected by ingest quality gate (see quarantine)"));
+        if (accepted.isPresent()) {
+            return accepted.get();
+        }
+        // Not quarantined-with-cause: a retry of a stored fix. Answer 200.
+        return positions.findStoredFix(vehicle.getId(), ts)
+                .orElseThrow(() -> new ValidationException(
+                        "Position rejected by ingest quality gate (see quarantine)"));
     }
 
     /**
@@ -167,8 +182,12 @@ public class TraccarIngestService {
                     response.getPosition().getLongitude(), response.getPosition().getRecordedAt());
             return Optional.of(response);
         } catch (DataIntegrityViolationException dup) {
-            // QoS1 redelivery of an already-stored (vehicle, tour, recorded_at): benign, ack and move on.
+            // QoS1 redelivery racing a concurrent insert: the row is stored.
+            // MQTT acks and moves on; HTTP answers the stored row (200) below.
             log.debug("ingest.duplicate vehicle={} ts={}", vehicleId, ts);
+            if (rawPayload == null) {
+                return positions.findStoredFix(vehicleId, ts);
+            }
             return Optional.empty();
         } catch (RuntimeException e) {
             if (rawPayload == null) {
@@ -190,13 +209,17 @@ public class TraccarIngestService {
         return null;
     }
 
-    private static Instant parseTs(JsonNode ts) {
-        if (ts == null || ts.isNull()) return Instant.now();
+    /**
+     * Absent ts defaults to now(); present-but-unparseable returns null so
+     * the caller quarantines BAD_TS instead of fabricating now().
+     */
+    private static Instant parseTsOrNull(JsonNode ts) {
+        if (ts == null || ts.isNull()) return null;
         if (ts.isNumber()) return Instant.ofEpochMilli(ts.asLong());
         try {
             return Instant.parse(ts.asText());
         } catch (Exception e) {
-            return Instant.now();
+            return null;
         }
     }
 

@@ -118,6 +118,9 @@ class TourApiTest {
                         "licenceExpiry", "2030-01-01", "phone", "9886000001",
                         "salaryMode", "PER_TRIP", "email", drvEmail,
                         "password", "driver-pass-1"), ownerToken));
+        // Tour create requires group membership (cross-group create is 403).
+        post("/api/groups/" + groupId + "/vehicles/" + vehicleId, Map.of(), ownerToken);
+        post("/api/groups/" + groupId + "/drivers/" + driverId, Map.of(), ownerToken);
         stubRealNetwork();
     }
 

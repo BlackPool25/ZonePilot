@@ -56,7 +56,8 @@ class TourServicePodAccessTest {
     @BeforeEach
     void setUp() {
         tourService = new TourService(tours, stops, groups, vehicles, drivers, routes,
-                scope, optimizer, compliance, driverService, positions);
+                scope, optimizer, compliance, driverService, positions,
+                mock(com.zonepilot.backend.repository.GroupVehicleRepository.class), mock(com.zonepilot.backend.repository.GroupDriverRepository.class));
         Vehicle vehicle = new Vehicle();
         vehicle.setId(21L);
         vehicle.setRegistrationNumber("KA01-POD-21");

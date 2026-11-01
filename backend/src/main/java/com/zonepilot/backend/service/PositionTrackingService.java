@@ -10,6 +10,7 @@ import com.zonepilot.backend.dto.response.PositionRecordResponse;
 import com.zonepilot.backend.entity.Vehicle;
 import com.zonepilot.backend.entity.VehiclePositionLog;
 import com.zonepilot.backend.entity.Tour;
+import com.zonepilot.backend.entity.TourStatus;
 import com.zonepilot.backend.entity.Driver;
 import com.zonepilot.backend.entity.DispatchRoute;
 import com.zonepilot.backend.enums.PositionSource;
@@ -239,12 +240,17 @@ public class PositionTrackingService {
         if (tourId != null) {
             if (caller != null) {
                 scope.requireGroupAccess(tour.getGroup());
-                if (groupId != null && !groupId.equals(tour.getGroup().getId())) {
-                    throw new ValidationException("groupId does not match tour " + tour.getId());
-                }
+            }
+            // Untrusted keys on every pipe: MQTT frames carry no caller, so a
+            // forged groupId must fail here — never bind a fix to another group.
+            if (groupId != null && !groupId.equals(tour.getGroup().getId())) {
+                throw new ValidationException("groupId does not match tour " + tour.getId());
             }
             // Explicit driverId is never validated: mid-tour driver/vehicle
             // swaps are accepted (keys are scoped per fix; the tour key rules).
+            // Attribution: the STORED driver is the fix caller when known
+            // (driver logins bind to their owned tour above), else the tour's
+            // assigned driver — per-fix keys, not a roster snapshot.
         }
         if (driverId == null) {
             driverId = tour.getDriver().getId();
@@ -258,22 +264,60 @@ public class PositionTrackingService {
     /**
      * Null keys resolve from the vehicle's active dispatch route (group tour
      * assign flow links route -&gt; tour). No active tour: 400, not a 500 FK blowup.
+     * Closed tours reject fixes: history is immutable once COMPLETED.
      */
     private Tour resolveTour(Long tourId, Vehicle vehicle) {
+        Tour tour;
         if (tourId != null) {
-            return tourRepository.findById(tourId)
+            tour = tourRepository.findById(tourId)
                     .orElseThrow(() -> new ResourceNotFoundException("Tour", "id", tourId));
-        }
-        Long routeId = vehicle.getActiveDispatchRouteId();
-        if (routeId != null) {
-            Tour tour = dispatchRouteRepository.findById(routeId)
-                    .map(DispatchRoute::getTour)
-                    .orElse(null);
-            if (tour != null) {
-                return tour;
+        } else {
+            Long routeId = vehicle.getActiveDispatchRouteId();
+            if (routeId != null) {
+                Tour linked = dispatchRouteRepository.findById(routeId)
+                        .map(DispatchRoute::getTour)
+                        .orElse(null);
+                if (linked != null) {
+                    tour = linked;
+                } else {
+                    throw new ValidationException("Position requires an active tour for vehicle " + vehicle.getId());
+                }
+            } else {
+                throw new ValidationException("Position requires an active tour for vehicle " + vehicle.getId());
             }
         }
-        throw new ValidationException("Position requires an active tour for vehicle " + vehicle.getId());
+        if (tour.getStatus() == TourStatus.COMPLETED) {
+            throw new ValidationException("Tour " + tour.getId() + " is COMPLETED, history is closed");
+        }
+        return tour;
+    }
+
+    /**
+     * HTTP duplicate redelivery: the row is already stored, so answer the
+     * stored fix (200) instead of 400. Quarantine rejections still 400 —
+     * only a stored row returns a response here.
+     */
+    public java.util.Optional<PositionRecordResponse> findStoredFix(
+            Long vehicleId, Instant recordedAt) {
+        if (vehicleId == null || recordedAt == null) {
+            return java.util.Optional.empty();
+        }
+        return positionLogRepository.findFirstByVehicleIdAndRecordedAt(vehicleId, recordedAt)
+                .map(this::responseOf);
+    }
+
+    private PositionRecordResponse responseOf(VehiclePositionLog existing) {
+        PositionRecordResponse response = new PositionRecordResponse();
+        response.setBreachDetected(false);
+
+        PositionRecordResponse.PositionDetail posDetail = new PositionRecordResponse.PositionDetail();
+        posDetail.setLatitude(existing.getPosition().getY());
+        posDetail.setLongitude(existing.getPosition().getX());
+        posDetail.setRecordedAt(existing.getRecordedAt());
+        posDetail.setSpeedKmh(existing.getSpeedKmh());
+        posDetail.setSource(existing.getSource().name());
+        response.setPosition(posDetail);
+        return response;
     }
 
     /**
@@ -285,18 +329,7 @@ public class PositionTrackingService {
                 .findByVehicleIdAndTourIdAndRecordedAt(vehicleId, tourId, recordedAt)
                 .orElseThrow(() -> new ValidationException(
                         "Duplicate position for vehicle " + vehicleId + " at " + recordedAt));
-
-        PositionRecordResponse response = new PositionRecordResponse();
-        response.setBreachDetected(false);
-
-        PositionRecordResponse.PositionDetail posDetail = new PositionRecordResponse.PositionDetail();
-        posDetail.setLatitude(existing.getPosition().getY());
-        posDetail.setLongitude(existing.getPosition().getX());
-        posDetail.setRecordedAt(recordedAt);
-        posDetail.setSpeedKmh(existing.getSpeedKmh());
-        posDetail.setSource(existing.getSource().name());
-        response.setPosition(posDetail);
-        return response;
+        return responseOf(existing);
     }
 
     /**

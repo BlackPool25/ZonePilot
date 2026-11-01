@@ -26,6 +26,17 @@ public interface ZoneBreachLogRepository extends JpaRepository<ZoneBreachLog, Lo
             @Param("zoneId") Long zoneId,
             @Param("cutoff") Instant cutoff);
 
+    /**
+     * Same lookup under row lock: concurrent fixes for one vehicle+zone
+     * serialize here instead of opening duplicate rows (one-per-entry guard).
+     */
+    @Query(value = "SELECT * FROM zone_breach_log WHERE vehicle_id = :vehicleId AND zone_id = :zoneId "
+            + "AND end_time >= :cutoff ORDER BY end_time DESC LIMIT 1 FOR UPDATE", nativeQuery = true)
+    Optional<ZoneBreachLog> findOpenBreachForUpdate(
+            @Param("vehicleId") Long vehicleId,
+            @Param("zoneId") Long zoneId,
+            @Param("cutoff") Instant cutoff);
+
     @Query(value = "SELECT * FROM zone_breach_log WHERE vehicle_id = :vehicleId AND breach_time >= :after ORDER BY breach_time DESC", nativeQuery = true)
     List<ZoneBreachLog> findByVehicleIdAndBreachTimeAfter(
             @Param("vehicleId") Long vehicleId,

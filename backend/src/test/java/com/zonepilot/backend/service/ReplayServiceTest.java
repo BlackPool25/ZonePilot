@@ -59,7 +59,7 @@ class ReplayServiceTest {
     void start_at30x_reinsertsHistoryAsReplayOrdered() {
         Tour tour = buildTour(9L, 11L, 21L, 31L);
         when(tours.findById(9L)).thenReturn(Optional.of(tour));
-        when(positions.findByTourIdOrderByRecordedAtAsc(9L)).thenReturn(buildHistory(3));
+        when(positions.findTop2000ByTourIdOrderByRecordedAtDesc(9L)).thenReturn(buildHistory(3));
 
         ReplayService.ReplayResult result = replay.start(9L, 30);
 
@@ -104,7 +104,7 @@ class ReplayServiceTest {
     void start_withHugeHistory_capsInserts() {
         Tour tour = buildTour(9L, 11L, 21L, 31L);
         when(tours.findById(9L)).thenReturn(Optional.of(tour));
-        when(positions.findByTourIdOrderByRecordedAtAsc(9L))
+        when(positions.findTop2000ByTourIdOrderByRecordedAtDesc(9L))
                 .thenReturn(buildHistory(ReplayService.MAX_POINTS + 500));
 
         ReplayService.ReplayResult result = replay.start(9L, 5);
@@ -119,7 +119,7 @@ class ReplayServiceTest {
     void start_withHugeHistory_keepsLatestTail() {
         Tour tour = buildTour(9L, 11L, 21L, 31L);
         when(tours.findById(9L)).thenReturn(Optional.of(tour));
-        when(positions.findByTourIdOrderByRecordedAtAsc(9L))
+        when(positions.findTop2000ByTourIdOrderByRecordedAtDesc(9L))
                 .thenReturn(buildHistory(ReplayService.MAX_POINTS + 500));
 
         replay.start(9L, 5);
@@ -136,7 +136,7 @@ class ReplayServiceTest {
     void start_withEmptyHistory_400() {
         Tour tour = buildTour(9L, 11L, 21L, 31L);
         when(tours.findById(9L)).thenReturn(Optional.of(tour));
-        when(positions.findByTourIdOrderByRecordedAtAsc(9L)).thenReturn(List.of());
+        when(positions.findTop2000ByTourIdOrderByRecordedAtDesc(9L)).thenReturn(List.of());
 
         assertThrows(ValidationException.class, () -> replay.start(9L, 5));
         verifyNoInteractions(tracking, broadcaster);
@@ -173,7 +173,7 @@ class ReplayServiceTest {
     private List<VehiclePositionLog> buildHistory(int n) {
         List<VehiclePositionLog> out = new ArrayList<>(n);
         Instant base = Instant.parse("2026-10-01T10:00:00Z");
-        for (int i = 0; i < n; i++) {
+        for (int i = n - 1; i >= 0; i--) {
             VehiclePositionLog log = new VehiclePositionLog();
             log.setVehicleId(11L);
             log.setDriverId(21L);

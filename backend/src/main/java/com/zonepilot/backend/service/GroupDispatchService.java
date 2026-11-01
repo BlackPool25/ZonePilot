@@ -75,9 +75,9 @@ public class GroupDispatchService {
                 continue;
             }
             try {
-                // Fail fast before Google spend: garaged vehicles never validate.
-                if (v.getAvailability() == VehicleAvailability.MAINTENANCE
-                        || v.getAvailability() == VehicleAvailability.OFFLINE) {
+                // Fail fast before Google spend: only a free vehicle dispatches.
+                // RESERVED/IN_TRANSIT means already on a tour (double-book guard).
+                if (v.getAvailability() != VehicleAvailability.AVAILABLE) {
                     skipped.add(new Skipped(v.getId(), d.getId(), "vehicle "
                             + v.getAvailability().name().toLowerCase() + ", not dispatchable"));
                     continue;

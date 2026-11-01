@@ -20,6 +20,9 @@ import com.zonepilot.backend.repository.*;
 import org.locationtech.jts.geom.Coordinate;
 import org.locationtech.jts.geom.GeometryFactory;
 import org.locationtech.jts.geom.PrecisionModel;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.Pageable;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -41,6 +44,8 @@ import java.util.stream.Collectors;
 public class DriverService {
 
     static final ZoneId IST = ZoneId.of("Asia/Kolkata");
+    /** Min gap between duty transitions: PWA offline-queue spam throttle. */
+    static final long DUTY_MIN_GAP_SEC = 5;
     private static final List<AssignmentStatus> ON_TRIP =
             List.of(AssignmentStatus.ASSIGNED, AssignmentStatus.ACCEPTED, AssignmentStatus.IN_TRANSIT);
 
@@ -100,6 +105,12 @@ public class DriverService {
         return drivers.findAll().stream().map(DriverResponse::from).toList();
     }
 
+    /**
+     * Assign a driver to a route. No availability gate here by design: leg
+     * continuation re-assigns the same (RESERVED) vehicle to the next leg, so
+     * the IN_TRANSIT/RESERVED double-book gate lives at tour-create and
+     * group-dispatch time (TourService.create, GroupDispatchService).
+     */
     @Transactional
     public DispatchRoute assign(Long routeId, Long driverId) {
         DispatchRoute route = routes.findById(routeId)
@@ -238,6 +249,39 @@ public class DriverService {
                 .toList();
     }
 
+    /**
+     * Active-only myTours window, paged (COMPLETED tours excluded — the driver
+     * app lists open work, history stays server-side).
+     */
+    @Transactional(readOnly = true)
+    public Page<TourResponse> myActiveTours(Pageable pageable) {
+        Driver driver = currentDriver();
+        Page<Tour> page = tourRepository.findByDriverIdAndStatusInOrderByIdDesc(
+                driver.getId(), List.of(TourStatus.ACTIVE, TourStatus.PENDING_APPROVAL), pageable);
+        if (page.isEmpty()) {
+            return Page.empty(pageable);
+        }
+        List<Long> ids = page.stream().map(Tour::getId).toList();
+        Map<Long, List<TourStop>> stopsByTour = tourStopRepository
+                .findByTourIdInOrderByTourIdAscSeqAsc(ids).stream()
+                .collect(Collectors.groupingBy(s -> s.getTour().getId()));
+        Map<Long, DispatchRoute> latestRoute = new HashMap<>();
+        for (DispatchRoute r : routes.findByTourIdIn(ids)) {
+            latestRoute.merge(r.getTour().getId(), r,
+                    (a, b) -> a.getId() >= b.getId() ? a : b);
+        }
+        List<TourResponse> content = page.stream()
+                // Defensive: the query already restricts status, but never leak
+                // a terminal tour into the open-work window on a missed filter.
+                .filter(t -> t.getStatus() == TourStatus.ACTIVE
+                        || t.getStatus() == TourStatus.PENDING_APPROVAL)
+                .map(t -> toTourResponse(t,
+                        stopsByTour.getOrDefault(t.getId(), List.of()),
+                        latestRoute.get(t.getId())))
+                .toList();
+        return new PageImpl<>(content, pageable, page.getTotalElements());
+    }
+
     @Transactional
     public TourResponse setTourDuty(Long tourId, DutyStatus duty) {
         Driver driver = currentDriver();
@@ -246,12 +290,26 @@ public class DriverService {
         if (tour.getDriver() == null || !tour.getDriver().getId().equals(driver.getId())) {
             throw new AccessDeniedException("Tour is not your assignment");
         }
+        // Spam throttle: PWA offline-queue replays must not flood duty_log.
+        List<DutyLog> prior = dutyLogs.findByTourIdOrderByRecordedAtAscIdAsc(tourId);
+        if (!prior.isEmpty()) {
+            Instant last = prior.get(prior.size() - 1).getRecordedAt();
+            if (last != null && last.isAfter(Instant.now().minusSeconds(DUTY_MIN_GAP_SEC))) {
+                throw new ValidationException("duty update too frequent (min gap "
+                        + DUTY_MIN_GAP_SEC + "s)");
+            }
+        }
         tour.setDutyStatus(duty);
-        // Duty drives stored availability: rolling means IN_TRANSIT.
+        // ELD hybrid: DRIVING = motion (rolling), IN_TRANSIT = dispatched leg
+        // state (may be stationary). Both hold the vehicle IN_TRANSIT.
+        // OFF_DUTY is mid-tour rest: the vehicle stays held (downgrade to
+        // RESERVED, never AVAILABLE) — only tour close frees it.
         if (duty == DutyStatus.DRIVING || duty == DutyStatus.IN_TRANSIT) {
             tour.getVehicle().setAvailability(VehicleAvailability.IN_TRANSIT);
         } else if (duty == DutyStatus.OFF_DUTY) {
-            tour.getVehicle().setAvailability(VehicleAvailability.AVAILABLE);
+            if (tour.getVehicle().getAvailability() == VehicleAvailability.IN_TRANSIT) {
+                tour.getVehicle().setAvailability(VehicleAvailability.RESERVED);
+            }
         } else {
             tour.getVehicle().setAvailability(VehicleAvailability.RESERVED);
         }
