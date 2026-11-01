@@ -129,6 +129,9 @@ public class TourService {
 
     @Transactional(readOnly = true)
     public TourResponse get(Long tourId) {
+        Tour tour = tours.findById(tourId)
+                .orElseThrow(() -> new ResourceNotFoundException("Tour", "id", tourId));
+        scope.requireGroupAccess(tour.getGroup());
         return toResponse(tourId);
     }
 

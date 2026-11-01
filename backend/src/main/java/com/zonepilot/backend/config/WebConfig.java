@@ -8,8 +8,16 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 @Configuration
 public class WebConfig implements WebMvcConfigurer {
 
-    @Value("${cors.allowed-origins:http://localhost:3000}")
-    private String[] allowedOrigins;
+    private final String[] allowedOrigins;
+
+    public WebConfig(@Value("${cors.allowed-origins:}") String[] allowedOrigins) {
+        if (allowedOrigins == null || allowedOrigins.length == 0
+                || (allowedOrigins.length == 1 && allowedOrigins[0].isBlank())) {
+            throw new IllegalStateException(
+                    "cors.allowed-origins is blank — set CORS_ALLOWED_ORIGINS explicitly");
+        }
+        this.allowedOrigins = allowedOrigins;
+    }
 
     @Override
     public void addCorsMappings(CorsRegistry registry) {

@@ -10,7 +10,8 @@ import java.util.Optional;
  * Manager ownership for fleet groups. OWNER sees all groups;
  * a signed-in DISPATCHER sees only groups they manage
  * (DRIVER logins own no groups, so they see none).
- * Absent auth (background jobs) is unrestricted, mirroring DepotScope.
+ * Null/absent principal is denied ("Login required") — there is
+ * no unrestricted path; background jobs must run with auth context.
  */
 @Component
 public class GroupScope {

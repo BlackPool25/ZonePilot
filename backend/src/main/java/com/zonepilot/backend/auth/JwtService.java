@@ -32,10 +32,14 @@ public class JwtService {
     private final Duration refreshTtl;
 
     public JwtService(
-            @Value("${app.jwt.secret:zonepilot-dev-secret-change-me-32bytes!!}") String secret,
+            @Value("${app.jwt.secret:}") String secret,
             @Value("${app.jwt.access-ttl:PT15M}") Duration accessTtl,
             @Value("${app.jwt.refresh-ttl:P7D}") Duration refreshTtl) {
-        if (secret == null || secret.getBytes(StandardCharsets.UTF_8).length < 32) {
+        if (secret == null || secret.isBlank()) {
+            throw new IllegalArgumentException(
+                    "app.jwt.secret is blank — set APP_JWT_SECRET (32+ bytes) in production");
+        }
+        if (secret.getBytes(StandardCharsets.UTF_8).length < 32) {
             throw new IllegalArgumentException("app.jwt.secret must be at least 32 bytes for HS256");
         }
         this.key = Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));

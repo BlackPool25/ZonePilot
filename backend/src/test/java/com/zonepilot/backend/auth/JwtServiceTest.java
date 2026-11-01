@@ -28,8 +28,14 @@ class JwtServiceTest {
     }
 
     @Test
-    void parse_withWrongSecret_throws() {
-        JwtService jwt = new JwtService(SECRET, Duration.ofMinutes(15), Duration.ofDays(7));
+    void blankSecret_failsFast_pointingAtEnvVar() {
+        assertThatThrownBy(() -> new JwtService("  ", Duration.ofMinutes(15), Duration.ofDays(7)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("APP_JWT_SECRET");
+    }
+
+    @Test
+    void parse_withWrongSecret_throws() {        JwtService jwt = new JwtService(SECRET, Duration.ofMinutes(15), Duration.ofDays(7));
         JwtService other = new JwtService(
                 "completely-different-secret-xyz-1234567890!!", Duration.ofMinutes(15), Duration.ofDays(7));
 

@@ -34,6 +34,11 @@ app:
     access-ttl: ${APP_JWT_ACCESS_TTL:PT15M}
     refresh-ttl: ${APP_JWT_REFRESH_TTL:P7D}
 
+# Dev/test default only — application-prod.yml overrides both entries with
+# required (no-default) placeholders so prod fails fast instead of failing open.
+cors:
+  allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000}
+
 server:
   port: ${PORT:8080}
 
