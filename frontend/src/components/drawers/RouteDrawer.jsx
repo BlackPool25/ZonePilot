@@ -17,7 +17,8 @@ export default function RouteDrawer({ entityId, data: initialData }) {
   const [approving, setApproving] = useState(false);
   const [timelineError, setTimelineError] = useState(null);
   const tourId = route?.tour?.id ?? route?.tourId ?? null;
-  const timelineVehicleId = route?.vehicle?.id ?? null;
+  // Route payloads carry the vehicle nested; accept a flat vehicleId too.
+  const timelineVehicleId = route?.vehicle?.id ?? route?.vehicleId ?? null;
   const trackStatus = track?.status ?? null;
 
   // Manager tour timeline: stops + PoD stamps from the track endpoint.

@@ -12,7 +12,8 @@ const LAYER_LABELS = { vehicles: '🚛 Vehicles', zones: '⬡ Zones', breaches: 
 export default function Dashboard() {
   const { state, openDrawer, selectVehicle, selectZone, toggleMapLayer, setWsOnline } = useApp();
   const [vehicles, setVehicles] = useState([]);
-  const [groupId, setGroupId] = useState(null);
+  const [groups, setGroups] = useState([]);
+  const [selectedGroupId, setSelectedGroupId] = useState('all');
   const [positions, setPositions] = useState({});
   const [zones, setZones] = useState([]);
   const [breaches, setBreaches] = useState([]);
@@ -30,8 +31,8 @@ export default function Dashboard() {
     setVehicles(vehicleList);
     setZones(z.status === 'fulfilled' ? z.value : []);
     setBreaches(b.status === 'fulfilled' ? b.value : []);
-    if (g.status === 'fulfilled' && Array.isArray(g.value) && g.value.length > 0) {
-      setGroupId(g.value[0].id);
+    if (g.status === 'fulfilled' && Array.isArray(g.value)) {
+      setGroups(g.value);
     }
 
     // Load latest positions for all active vehicles
@@ -52,11 +53,15 @@ export default function Dashboard() {
     return () => clearInterval(pollRef.current);
   }, []);
 
-  // Live pipe: JWT-scoped per-group ticks merge into the positions map;
-  // the 10s HTTP poll above stays as the reconnect-gap fallback.
+  // Live pipe: fan-in subscribe to ALL managed groups (or the selected one);
+  // ticks merge into the positions map by vehicleId. The 10s HTTP poll
+  // above stays as the reconnect-gap fallback.
   useEffect(() => {
-    if (groupId == null || vehicles.length === 0) return undefined;
-    const disconnect = connectTicks(groupId, (tick) => {
+    const ids = selectedGroupId === 'all'
+      ? groups.map(g => g.id ?? g.groupId).filter(id => id != null)
+      : [Number(selectedGroupId)];
+    if (ids.length === 0 || vehicles.length === 0) return undefined;
+    const onTick = (tick) => {
       if (tick.type !== 'tick' || tick.vehicleId == null) return;
       setPositions(prev => ({
         ...prev,
@@ -68,9 +73,10 @@ export default function Dashboard() {
           recordedAt: tick.recordedAt,
         },
       }));
-    }, setWsOnline);
-    return () => disconnect();
-  }, [groupId, vehicles, setWsOnline]);
+    };
+    const disconnects = ids.map(id => connectTicks(id, onTick, setWsOnline));
+    return () => disconnects.forEach(d => d());
+  }, [groups, selectedGroupId, vehicles, setWsOnline]);
 
   function handleVehicleClick(vehicle) {
     selectVehicle(vehicle.id);
@@ -123,6 +129,20 @@ export default function Dashboard() {
               </button>
             ))}
           </div>
+          {groups.length > 1 && (
+            <select
+              aria-label="Group filter"
+              className={styles.groupSelect}
+              value={selectedGroupId}
+              onChange={e => setSelectedGroupId(e.target.value)}
+            >
+              <option value="all">All groups</option>
+              {groups.map(g => {
+                const id = g.id ?? g.groupId;
+                return <option key={id} value={id}>{g.name ?? `Group ${id}`}</option>;
+              })}
+            </select>
+          )}
         </div>
 
         {/* Floating metric strip — reference image style */}

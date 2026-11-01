@@ -32,7 +32,10 @@ export default function Replay() {
       // Resolve the tour's vehicle for the separate breach feed.
       try {
         const tour = await toursApi.get(id);
-        setVehicleId(tour.vehicleId);
+        // Flat tour payload carries vehicleId; fall back to a nested vehicle
+        // shape so a missing id fails visibly (no feed) instead of polling
+        // breaches for vehicle "undefined".
+        setVehicleId(tour.vehicleId ?? tour.vehicle?.id ?? null);
       } catch {
         setVehicleId(null);
       }
@@ -45,9 +48,12 @@ export default function Replay() {
 
   // Separate breach feed: the worker evaluates REPLAY fixes in the
   // background, so poll until the operator leaves the page.
+  // Poll until the operator leaves the page. vehicleId is null-guarded above,
+  // so this only ever queries a real vehicle; rows are labelled per-vehicle
+  // because /api/breaches has no tourId filter (separate-feed design).
   useEffect(() => {
     clearInterval(pollRef.current);
-    if (!vehicleId) return;
+    if (vehicleId == null) return;
     const load = () => {
       breachesApi.list({ vehicleId })
         .then(b => setBreaches(b ?? []))

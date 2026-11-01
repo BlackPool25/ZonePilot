@@ -52,6 +52,20 @@
   color: white;
 }
 
+.groupSelect {
+  padding: 5px 10px;
+  font-size: 12px;
+  font-weight: 500;
+  background: var(--surface-0);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-full);
+  color: var(--text-secondary);
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+  pointer-events: all;
+  margin-left: auto;
+}
+
 /* ─── Metric strip — reference image style ───────────────────────── */
 .metricStrip {
   position: absolute;

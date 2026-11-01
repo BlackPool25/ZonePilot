@@ -76,7 +76,22 @@ public abstract class SliceIT {
 
     @BeforeEach
     void cleanUsers() {
-        users.deleteAll();
+        // Flake guard: parallel IT containers share the DB while another test
+        // may still hold FK rows; retry briefly instead of failing the suite.
+        for (int attempt = 0; ; attempt++) {
+            try {
+                users.deleteAll();
+                return;
+            } catch (org.springframework.dao.DataAccessException e) {
+                if (attempt >= 2) throw e;
+                try {
+                    Thread.sleep(500L * (attempt + 1));
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    throw e;
+                }
+            }
+        }
     }
 
     protected String url(String path) {

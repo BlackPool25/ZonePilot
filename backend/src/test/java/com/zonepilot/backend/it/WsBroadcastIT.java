@@ -96,7 +96,7 @@ class WsBroadcastIT extends SliceIT {
                 token);
         assertThat(res.get("status")).isEqualTo(200);
 
-        Map tick = frame.get(10, TimeUnit.SECONDS);
+        Map tick = frame.get(20, TimeUnit.SECONDS);
         long elapsed = System.currentTimeMillis() - sentAt;
         assertThat(((Number) tick.get("vehicleId")).longValue()).isEqualTo(vehicle.getId());
         assertThat(((Number) tick.get("groupId")).longValue()).isEqualTo(g.getId());

@@ -79,14 +79,15 @@ export default function Driver() {
     } catch (err) { addToast('error', err.message); }
   };
   const logout = () => { tokenStore.set(null); setToken(null); setRoutes([]); };
-  /** POST with offline fallback: network failure queues, 4xx drops with toast. */
+  /** POST with offline fallback: 4xx drops with toast; anything else queues. */
   const guarded = async (routeId, label, fn, path, body) => {
     setBusy(`${routeId}-${label}`);
     try {
       await fn();
       load();
     } catch (e) {
-      if (e.status >= 400 && e.status < 500) addToast('error', e.message);
+      const status = Number(e?.status);
+      if (status >= 400 && status < 500) addToast('error', e.message);
       else enqueue(path, body);
     } finally { setBusy(null); }
   };

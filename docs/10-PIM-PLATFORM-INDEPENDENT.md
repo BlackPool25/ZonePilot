@@ -1,5 +1,7 @@
 # ZonePilot — Platform-Independent Model (PIM) & Requirements
 
+> Amendment 2026-11-01 (Wave C): depots removed (V33) — all scoping is by flat fleet group (`fleet_group`, STOMP `/topic/group/{id}`). Earlier "depot" wording below now reads "group"; history kept in git.
+
 > Method: OMG MDA (CIM → PIM → PSM) + IEEE/ISO/IEC 29148 SRS structure + UML 2.x + C4/arc42 views.
 > Status: PIM — no platform names constrain these requirements. Existing `docs/architecture/01-04` stay as early PSM sketches; this file is the stable contract they must satisfy.
 > Sources: OMG MDA Guide 2.0 (PIM stable as tech churns); 29148 §9.6 SRS sections; C4+arc42 mapping (Context→arc42-3, Container→5/L1, Component→5/L2, Dynamic→6, Deployment→7).
@@ -73,14 +75,14 @@ UC pre/post (short): UC-01 pre: trip draft + eligible crew; post: COMPLIANT or B
 ## 4. Functional requirements (numbered, testable)
 
 ### F1 Fleet & vehicle models
-- FR-01: register vehicle with registration no (unique), class (HCV/MMV/LCV/3W-goods), fuel (DIESEL/CNG/EV), model ref, depot, active flag.
+- FR-01: register vehicle with registration no (unique), class (HCV/MMV/LCV/3W-goods), fuel (DIESEL/CNG/EV), model ref, group, active flag.
 - FR-02: maintain vehicle-model catalog: payload_kg, consumption (km/L or kWh/km), energy price defaults, max speed; seed Tata Ace EV1000 (21.3kWh/161km/1000kg), Euler HiLoad (12.4kWh/170km/688kg), diesel LCV 8km/L, HCV 4km/L.
 - FR-03: block dispatch of inactive or already-on-trip vehicle.
 
 ### F2 Crew organisation (no big mess)
-- FR-10: depots contain teams; each vehicle has one primary + optional relief driver per shift.
+- FR-10: groups contain teams; each vehicle has one primary + optional relief driver per shift.
 - FR-11: driver record: name, phone, licence class + expiry, docs, salary mode (per-trip/monthly), status (AVAILABLE/ON_TRIP/OFF).
-- FR-12: roster view filters by depot + status + doc-validity; expired licence/doc blocks assignment with reason.
+- FR-12: roster view filters by group + status + doc-validity; expired licence/doc blocks assignment with reason.
 - FR-13: attendance auto-marks from first on-duty action; relief assignment keeps history (who, when, why).
 
 ### F3 Zone & rule catalog (provenance, not mocks)
@@ -123,7 +125,7 @@ UC pre/post (short): UC-01 pre: trip draft + eligible crew; post: COMPLIANT or B
 
 ```mermaid
 classDiagram
-    Depot "1" --> "*" Team
+    Group "1" --> "*" Team
     Team "1" --> "*" Vehicle
     Team "1" --> "*" Driver
     VehicleModel "1" --> "*" Vehicle
@@ -229,13 +231,13 @@ flowchart LR
 
 ## 11. Logical data (retention/access)
 
-Trip + positions 13 months (dispute window); docs until superseded + 1y; ledger 7y (GST); driver sees own wallet only; customer sees trip progress only; owner/dispatcher see depot scope.
+Trip + positions 13 months (dispute window); docs until superseded + 1y; ledger 7y (GST); driver sees own wallet only; customer sees trip progress only; owner/dispatcher see group scope.
 
 ## 11A. Logical ER (structural, platform-free)
 
 ```mermaid
 erDiagram
-    DEPOT ||--o{ TEAM : contains
+    FLEET_GROUP ||--o{ TEAM : contains
     TEAM ||--o{ VEHICLE : owns
     TEAM ||--o{ DRIVER : employs
     VEHICLE_MODEL ||--o{ VEHICLE : types
