@@ -18,7 +18,13 @@ import java.math.BigDecimal;
 import java.nio.file.Paths;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import com.zonepilot.backend.auth.DepotPrincipal;
+import com.zonepilot.backend.auth.Role;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -73,6 +79,20 @@ class EldAutoDutyTest {
     @Autowired FleetGroupRepository groups;
     @Autowired TourRepository tours;
     @Autowired DutyLogRepository dutyLogs;
+
+    @BeforeEach
+    void ownerAuth() {
+        // Direct recordPosition calls run as OWNER (manager path with group
+        // access); null-auth now requires worker identity.
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(
+                        new DepotPrincipal("owner@zp.test", null, Role.OWNER), null, java.util.List.of()));
+    }
+
+    @AfterEach
+    void clearAuth() {
+        SecurityContextHolder.clearContext();
+    }
 
     private Tour mkTour() {
         FleetGroup g = new FleetGroup();

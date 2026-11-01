@@ -192,4 +192,9 @@ docker run --rm --network host -e PGPASSWORD="$PGPASSWORD" postgres:16-alpine \
   "SELECT (SELECT COUNT(*) FROM blr_2po_4pgr) AS edges,
           (SELECT COUNT(*) FROM blr_2po_4pgr_vertices_pgr) AS vertices,
           (SELECT COUNT(*) FROM blr_2po_4pgr WHERE cost_time_sec IS NULL) AS null_costs;"
+docker run --rm --network host -e PGPASSWORD="$PGPASSWORD" postgres:16-alpine \
+  psql -h 127.0.0.1 -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -c \
+  "INSERT INTO osm_import_meta (extract_name, nodes_count, ways_count, note) VALUES \
+   ('$(basename "$SRC")', (SELECT COUNT(*) FROM blr_2po_4pgr_vertices_pgr), \
+    (SELECT COUNT(*) FROM blr_2po_4pgr), 'import-osm-local.sh full reload');"
 echo "Done. Table blr_2po_4pgr is ready for the backend."

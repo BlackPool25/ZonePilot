@@ -37,6 +37,9 @@ public class TourResponse {
         private Double podLng;
         private Instant etaAt;
         private Long legDurationSec;
+        /** PoD gate for this stop (PIN hash itself is never exposed). */
+        private String podPolicy;
+        private Integer qtyDelivered;
 
         public static StopDto from(TourStop s) {
             StopDto d = new StopDto();
@@ -60,6 +63,8 @@ public class TourResponse {
             d.podLng = s.getPodLng();
             d.etaAt = s.getEtaAt();
             d.legDurationSec = s.getLegDurationSec();
+            d.podPolicy = s.getPodPolicy() == null ? "NONE" : s.getPodPolicy().name();
+            d.qtyDelivered = s.getQtyDelivered();
             return d;
         }
 
@@ -83,6 +88,8 @@ public class TourResponse {
         public Double getPodLng() { return podLng; }
         public Instant getEtaAt() { return etaAt; }
         public Long getLegDurationSec() { return legDurationSec; }
+        public String getPodPolicy() { return podPolicy; }
+        public Integer getQtyDelivered() { return qtyDelivered; }
     }
 
     public Long getId() { return id; }

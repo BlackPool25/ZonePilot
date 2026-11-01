@@ -42,7 +42,7 @@ public class TourController {
                                                              @PathVariable Long stopId,
                                                              @Valid @RequestBody DeliverStopRequest req) {
         return ResponseEntity.ok(
-                ApiResponse.success(tours.deliver(tourId, stopId, req.getLat(), req.getLng())));
+                ApiResponse.success(tours.deliver(tourId, stopId, req)));
     }
 
     @PostMapping("/{tourId}/stops/{stopId}/skip")
@@ -51,7 +51,7 @@ public class TourController {
                                                           @PathVariable Long stopId,
                                                           @Valid @RequestBody SkipStopRequest req) {
         return ResponseEntity.ok(
-                ApiResponse.success(tours.skip(tourId, stopId, req.getReason())));
+                ApiResponse.success(tours.skip(tourId, stopId, req.getReason(), req.getOpId())));
     }
 
     @PostMapping("/{tourId}/stops/{seq}/complete")
@@ -60,7 +60,7 @@ public class TourController {
                                                                    @PathVariable Integer seq,
                                                                    @Valid @RequestBody DeliverStopRequest req) {
         return ResponseEntity.ok(ApiResponse.success(
-                tours.completeBySeq(tourId, seq, req.getLat(), req.getLng())));
+                tours.completeBySeq(tourId, seq, req)));
     }
 
     @PostMapping("/{tourId}/approve")

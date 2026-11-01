@@ -150,22 +150,41 @@ class FixWaveTest {
         return t;
     }
 
-    // ── 1. bindKeys: forged groupId on MQTT path (null caller) rejected ──
+    // ── 1. bindKeys: forged groupId on the worker pipe rejected;
+    // null callers without worker identity are rejected outright ──
+
+    private PositionTrackingService bindingService() {
+        return new PositionTrackingService(vehicleRepository,
+                positionLogRepository, dispatchRouteRepository, tourRepository, jdbcTemplate,
+                events, broadcaster, driverRepository, appUserRepository, scope,
+                org.mockito.Mockito.mock(com.zonepilot.backend.repository.FleetGroupRepository.class),
+                org.mockito.Mockito.mock(com.zonepilot.backend.repository.GroupVehicleRepository.class));
+    }
 
     @Test
     void mqttForgedGroup_rejected() {
         when(vehicleRepository.findById(1L)).thenReturn(Optional.of(activeVehicle(1L)));
         when(tourRepository.findById(3L)).thenReturn(Optional.of(tourInGroup(3L, 7L, 9L, TourStatus.ACTIVE)));
-        PositionTrackingService service = new PositionTrackingService(vehicleRepository,
-                positionLogRepository, dispatchRouteRepository, tourRepository, jdbcTemplate,
-                events, broadcaster, driverRepository, appUserRepository, scope,
-                org.mockito.Mockito.mock(com.zonepilot.backend.repository.FleetGroupRepository.class),
-                org.mockito.Mockito.mock(com.zonepilot.backend.repository.GroupVehicleRepository.class));
+        PositionTrackingService service = bindingService();
 
+        // The MQTT/worker pipe still validates untrusted keys: forged group 999
+        // against tour 3's group 7 is a data rejection, not a silent rebind.
         ValidationException e = assertThrows(ValidationException.class, () ->
-                service.recordPosition(1L, 9L, 3L, 999L, 12.97, 77.59,
-                        Instant.now(), null, null, PositionSource.TRACCAR));
+                IngestWorkerContext.runAsWorker(() ->
+                        service.recordPosition(1L, 9L, 3L, 999L, 12.97, 77.59,
+                                Instant.now(), null, null, PositionSource.TRACCAR)));
         assertTrue(e.getMessage().contains("groupId"));
+    }
+
+    @Test
+    void nullCallerWithoutWorker_rejected() {
+        when(vehicleRepository.findById(1L)).thenReturn(Optional.of(activeVehicle(1L)));
+        when(tourRepository.findById(3L)).thenReturn(Optional.of(tourInGroup(3L, 7L, 9L, TourStatus.ACTIVE)));
+        PositionTrackingService service = bindingService();
+
+        assertThrows(org.springframework.security.access.AccessDeniedException.class, () ->
+                service.recordPosition(1L, 9L, 3L, 7L, 12.97, 77.59,
+                        Instant.now(), null, null, PositionSource.TRACCAR));
     }
 
     // ── 9a. resolveTour: COMPLETED tour rejected ──

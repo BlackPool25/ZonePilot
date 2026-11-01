@@ -67,6 +67,10 @@ public class CreateTourRequest {
         private String windowEnd;
         private BigDecimal codAmount;
         private String handlingNote;
+        /** PoD gate: NONE (default), PIN, PHOTO, SIG. */
+        private String podPolicy;
+        /** Plaintext recipient PIN — hashed server-side, never stored or returned. */
+        private String pin;
 
         public Double getLat() { return lat; }
         public void setLat(Double lat) { this.lat = lat; }
@@ -90,5 +94,9 @@ public class CreateTourRequest {
         public void setCodAmount(BigDecimal codAmount) { this.codAmount = codAmount; }
         public String getHandlingNote() { return handlingNote; }
         public void setHandlingNote(String handlingNote) { this.handlingNote = handlingNote; }
+        public String getPodPolicy() { return podPolicy; }
+        public void setPodPolicy(String podPolicy) { this.podPolicy = podPolicy; }
+        public String getPin() { return pin; }
+        public void setPin(String pin) { this.pin = pin; }
     }
 }

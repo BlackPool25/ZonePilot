@@ -34,6 +34,10 @@ public class TourService {
 
     private static final double POD_PROXIMITY_M = 100.0;
 
+    /** FAILED reason chips: fixed codes plus OTHER:<free text>. */
+    private static final java.util.Set<String> FAIL_CHIPS = java.util.Set.of(
+            "DAMAGED", "CUSTOMER_REFUSED", "WRONG_ADDRESS", "ADDRESS_CLOSED");
+
     private final TourRepository tours;
     private final TourStopRepository stops;
     private final FleetGroupRepository groups;
@@ -47,6 +51,9 @@ public class TourService {
     private final RouteComplianceService compliance;
     private final DriverService driverService;
     private final PositionTrackingService positions;
+    private final AuditService audit;
+    private final IdempotencyService idempotency;
+    private final org.springframework.security.crypto.password.PasswordEncoder passwords;
     private final GeometryFactory gf = new GeometryFactory(new PrecisionModel(), 4326);
 
     public TourService(TourRepository tours, TourStopRepository stops, FleetGroupRepository groups,
@@ -68,6 +75,36 @@ public class TourService {
         this.positions = positions;
         this.groupVehicles = groupVehicles;
         this.groupDrivers = groupDrivers;
+        this.audit = AuditService.noop();
+        this.idempotency = new IdempotencyService();
+        this.passwords = new org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder();
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public TourService(TourRepository tours, TourStopRepository stops, FleetGroupRepository groups,
+                       VehicleRepository vehicles, DriverRepository drivers,
+                       DispatchRouteRepository routes, GroupScope scope,
+                       TourOptimizerService optimizer, RouteComplianceService compliance,
+                       DriverService driverService, PositionTrackingService positions,
+                       GroupVehicleRepository groupVehicles, GroupDriverRepository groupDrivers,
+                       AuditService audit, IdempotencyService idempotency,
+                       org.springframework.security.crypto.password.PasswordEncoder passwords) {
+        this.tours = tours;
+        this.stops = stops;
+        this.groups = groups;
+        this.vehicles = vehicles;
+        this.drivers = drivers;
+        this.routes = routes;
+        this.scope = scope;
+        this.optimizer = optimizer;
+        this.compliance = compliance;
+        this.driverService = driverService;
+        this.positions = positions;
+        this.groupVehicles = groupVehicles;
+        this.groupDrivers = groupDrivers;
+        this.audit = audit == null ? AuditService.noop() : audit;
+        this.idempotency = idempotency == null ? new IdempotencyService() : idempotency;
+        this.passwords = passwords;
     }
 
     @Transactional
@@ -133,6 +170,7 @@ public class TourService {
         tour.setVehicle(vehicle);
         tour.setDriver(driver);
         tour.setStatus(TourStatus.ACTIVE);
+        tour.setCreatedByUserId(scope.currentUserId().orElse(null));
         tours.save(tour);
 
         for (int i = 0; i < orderedInputs.size(); i++) {
@@ -152,6 +190,7 @@ public class TourService {
                         "DispatchRoute", "id", leg.getDispatchRouteId()));
         route.setTour(tour);
         driverService.assign(route.getId(), driver.getId());
+        audit.log(actorName(), "DISPATCH", tour.getId(), null, null, null, null);
         return toResponse(tour.getId());
     }
 
@@ -189,12 +228,50 @@ public class TourService {
 
     @Transactional
     public TourResponse deliver(Long tourId, Long stopId, Double lat, Double lng) {
+        com.zonepilot.backend.dto.request.DeliverStopRequest req =
+                new com.zonepilot.backend.dto.request.DeliverStopRequest();
+        req.setLat(lat);
+        req.setLng(lng);
+        return deliver(tourId, stopId, req);
+    }
+
+    /**
+     * Manager PoD path (POST /api/tours/...). DRIVER logins are rejected
+     * here — drivers deliver through their own endpoints, which additionally
+     * require the owned tour.
+     */
+    @Transactional
+    public TourResponse deliver(Long tourId, Long stopId,
+                                com.zonepilot.backend.dto.request.DeliverStopRequest req) {
+        requireNonDriver();
+        return doDeliver(tourId, stopId, req, actorName(), true);
+    }
+
+    /**
+     * Driver PoD path (POST /api/driver/...): owned-tour check first, then
+     * the same gated core as the manager path.
+     */
+    @Transactional
+    public TourResponse deliverForDriver(Long tourId, Long stopId,
+                                         com.zonepilot.backend.dto.request.DeliverStopRequest req) {
+        driverService.requireOwnedTour(tourId);
+        return doDeliver(tourId, stopId, req, actorName(), false);
+    }
+
+    private TourResponse doDeliver(Long tourId, Long stopId,
+                                   com.zonepilot.backend.dto.request.DeliverStopRequest req,
+                                   String actor, boolean managerPath) {
+        idempotency.claim(req.getOpId());
+        Double lat = req.getLat();
+        Double lng = req.getLng();
         if (lat == null || lng == null) {
             throw new ValidationException("GPS fix required for proof of delivery");
         }
         Tour tour = tours.findByIdWithLock(tourId)
                 .orElseThrow(() -> new ResourceNotFoundException("Tour", "id", tourId));
-        requireDeliverAccess(tour);
+        if (managerPath) {
+            scope.requireGroupAccess(tour.getGroup());
+        }
         requireActive(tour);
         TourStop stop = loadStop(tourId, stopId);
         requireCurrent(tourId, stop);
@@ -206,42 +283,163 @@ public class TourService {
             throw new ValidationException("proof of delivery is " + Math.round(distM)
                     + "m from stop " + stop.getSeq() + " (limit " + POD_PROXIMITY_M + "m)");
         }
-        stop.setStatus(StopStatus.DELIVERED);
+        enforcePodPolicy(stop, req);
+        StopStatus outcome = parseOutcome(req);
+        stop.setStatus(outcome);
         stop.setDeliveredAt(Instant.now());
         stop.setPodLat(lat);
         stop.setPodLng(lng);
+        if (req.getQtyDelivered() != null) {
+            if (stop.getQuantity() != null && req.getQtyDelivered() > stop.getQuantity()) {
+                throw new ValidationException("qtyDelivered " + req.getQtyDelivered()
+                        + " exceeds planned quantity " + stop.getQuantity());
+            }
+            stop.setQtyDelivered(req.getQtyDelivered());
+        }
+        if (req.getPhotoRef() != null) {
+            stop.setPodPhotoRef(req.getPhotoRef());
+        }
+        if (req.getSigRef() != null) {
+            stop.setPodSigRef(req.getSigRef());
+        }
+        if (outcome == StopStatus.FAILED) {
+            stop.setSkipReason(req.getReason());
+        }
         advance(tour, stop);
+        audit.log(actor, "POD_" + outcome.name(), tourId, stopId,
+                req.getReason(), null, null);
         return toResponse(tourId);
+    }
+
+    /** Per-stop PoD gate: PIN (server hash), PHOTO, or SIG evidence required. */
+    private void enforcePodPolicy(TourStop stop,
+                                 com.zonepilot.backend.dto.request.DeliverStopRequest req) {
+        PodPolicy policy = stop.getPodPolicy() == null ? PodPolicy.NONE : stop.getPodPolicy();
+        switch (policy) {
+            case NONE -> { /* tap + GPS only */ }
+            case PIN -> {
+                if (req.getPin() == null || stop.getPinHash() == null
+                        || !passwords.matches(req.getPin(), stop.getPinHash())) {
+                    throw new ValidationException("recipient PIN required for stop "
+                            + stop.getSeq());
+                }
+            }
+            case PHOTO -> {
+                if (req.getPhotoRef() == null || req.getPhotoRef().isBlank()) {
+                    throw new ValidationException("photo evidence required for stop "
+                            + stop.getSeq());
+                }
+            }
+            case SIG -> {
+                if (req.getSigRef() == null || req.getSigRef().isBlank()) {
+                    throw new ValidationException("signature required for stop "
+                            + stop.getSeq());
+                }
+            }
+        }
+    }
+
+    private static StopStatus parseOutcome(
+            com.zonepilot.backend.dto.request.DeliverStopRequest req) {
+        if (req.getStatus() == null || req.getStatus().isBlank()) {
+            return StopStatus.DELIVERED;
+        }
+        StopStatus outcome;
+        try {
+            outcome = StopStatus.valueOf(req.getStatus());
+        } catch (IllegalArgumentException e) {
+            throw new ValidationException("unknown PoD status '" + req.getStatus() + "'");
+        }
+        if (outcome != StopStatus.DELIVERED && outcome != StopStatus.PARTIAL
+                && outcome != StopStatus.FAILED) {
+            throw new ValidationException("unknown PoD status '" + req.getStatus() + "'");
+        }
+        if (outcome == StopStatus.FAILED) {
+            checkFailChip(req.getReason());
+        }
+        return outcome;
+    }
+
+    /** FAILED closes with a reason chip (fixed code or OTHER:<text>). */
+    static void checkFailChip(String reason) {
+        if (reason == null || reason.isBlank()) {
+            throw new ValidationException("FAILED requires a reason chip");
+        }
+        String r = reason.strip();
+        if (r.startsWith("OTHER:")) {
+            if (r.length() <= "OTHER:".length()) {
+                throw new ValidationException("OTHER: requires free text");
+            }
+            return;
+        }
+        if (!FAIL_CHIPS.contains(r)) {
+            throw new ValidationException("unknown FAILED reason chip '" + r
+                    + "', expected one of " + FAIL_CHIPS + " or OTHER:<text>");
+        }
     }
 
     @Transactional
     public TourResponse completeBySeq(Long tourId, Integer seq, Double lat, Double lng) {
+        com.zonepilot.backend.dto.request.DeliverStopRequest req =
+                new com.zonepilot.backend.dto.request.DeliverStopRequest();
+        req.setLat(lat);
+        req.setLng(lng);
+        return completeBySeq(tourId, seq, req);
+    }
+
+    @Transactional
+    public TourResponse completeBySeq(Long tourId, Integer seq,
+                                      com.zonepilot.backend.dto.request.DeliverStopRequest req) {
         // Thin seq alias for deliver: order is still enforced inside deliver().
         TourStop stop = stops.findByTourIdAndSeq(tourId, seq)
                 .orElseThrow(() -> new ResourceNotFoundException("TourStop", "seq",
                         tourId + "/" + seq));
-        return deliver(tourId, stop.getId(), lat, lng);
+        return deliver(tourId, stop.getId(), req);
     }
 
     @Transactional
     public TourResponse skip(Long tourId, Long stopId, String reason) {
+        return skip(tourId, stopId, reason, null);
+    }
+
+    /** Manager skip path (POST /api/tours/...): rejects DRIVER logins. */
+    @Transactional
+    public TourResponse skip(Long tourId, Long stopId, String reason, String opId) {
+        requireNonDriver();
+        return doSkip(tourId, stopId, reason, opId, actorName(), true);
+    }
+
+    /** Driver skip path (POST /api/driver/...): owned-tour check first. */
+    @Transactional
+    public TourResponse skipForDriver(Long tourId, Long stopId, String reason, String opId) {
+        driverService.requireOwnedTour(tourId);
+        return doSkip(tourId, stopId, reason, opId, actorName(), false);
+    }
+
+    private TourResponse doSkip(Long tourId, Long stopId, String reason, String opId,
+                                String actor, boolean managerPath) {
+        idempotency.claim(opId);
         if (reason == null || reason.isBlank()) {
             throw new ValidationException("skip reason is required");
         }
         Tour tour = tours.findByIdWithLock(tourId)
                 .orElseThrow(() -> new ResourceNotFoundException("Tour", "id", tourId));
-        requireDeliverAccess(tour);
+        if (managerPath) {
+            scope.requireGroupAccess(tour.getGroup());
+        }
         requireActive(tour);
         TourStop stop = loadStop(tourId, stopId);
         requireCurrent(tourId, stop);
         stop.setStatus(StopStatus.SKIPPED);
         stop.setSkipReason(reason.strip());
         advance(tour, stop);
+        audit.log(actor, "SKIP", tourId, stopId, reason.strip(), null, null);
         return toResponse(tourId);
     }
 
     @Transactional
     public TourResponse approve(Long tourId) {
+        requireNonDriver();
         Tour tour = tours.findByIdWithLock(tourId)
                 .orElseThrow(() -> new ResourceNotFoundException("Tour", "id", tourId));
         scope.requireGroupAccess(tour.getGroup());
@@ -249,9 +447,21 @@ public class TourService {
             throw new ValidationException("tour is " + tour.getStatus()
                     + ", not PENDING_APPROVAL");
         }
+        // Separation of duties: a DISPATCHER cannot approve a tour they
+        // created (OWNER stays the backstop approver). Checked only when
+        // both sides are known (unit tests run without an auth context).
+        Long creator = tour.getCreatedByUserId();
+        DepotPrincipal caller = DepotScope.current();
+        Long me = scope.currentUserId().orElse(null);
+        if (caller != null && caller.role() == Role.DISPATCHER
+                && creator != null && me != null && creator.equals(me)) {
+            throw new ValidationException(
+                    "approver must differ from the tour creator (separation of duties)");
+        }
         tour.setStatus(TourStatus.COMPLETED);
         tour.getVehicle().setAvailability(VehicleAvailability.AVAILABLE);
         completeLatestRoute(tour.getId());
+        audit.log(actorName(), "APPROVE", tourId, null, null, null, null);
         return toResponse(tourId);
     }
 
@@ -323,21 +533,20 @@ public class TourService {
     }
 
     /**
-     * PoD/skip access: the owned-tour driver passes without group access
-     * (drivers own no groups); everyone else needs the group check, which
-     * still 403s a driver on somebody else's tour.
-     *
-     * <p>Role-gated (not try/catch): requireOwnedTour throws inside the
-     * deliver transaction, and swallowing that would poison the TX
-     * (rollback-only) for the manager path that follows.
+     * Manager endpoints (/api/tours/...) reject DRIVER logins outright —
+     * drivers act through /api/driver/..., which checks the owned tour.
+     * Null callers (unit tests) pass: prod always authenticates.
      */
-    private void requireDeliverAccess(Tour tour) {
+    private void requireNonDriver() {
         DepotPrincipal caller = DepotScope.current();
         if (caller != null && caller.role() == Role.DRIVER) {
-            driverService.requireOwnedTour(tour.getId());
-            return;
+            throw new AccessDeniedException("Driver login required — use /api/driver endpoints");
         }
-        scope.requireGroupAccess(tour.getGroup());
+    }
+
+    private static String actorName() {
+        DepotPrincipal caller = DepotScope.current();
+        return caller == null ? "system" : caller.username();
     }
 
     private TourStop loadStop(Long tourId, Long stopId) {
@@ -377,6 +586,16 @@ public class TourService {
         s.setWindowEnd(in.getWindowEnd() == null ? null : Instant.parse(in.getWindowEnd()));
         s.setCodAmount(in.getCodAmount());
         s.setHandlingNote(in.getHandlingNote());
+        PodPolicy policy = PodPolicy.from(in.getPodPolicy());
+        s.setPodPolicy(policy);
+        if (policy == PodPolicy.PIN) {
+            // PIN is hashed server-side at create; the plaintext never lands
+            // in the DB and the hash never leaves for the PWA.
+            if (in.getPin() == null || in.getPin().length() < 4) {
+                throw new ValidationException("PIN-policy stops require a 4+ digit PIN");
+            }
+            s.setPinHash(passwords.encode(in.getPin()));
+        }
         s.setStatus(StopStatus.PENDING);
         return s;
     }

@@ -73,6 +73,28 @@ public class TourStop {
     @Column(name = "leg_duration_sec")
     private Long legDurationSec;
 
+    /** PoD gate for this stop; NONE (default) keeps the tap+GPS behavior. */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "pod_policy", nullable = false, length = 10)
+    private PodPolicy podPolicy = PodPolicy.NONE;
+
+    /**
+     * BCrypt hash of the recipient PIN (set at tour create). The plaintext
+     * PIN is never stored and never returned to the PWA.
+     */
+    @Column(name = "pin_hash", columnDefinition = "TEXT")
+    @JsonIgnore
+    private String pinHash;
+
+    @Column(name = "qty_delivered")
+    private Integer qtyDelivered;
+
+    @Column(name = "pod_photo_ref", columnDefinition = "TEXT")
+    private String podPhotoRef;
+
+    @Column(name = "pod_sig_ref", columnDefinition = "TEXT")
+    private String podSigRef;
+
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
     public Tour getTour() { return tour; }
@@ -113,4 +135,14 @@ public class TourStop {
     public void setEtaAt(Instant etaAt) { this.etaAt = etaAt; }
     public Long getLegDurationSec() { return legDurationSec; }
     public void setLegDurationSec(Long legDurationSec) { this.legDurationSec = legDurationSec; }
+    public PodPolicy getPodPolicy() { return podPolicy; }
+    public void setPodPolicy(PodPolicy podPolicy) { this.podPolicy = podPolicy; }
+    public String getPinHash() { return pinHash; }
+    public void setPinHash(String pinHash) { this.pinHash = pinHash; }
+    public Integer getQtyDelivered() { return qtyDelivered; }
+    public void setQtyDelivered(Integer qtyDelivered) { this.qtyDelivered = qtyDelivered; }
+    public String getPodPhotoRef() { return podPhotoRef; }
+    public void setPodPhotoRef(String podPhotoRef) { this.podPhotoRef = podPhotoRef; }
+    public String getPodSigRef() { return podSigRef; }
+    public void setPodSigRef(String podSigRef) { this.podSigRef = podSigRef; }
 }

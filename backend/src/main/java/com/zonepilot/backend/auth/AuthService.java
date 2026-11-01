@@ -45,6 +45,32 @@ public class AuthService {
 
     @Transactional
     public TokenPair register(String email, String rawPassword, Role role) {
+        return registerInternal(email, rawPassword, role, false);
+    }
+
+    /**
+     * Driver-login channel: the ONLY way to create a DRIVER login is the
+     * driver roster endpoint (POST /api/drivers → DriverService). Direct
+     * /api/auth/register calls with DRIVER are rejected.
+     */
+    @Transactional
+    public TokenPair registerDriver(String email, String rawPassword) {
+        return registerInternal(email, rawPassword, Role.DRIVER, true);
+    }
+
+    private TokenPair registerInternal(String email, String rawPassword, Role role,
+                                       boolean viaDriverEndpoint) {
+        if (role == null) {
+            throw new ValidationException("Role is required");
+        }
+        if (users.count() == 0 && role != Role.OWNER) {
+            // Bootstrap: the first-ever user must be the OWNER; a first
+            // DISPATCHER/DRIVER would leave the fleet ownerless.
+            throw new ValidationException("First user must bootstrap as OWNER");
+        }
+        if (role == Role.DRIVER && !viaDriverEndpoint) {
+            throw new ValidationException("driver logins only via POST /api/drivers");
+        }
         DepotPrincipal caller = DepotScope.current();
         if (users.count() > 0) {
             // OWNER manages everyone; DISPATCHER manages DRIVER logins only.

@@ -56,10 +56,13 @@ public class IngestController {
                 throw new ValidationException("source must be LIVE or REPLAY");
             }
         }
+        if (frame.v() != null && frame.v() != 1) {
+            throw new ValidationException("unsupported ingest schema version " + frame.v());
+        }
         return ResponseEntity.ok(ApiResponse.success(ingest.ingest(
                 frame.vehicleId(), frame.lat(), frame.lng(), frame.timestamp(),
                 frame.speedKmh(), frame.accuracyM(), frame.headingDeg(),
-                source, frame.driverId(), frame.tourId(), frame.groupId())));
+                source, frame.driverId(), frame.tourId(), frame.groupId(), frame.opId())));
     }
 
     public record IngestFrame(
@@ -73,5 +76,9 @@ public class IngestController {
             String source,
             Long driverId,
             Long tourId,
-            Long groupId) {}
+            Long groupId,
+            /** Client idempotency key: redelivered burst frames dedupe to 409. */
+            String opId,
+            /** Ingest schema version (supported: 1); mismatch quarantines. */
+            Integer v) {}
 }

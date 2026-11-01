@@ -180,7 +180,7 @@ public class ReplayService {
         for (int from = 0; from < batch.size(); from += CHUNK) {
             List<VehiclePositionLog> chunk = batch.subList(from, Math.min(from + CHUNK, batch.size()));
             int offset = from;
-            chunkTx.executeWithoutResult(status -> {
+            chunkTx.executeWithoutResult(status -> IngestWorkerContext.runAsWorker(() -> {
                 for (int i = 0; i < chunk.size(); i++) {
                     VehiclePositionLog fix = chunk.get(i);
                     tracking.recordReplayFix(
@@ -190,7 +190,7 @@ public class ReplayService {
                             base.plusMillis(stepMs * (offset + i)),
                             fix.getSpeedKmh(), fix.getHeadingDeg(), PositionSource.REPLAY);
                 }
-            });
+            }));
         }
 
         // One summary tick for the final fix instead of 2000 per-fix ticks.

@@ -33,7 +33,7 @@ public class AuthController {
     public ResponseEntity<ApiResponse<TokenResponse>> register(@Valid @RequestBody RegisterRequest request) {
         AuthService.TokenPair pair = authService.register(
                 request.getEmail(), request.getPassword(),
-                Role.valueOf(request.getRole()));
+                Role.from(request.getRole()));
         return ResponseEntity.ok(ApiResponse.success(new TokenResponse(pair.accessToken(), pair.refreshToken())));
     }
 

@@ -237,9 +237,10 @@ public class PositionTrackingService {
     /**
      * Key binding for untrusted client keys. Driver callers ignore all
      * client keys and bind to their owned tour (spoofed tourIds 403);
-     * manager callers with an explicit tourId must own the tour's group,
-     * and explicit driver/group keys must match the tour. Null-auth callers
-     * (replay, background workers) keep the old defaulting behavior.
+     * manager callers must own the tour's group — including the null-tourId
+     * path (the resolved tour's group is checked, never defaulted).
+     * Null-auth callers are rejected unless they run as an authenticated
+     * worker (replay/purge jobs via {@link IngestWorkerContext}).
      */
     private Long[] bindKeys(Tour tour, Long tourId, Long driverId, Long groupId) {
         DepotPrincipal caller = DepotScope.current();
@@ -254,10 +255,31 @@ public class PositionTrackingService {
             }
             return new Long[]{me.getId(), tour.getGroup().getId()};
         }
-        if (tourId != null) {
-            if (caller != null) {
-                scope.requireGroupAccess(tour.getGroup());
+        if (caller == null && !IngestWorkerContext.isWorker()) {
+            // Background jobs must run with worker identity; anything else
+            // with no auth context cannot bind keys.
+            throw new AccessDeniedException("worker identity required");
+        }
+        if (IngestWorkerContext.isWorker()) {
+            // Trusted pipe (MQTT adapter, replay): no group-scope check, but
+            // untrusted keys are still validated — a forged groupId fails
+            // here instead of rebinding the fix to another group.
+            if (groupId != null && tour.getGroup() != null
+                    && !groupId.equals(tour.getGroup().getId())) {
+                throw new ValidationException("groupId does not match tour " + tour.getId());
             }
+            if (driverId == null && tour.getDriver() != null) {
+                driverId = tour.getDriver().getId();
+            }
+            if (groupId == null && tour.getGroup() != null) {
+                groupId = tour.getGroup().getId();
+            }
+            return new Long[]{driverId, groupId};
+        }
+        if (caller != null && !IngestWorkerContext.isWorker()) {
+            // Managers bind to tours they own: explicit tourId AND the
+            // null-tourId (route-resolved) path both check the tour's group.
+            scope.requireGroupAccess(tour.getGroup());
             // Untrusted keys on every pipe: MQTT frames carry no caller, so a
             // forged groupId must fail here — never bind a fix to another group.
             if (groupId != null && !groupId.equals(tour.getGroup().getId())) {
@@ -491,6 +513,27 @@ public class PositionTrackingService {
     }
 
     public com.zonepilot.backend.dto.response.PositionResponse getLatestPosition(Long vehicleId) {
+        // Manager endpoint: DRIVER logins use /api/driver routes, never this.
+        DepotPrincipal caller = DepotScope.current();
+        if (caller != null && caller.role() == Role.DRIVER) {
+            throw new AccessDeniedException("Driver login required — use /api/driver endpoints");
+        }
+        if (!scope.isOwner()) {
+            // Same membership rule as history: the vehicle must sit in one of
+            // the caller's groups. Null callers (no auth) are denied too.
+            boolean member = groupVehicles.findByVehicleId(vehicleId).stream()
+                    .anyMatch(gv -> {
+                        try {
+                            scope.requireGroupAccess(gv.getGroup());
+                            return true;
+                        } catch (AccessDeniedException denied) {
+                            return false;
+                        }
+                    });
+            if (!member) {
+                throw new AccessDeniedException("Not your group");
+            }
+        }
         return positionLogRepository.findLatestByVehicleId(vehicleId)
                 .map(this::toPositionResponse)
                 .orElseGet(() -> {

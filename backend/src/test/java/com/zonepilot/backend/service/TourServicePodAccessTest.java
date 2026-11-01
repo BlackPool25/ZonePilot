@@ -28,8 +28,8 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
 /**
- * Wave B fix 1 (TDD RED): deliver/skip must allow the owned-tour driver
- * without group access; cross-tour drivers still get 403.
+ * Role-split deliver: the manager path rejects DRIVER logins (they use the
+ * driver endpoints, which check the owned tour); cross-tour drivers get 403.
  */
 @ExtendWith(MockitoExtension.class)
 class TourServicePodAccessTest {
@@ -96,35 +96,51 @@ class TourServicePodAccessTest {
                         new DepotPrincipal("u@zp.test", null, role), null, List.of()));
     }
 
+    private com.zonepilot.backend.dto.request.DeliverStopRequest reqAt(double lat, double lng) {
+        var req = new com.zonepilot.backend.dto.request.DeliverStopRequest();
+        req.setLat(lat);
+        req.setLng(lng);
+        return req;
+    }
+
     @Test
-    void deliver_ownedTourDriver_noGroupAccessNeeded() {
+    void deliverForDriver_ownedTourDriver_noGroupAccessNeeded() {
         login(Role.DRIVER);
         when(driverService.requireOwnedTour(23L)).thenReturn(tour);
 
-        var response = tourService.deliver(23L, 24L, 12.9305, 77.6205);
+        var response = tourService.deliverForDriver(23L, 24L, reqAt(12.9305, 77.6205));
 
         assertEquals("PENDING_APPROVAL", response.getStatus());
         verify(scope, never()).requireGroupAccess(any(FleetGroup.class));
     }
 
     @Test
-    void deliver_crossTourDriver_403() {
+    void deliver_managerPath_rejectsDriver() {
+        login(Role.DRIVER);
+
+        assertThrows(AccessDeniedException.class,
+                () -> tourService.deliver(23L, 24L, reqAt(12.9305, 77.6205)));
+        assertEquals(StopStatus.PENDING, stop.getStatus());
+    }
+
+    @Test
+    void deliverForDriver_crossTourDriver_403() {
         login(Role.DRIVER);
         when(driverService.requireOwnedTour(23L))
                 .thenThrow(new AccessDeniedException("Tour is not your assignment"));
 
         assertThrows(AccessDeniedException.class,
-                () -> tourService.deliver(23L, 24L, 12.9305, 77.6205));
+                () -> tourService.deliverForDriver(23L, 24L, reqAt(12.9305, 77.6205)));
         assertEquals(StopStatus.PENDING, stop.getStatus());
         verify(scope, never()).requireGroupAccess(any(FleetGroup.class));
     }
 
     @Test
-    void skip_ownedTourDriver_noGroupAccessNeeded() {
+    void skipForDriver_ownedTourDriver_noGroupAccessNeeded() {
         login(Role.DRIVER);
         when(driverService.requireOwnedTour(23L)).thenReturn(tour);
 
-        var response = tourService.skip(23L, 24L, "closed");
+        var response = tourService.skipForDriver(23L, 24L, "closed", null);
 
         assertEquals("PENDING_APPROVAL", response.getStatus());
         verify(scope, never()).requireGroupAccess(any(FleetGroup.class));
@@ -136,7 +152,7 @@ class TourServicePodAccessTest {
         // the decision (no owned-tour probe, no swallowed TX poison).
         login(Role.DISPATCHER);
 
-        var response = tourService.deliver(23L, 24L, 12.9305, 77.6205);
+        var response = tourService.deliver(23L, 24L, reqAt(12.9305, 77.6205));
 
         assertEquals("PENDING_APPROVAL", response.getStatus());
         verify(scope).requireGroupAccess(group);

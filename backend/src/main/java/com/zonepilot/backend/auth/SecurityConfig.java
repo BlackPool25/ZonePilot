@@ -41,6 +41,7 @@ public class SecurityConfig {
                                 "/api/auth/refresh").permitAll()
                         .requestMatchers("/actuator/health", "/v3/api-docs/**", "/swagger-ui.html",
                                 "/swagger-ui/**").permitAll()
+                        .requestMatchers("/api/ops/**").hasRole("OWNER")
                         .requestMatchers("/api/**").authenticated()
                         .anyRequest().permitAll())
                 .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);

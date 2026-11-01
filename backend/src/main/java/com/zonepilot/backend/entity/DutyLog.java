@@ -34,6 +34,10 @@ public class DutyLog {
     @Column(name = "recorded_at", nullable = false, updatable = false)
     private Instant recordedAt;
 
+    /** Driver annotation on a duty row (gate wait, fuel stop, ...). Max 500 chars. */
+    @Column(columnDefinition = "TEXT")
+    private String note;
+
     @PrePersist
     protected void onCreate() {
         if (this.recordedAt == null) {
@@ -51,4 +55,6 @@ public class DutyLog {
     public void setDutyStatus(DutyStatus dutyStatus) { this.dutyStatus = dutyStatus; }
     public Instant getRecordedAt() { return recordedAt; }
     public void setRecordedAt(Instant recordedAt) { this.recordedAt = recordedAt; }
+    public String getNote() { return note; }
+    public void setNote(String note) { this.note = note; }
 }

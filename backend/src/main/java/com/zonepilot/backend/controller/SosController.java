@@ -27,4 +27,12 @@ public class SosController {
     public ResponseEntity<ApiResponse<List<SosAlertResponse>>> list() {
         return ResponseEntity.ok(ApiResponse.success(sos.listForDispatch()));
     }
+
+    @PostMapping("/{id}/resolve")
+    @Operation(summary = "Manager stand-down: resolve an SOS alert with a note")
+    public ResponseEntity<ApiResponse<SosAlertResponse>> resolve(
+            @PathVariable Long id, @RequestBody(required = false) java.util.Map<String, String> body) {
+        String note = body == null ? null : body.get("note");
+        return ResponseEntity.ok(ApiResponse.success(sos.resolve(id, note)));
+    }
 }

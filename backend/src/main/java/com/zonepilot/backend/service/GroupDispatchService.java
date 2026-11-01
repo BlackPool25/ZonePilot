@@ -35,11 +35,22 @@ public class GroupDispatchService {
     private final DriverRepository drivers;
     private final DriverService driverService;
     private final RouteComplianceService compliance;
+    private final AuditService audit;
 
     public GroupDispatchService(FleetGroupRepository groups, GroupScope scope,
                                 GroupVehicleRepository groupVehicles, GroupDriverRepository groupDrivers,
                                 VehicleRepository vehicles, DriverRepository drivers,
                                 DriverService driverService, RouteComplianceService compliance) {
+        this(groups, scope, groupVehicles, groupDrivers, vehicles, drivers,
+                driverService, compliance, AuditService.noop());
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public GroupDispatchService(FleetGroupRepository groups, GroupScope scope,
+                                GroupVehicleRepository groupVehicles, GroupDriverRepository groupDrivers,
+                                VehicleRepository vehicles, DriverRepository drivers,
+                                DriverService driverService, RouteComplianceService compliance,
+                                AuditService audit) {
         this.groups = groups;
         this.scope = scope;
         this.groupVehicles = groupVehicles;
@@ -48,6 +59,7 @@ public class GroupDispatchService {
         this.drivers = drivers;
         this.driverService = driverService;
         this.compliance = compliance;
+        this.audit = audit == null ? AuditService.noop() : audit;
     }
 
     @Transactional
@@ -87,6 +99,9 @@ public class GroupDispatchService {
                         compliance.validateRoute(v.getId(), originLat, originLng, destLat, destLng);
                 DispatchRoute route = driverService.assign(validation.getDispatchRouteId(), d.getId());
                 dispatched.add(new Dispatched(route.getId(), v.getId(), d.getId()));
+                audit.log(actor(), "DISPATCH", null, null,
+                        "group=" + groupId + " vehicle=" + v.getId() + " driver=" + d.getId(),
+                        null, null);
             } catch (RuntimeException e) {
                 skipped.add(new Skipped(v.getId(), d.getId(), e.getMessage()));
             }
@@ -110,10 +125,18 @@ public class GroupDispatchService {
                     compliance.validateRoute(vehicleId, originLat, originLng, destLat, destLng);
             DispatchRoute route = driverService.assign(validation.getDispatchRouteId(), driverId);
             dispatched.add(new Dispatched(route.getId(), vehicleId, driverId));
+            audit.log(actor(), "DISPATCH", null, null,
+                    "vehicle=" + vehicleId + " driver=" + driverId, null, null);
         } catch (RuntimeException e) {
             skipped.add(new Skipped(vehicleId, driverId, e.getMessage()));
         }
         return new DispatchResult(dispatched, skipped);
+    }
+
+    private static String actor() {
+        com.zonepilot.backend.auth.DepotPrincipal caller =
+                com.zonepilot.backend.auth.DepotScope.current();
+        return caller == null ? "system" : caller.username();
     }
 
     public record Dispatched(Long routeId, Long vehicleId, Long driverId) {}

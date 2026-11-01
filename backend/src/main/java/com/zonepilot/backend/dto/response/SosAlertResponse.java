@@ -16,6 +16,8 @@ public class SosAlertResponse {
     private boolean unknown;
     private String status;
     private Instant createdAt;
+    private Instant resolvedAt;
+    private String resolvedNote;
 
     public static SosAlertResponse from(SosAlert alert) {
         SosAlertResponse r = new SosAlertResponse();
@@ -31,6 +33,8 @@ public class SosAlertResponse {
         r.setUnknown(alert.getLocation() == null);
         r.setStatus(alert.getStatus() != null ? alert.getStatus().name() : null);
         r.setCreatedAt(alert.getCreatedAt());
+        r.setResolvedAt(alert.getResolvedAt());
+        r.setResolvedNote(alert.getResolvedNote());
         return r;
     }
 
@@ -54,4 +58,8 @@ public class SosAlertResponse {
     public void setStatus(String status) { this.status = status; }
     public Instant getCreatedAt() { return createdAt; }
     public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }
+    public Instant getResolvedAt() { return resolvedAt; }
+    public void setResolvedAt(Instant resolvedAt) { this.resolvedAt = resolvedAt; }
+    public String getResolvedNote() { return resolvedNote; }
+    public void setResolvedNote(String resolvedNote) { this.resolvedNote = resolvedNote; }
 }

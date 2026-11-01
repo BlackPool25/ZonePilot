@@ -23,6 +23,11 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.junit.jupiter.api.AfterEach;
+import com.zonepilot.backend.auth.DepotPrincipal;
+import com.zonepilot.backend.auth.Role;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -68,6 +73,16 @@ class PositionTrackingServiceTest {
         lenient().when(tour.getGroup()).thenReturn(group);
         lenient().when(route.getTour()).thenReturn(tour);
         lenient().when(dispatchRouteRepository.findById(any())).thenReturn(Optional.of(route));
+        // Null-auth callers need worker identity since the audit pass; these
+        // logic tests run as OWNER instead.
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(
+                        new DepotPrincipal("owner@zp.test", null, Role.OWNER), null, java.util.List.of()));
+    }
+
+    @AfterEach
+    void clearAuth() {
+        SecurityContextHolder.clearContext();
     }
 
     @Test

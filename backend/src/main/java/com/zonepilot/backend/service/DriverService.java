@@ -14,6 +14,7 @@ import com.zonepilot.backend.dto.response.TourResponse;
 import com.zonepilot.backend.entity.*;
 import com.zonepilot.backend.enums.*;
 import com.zonepilot.backend.exception.EligibilityException;
+import com.zonepilot.backend.exception.RateLimitExceededException;
 import com.zonepilot.backend.exception.ResourceNotFoundException;
 import com.zonepilot.backend.exception.ValidationException;
 import com.zonepilot.backend.repository.*;
@@ -60,6 +61,8 @@ public class DriverService {
     private final TourStopRepository tourStopRepository;
     private final DutyLogRepository dutyLogs;
     private final AuthService authService;
+    private final AuditService audit;
+    private final IdempotencyService idempotency;
     private final GeometryFactory geometryFactory =
             new GeometryFactory(new PrecisionModel(), 4326);
 
@@ -70,6 +73,20 @@ public class DriverService {
                           TourRepository tourRepository, TourStopRepository tourStopRepository,
                           DutyLogRepository dutyLogs,
                           AuthService authService) {
+        this(drivers, routes, documents, slips, sosAlerts, users, vehicleRepository,
+                tourRepository, tourStopRepository, dutyLogs, authService,
+                AuditService.noop(), new IdempotencyService());
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public DriverService(DriverRepository drivers,
+                           DispatchRouteRepository routes, VehicleDocumentRepository documents,
+                           TripSlipRepository slips, SosAlertRepository sosAlerts,
+                           AppUserRepository users, VehicleRepository vehicleRepository,
+                           TourRepository tourRepository, TourStopRepository tourStopRepository,
+                           DutyLogRepository dutyLogs,
+                           AuthService authService,
+                           AuditService audit, IdempotencyService idempotency) {
         this.drivers = drivers;
         this.routes = routes;
         this.documents = documents;
@@ -81,6 +98,8 @@ public class DriverService {
         this.tourStopRepository = tourStopRepository;
         this.dutyLogs = dutyLogs;
         this.authService = authService;
+        this.audit = audit == null ? AuditService.noop() : audit;
+        this.idempotency = idempotency == null ? new IdempotencyService() : idempotency;
     }
 
     @Transactional
@@ -89,7 +108,7 @@ public class DriverService {
         if (drivers.existsByLicenceNo(licenceNo)) {
             throw new ValidationException("Driver with licence number " + licenceNo + " already exists");
         }
-        authService.register(email, password, Role.DRIVER);
+        authService.registerDriver(email, password);
         Driver driver = new Driver();
         driver.setName(name);
         driver.setPhone(phone);
@@ -179,13 +198,31 @@ public class DriverService {
 
     @Transactional
     public SosAlert sos(SosRequest request) {
+        idempotency.claim(request.getOpId());
         Driver driver = currentDriver();
+        // SOS rate limit: one alert per driver per minute (offline-queue
+        // bursts and pocket-taps dedupe to 429, the first alert stands).
+        sosAlerts.findFirstByDriverIdOrderByCreatedAtDesc(driver.getId())
+                .ifPresent(prev -> {
+                    if (prev.getCreatedAt() != null
+                            && prev.getCreatedAt().isAfter(Instant.now().minusSeconds(60))) {
+                        throw new RateLimitExceededException(
+                                "SOS rate-limited: one alert per minute");
+                    }
+                });
         DispatchRoute route = null;
         if (request.getRouteId() != null) {
             route = routes.findById(request.getRouteId())
                     .orElseThrow(() -> new ResourceNotFoundException("DispatchRoute", "id", request.getRouteId()));
             if (route.getDriver() == null || !route.getDriver().getId().equals(driver.getId())) {
                 throw new AccessDeniedException("SOS route is not your assignment");
+            }
+            // Proximity to assignment: an SOS with a fix must be near the
+            // assigned tour (10km), otherwise it is a mis-tap or spoof.
+            if (request.getLat() != null && request.getLng() != null
+                    && route.getTour() != null) {
+                requireNearAssignment(request.getLat(), request.getLng(),
+                        route.getTour().getId());
             }
         }
         SosAlert alert = new SosAlert();
@@ -205,6 +242,43 @@ public class DriverService {
             alert.setLocation(geometryFactory.createPoint(
                     new Coordinate(request.getLng(), request.getLat())));
         }
+        SosAlert saved = sosAlerts.save(alert);
+        DepotPrincipal caller = DepotScope.current();
+        audit.log(caller == null ? "driver" : caller.username(), "SOS",
+                route != null && route.getTour() != null ? route.getTour().getId() : null,
+                null, null, null, null);
+        return saved;
+    }
+
+    /** SOS must be within 10km of an assigned-tour stop. */
+    private void requireNearAssignment(double lat, double lng, Long tourId) {
+        List<TourStop> stops = tourStopRepository.findByTourIdOrderBySeqAsc(tourId);
+        double nearest = stops.stream()
+                .filter(stop -> stop.getPoint() != null)
+                .mapToDouble(stop -> TourOptimizerService.haversineMeters(
+                        lat, lng, stop.getPoint().getY(), stop.getPoint().getX()))
+                .min().orElse(Double.MAX_VALUE);
+        if (nearest > 10_000) {
+            throw new ValidationException("SOS is " + Math.round(nearest / 1000)
+                    + "km from the assignment (limit 10km)");
+        }
+    }
+
+    /**
+     * Driver stand-down: closes the driver's own OPEN alert (false alarm /
+     * resolved on site). Other drivers' alerts are untouched.
+     */
+    @Transactional
+    public SosAlert standDownSos(Long alertId) {
+        Driver driver = currentDriver();
+        SosAlert alert = sosAlerts.findById(alertId)
+                .orElseThrow(() -> new ResourceNotFoundException("SosAlert", "id", alertId));
+        if (alert.getDriver() == null || !alert.getDriver().getId().equals(driver.getId())) {
+            throw new AccessDeniedException("SOS alert is not yours");
+        }
+        alert.setStatus(com.zonepilot.backend.enums.SosStatus.RESOLVED);
+        alert.setResolvedAt(Instant.now());
+        audit.log(driver.getName(), "SOS_STAND_DOWN", null, null, null, null, null);
         return sosAlerts.save(alert);
     }
 
@@ -288,14 +362,39 @@ public class DriverService {
 
     @Transactional
     public TourResponse setTourDuty(Long tourId, DutyStatus duty) {
+        return setTourDuty(tourId, duty, false, null);
+    }
+
+    /**
+     * Duty update with idempotency key and a 2-minute latest-correction path:
+     * correction=true rewrites the latest row (instead of appending) when it
+     * is under 2 minutes old — the PWA "oops, wrong button" fix.
+     */
+    @Transactional
+    public TourResponse setTourDuty(Long tourId, DutyStatus duty, boolean correction,
+                                    String opId) {
+        idempotency.claim(opId);
         Driver driver = currentDriver();
         Tour tour = tourRepository.findById(tourId)
                 .orElseThrow(() -> new ResourceNotFoundException("Tour", "id", tourId));
         if (tour.getDriver() == null || !tour.getDriver().getId().equals(driver.getId())) {
             throw new AccessDeniedException("Tour is not your assignment");
         }
-        // Spam throttle: PWA offline-queue replays must not flood duty_log.
         List<DutyLog> prior = dutyLogs.findByTourIdOrderByRecordedAtAscIdAsc(tourId);
+        if (correction) {
+            if (prior.isEmpty() || prior.get(prior.size() - 1).getRecordedAt() == null
+                    || prior.get(prior.size() - 1).getRecordedAt()
+                            .isBefore(Instant.now().minusSeconds(120))) {
+                throw new ValidationException(
+                        "correction only within 2 minutes of the latest duty update");
+            }
+            DutyLog latest = prior.get(prior.size() - 1);
+            latest.setDutyStatus(duty);
+            tour.setDutyStatus(duty);
+            applyDutyAvailability(tour, duty);
+            return toTourResponse(tourId);
+        }
+        // Spam throttle: PWA offline-queue replays must not flood duty_log.
         if (!prior.isEmpty()) {
             Instant last = prior.get(prior.size() - 1).getRecordedAt();
             if (last != null && last.isAfter(Instant.now().minusSeconds(DUTY_MIN_GAP_SEC))) {
@@ -304,19 +403,7 @@ public class DriverService {
             }
         }
         tour.setDutyStatus(duty);
-        // ELD hybrid: DRIVING = motion (rolling), IN_TRANSIT = dispatched leg
-        // state (may be stationary). Both hold the vehicle IN_TRANSIT.
-        // OFF_DUTY is mid-tour rest: the vehicle stays held (downgrade to
-        // RESERVED, never AVAILABLE) — only tour close frees it.
-        if (duty == DutyStatus.DRIVING || duty == DutyStatus.IN_TRANSIT) {
-            tour.getVehicle().setAvailability(VehicleAvailability.IN_TRANSIT);
-        } else if (duty == DutyStatus.OFF_DUTY) {
-            if (tour.getVehicle().getAvailability() == VehicleAvailability.IN_TRANSIT) {
-                tour.getVehicle().setAvailability(VehicleAvailability.RESERVED);
-            }
-        } else {
-            tour.getVehicle().setAvailability(VehicleAvailability.RESERVED);
-        }
+        applyDutyAvailability(tour, duty);
         DutyLog log = new DutyLog();
         log.setTour(tour);
         log.setDriver(driver);
@@ -338,6 +425,74 @@ public class DriverService {
         requireOwnedTour(tourId);
         return DutyEvaluator.computeHos(
                 dutyLogs.findByTourIdOrderByRecordedAtAscIdAsc(tourId), Instant.now());
+    }
+
+    /**
+     * Annotates a duty row on the owned tour (gate wait, fuel stop, ...).
+     * The note is driver-visible history, max 500 chars.
+     */
+    @Transactional
+    public DutyLogResponse annotateDutyLog(Long tourId, Long logId, String note) {
+        requireOwnedTour(tourId);
+        DutyLog log = dutyLogs.findById(logId)
+                .orElseThrow(() -> new ResourceNotFoundException("DutyLog", "id", logId));
+        if (log.getTour() == null || !log.getTour().getId().equals(tourId)) {
+            throw new ValidationException("duty log " + logId + " is not on tour " + tourId);
+        }
+        if (note == null || note.isBlank()) {
+            throw new ValidationException("annotation note is required");
+        }
+        if (note.length() > 500) {
+            throw new ValidationException("annotation note too long (max 500 chars)");
+        }
+        log.setNote(note.strip());
+        return DutyLogResponse.from(dutyLogs.save(log));
+    }
+
+    /**
+     * Shift start: marks the driver on duty. Fails when the driver profile
+     * is missing; opening a shift twice is a no-op success.
+     */
+    @Transactional
+    public Driver startShift() {
+        Driver driver = currentDriver();
+        driver.setIsActive(true);
+        audit.log(driver.getName(), "SHIFT_START", null, null, null, null, null);
+        return drivers.save(driver);
+    }
+
+    /**
+     * Shift end: marks the driver off duty. Rejected while the driver holds
+     * an open trip — close or hand over assignments first.
+     */
+    @Transactional
+    public Driver endShift() {
+        Driver driver = currentDriver();
+        if (routes.existsByDriverIdAndAssignmentStatusIn(driver.getId(), ON_TRIP)) {
+            throw new EligibilityException("Driver " + driver.getName()
+                    + " cannot end shift while on a trip");
+        }
+        driver.setIsActive(false);
+        audit.log(driver.getName(), "SHIFT_END", null, null, null, null, null);
+        return drivers.save(driver);
+    }
+
+    /**
+     * ELD hybrid: DRIVING = motion (rolling), IN_TRANSIT = dispatched leg
+     * state (may be stationary). Both hold the vehicle IN_TRANSIT.
+     * OFF_DUTY is mid-tour rest: the vehicle stays held (downgrade to
+     * RESERVED, never AVAILABLE) — only tour close frees it.
+     */
+    private static void applyDutyAvailability(Tour tour, DutyStatus duty) {
+        if (duty == DutyStatus.DRIVING || duty == DutyStatus.IN_TRANSIT) {
+            tour.getVehicle().setAvailability(VehicleAvailability.IN_TRANSIT);
+        } else if (duty == DutyStatus.OFF_DUTY) {
+            if (tour.getVehicle().getAvailability() == VehicleAvailability.IN_TRANSIT) {
+                tour.getVehicle().setAvailability(VehicleAvailability.RESERVED);
+            }
+        } else {
+            tour.getVehicle().setAvailability(VehicleAvailability.RESERVED);
+        }
     }
 
     @Transactional(readOnly = true)

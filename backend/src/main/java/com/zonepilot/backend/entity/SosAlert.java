@@ -44,6 +44,12 @@ public class SosAlert {
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
+    @Column(name = "resolved_at")
+    private Instant resolvedAt;
+
+    @Column(name = "resolved_note", columnDefinition = "TEXT")
+    private String resolvedNote;
+
     @PrePersist
     protected void onCreate() {
         this.createdAt = Instant.now();
@@ -64,4 +70,8 @@ public class SosAlert {
     public SosStatus getStatus() { return status; }
     public void setStatus(SosStatus status) { this.status = status; }
     public Instant getCreatedAt() { return createdAt; }
+    public Instant getResolvedAt() { return resolvedAt; }
+    public void setResolvedAt(Instant resolvedAt) { this.resolvedAt = resolvedAt; }
+    public String getResolvedNote() { return resolvedNote; }
+    public void setResolvedNote(String resolvedNote) { this.resolvedNote = resolvedNote; }
 }

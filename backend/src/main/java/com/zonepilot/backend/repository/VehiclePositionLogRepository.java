@@ -37,7 +37,6 @@ public interface VehiclePositionLogRepository extends JpaRepository<VehiclePosit
     Optional<VehiclePositionLog> findByVehicleIdAndTourIdAndRecordedAt(Long vehicleId, Long tourId, Instant recordedAt);
 
     List<VehiclePositionLog> findByTourIdOrderByRecordedAtAsc(Long tourId);
-
     /** Bounded window for the ELD sustained-motion check (auto-DRIVING / stopped). */
     List<VehiclePositionLog> findByTourIdAndRecordedAtBetweenOrderByRecordedAtAsc(
             Long tourId, Instant from, Instant to);
@@ -81,4 +80,7 @@ public interface VehiclePositionLogRepository extends JpaRepository<VehiclePosit
 
     /** Stored-fix lookup for HTTP duplicate redelivery (200, not 400). */
     Optional<VehiclePositionLog> findFirstByVehicleIdAndRecordedAt(Long vehicleId, Instant recordedAt);
+
+    /** Replay TTL purge: delete replay copies older than the retention window. */
+    long deleteByReplayTrueAndRecordedAtBefore(Instant cutoff);
 }

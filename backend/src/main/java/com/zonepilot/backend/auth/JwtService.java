@@ -26,6 +26,8 @@ public class JwtService {
     private static final String CLAIM_ROLE = "role";
     private static final String CLAIM_TYPE = "typ";
     private static final String TYPE_REFRESH = "refresh";
+    /** DEMO tokens are read-only and short-lived (5m), regardless of access-ttl. */
+    public static final Duration DEMO_ACCESS_TTL = Duration.ofMinutes(5);
 
     private final SecretKey key;
     private final Duration accessTtl;
@@ -48,13 +50,14 @@ public class JwtService {
     }
 
     public String generateAccessToken(String username, Long depotId, String role) {
+        Duration ttl = "DEMO".equals(role) ? DEMO_ACCESS_TTL : accessTtl;
         return Jwts.builder()
                 .subject(username)
                 .id(UUID.randomUUID().toString()) // uniqueness: iat/exp are second-precision
                 .claim(CLAIM_DEPOT, depotId)
                 .claim(CLAIM_ROLE, role)
                 .issuedAt(new Date())
-                .expiration(Date.from(Instant.now().plus(accessTtl)))
+                .expiration(Date.from(Instant.now().plus(ttl)))
                 .signWith(key)
                 .compact();
     }

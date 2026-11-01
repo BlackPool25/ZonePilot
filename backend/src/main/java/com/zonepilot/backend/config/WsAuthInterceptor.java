@@ -38,6 +38,7 @@ import org.springframework.stereotype.Component;
 public class WsAuthInterceptor implements ChannelInterceptor {
 
     static final String PRINCIPAL_ATTR = "zp-principal";
+    static final String TOKEN_ATTR = "zp-token";
 
     /** SEND allow-list: no /app handlers exist yet — everything rejects. */
     private static final java.util.Set<String> ALLOWED_APP_DESTS = java.util.Set.of();
@@ -83,6 +84,12 @@ public class WsAuthInterceptor implements ChannelInterceptor {
                 Map<String, Object> attrs = accessor.getSessionAttributes();
                 if (attrs != null) {
                     attrs.put(PRINCIPAL_ATTR, principal);
+                    // Raw token for per-SUBSCRIBE revalidation (expiry +
+                    // isActive + role are re-checked below, not just trusted
+                    // from CONNECT time).
+                    if (header != null && header.startsWith("Bearer ")) {
+                        attrs.put(TOKEN_ATTR, header.substring(7));
+                    }
                 }
             } else if (header != null) {
                 // Bad token presented: fail the CONNECT fast instead of
@@ -109,6 +116,19 @@ public class WsAuthInterceptor implements ChannelInterceptor {
                 // reject explicitly with an ERROR frame and drop the SUBSCRIBE.
                 if (principal == null) {
                     return reject(accessor, "Login required");
+                }
+                // Revalidate the token on every SUBSCRIBE: a token revoked
+                // (deactivated user, changed role, expired) since CONNECT
+                // must not keep streaming ticks. Sessions without a stored
+                // token (legacy) keep the CONNECT-time principal.
+                Map<String, Object> sessionAttrs = accessor.getSessionAttributes();
+                Object rawToken = sessionAttrs == null ? null : sessionAttrs.get(TOKEN_ATTR);
+                if (rawToken instanceof String token) {
+                    DepotPrincipal fresh = revalidate(token);
+                    if (fresh == null) {
+                        return reject(accessor, "Token expired, reconnect");
+                    }
+                    principal = fresh;
                 }
                 if (!dest.startsWith("/topic/group/")) {
                     // Only per-group ticks exist; anything else is owner-only.
@@ -200,6 +220,27 @@ public class WsAuthInterceptor implements ChannelInterceptor {
             }
             return new DepotPrincipal(jwt.getUsername(token), jwt.getDepotId(token),
                     Role.valueOf(jwt.getRole(token)));
+        } catch (RuntimeException e) {
+            return null;
+        }
+    }
+
+    /**
+     * Per-SUBSCRIBE token revalidation: expiry plus the live account check
+     * (isActive + current role). Null = revoked/expired/unknown, reject.
+     */
+    DepotPrincipal revalidate(String token) {
+        try {
+            if (jwt.isExpired(token) || jwt.isRefresh(token)) {
+                return null;
+            }
+            String username = jwt.getUsername(token);
+            Role tokenRole = Role.valueOf(jwt.getRole(token));
+            return appUsers.findByEmail(username)
+                    .filter(u -> Boolean.TRUE.equals(u.getIsActive()))
+                    .filter(u -> u.getRole() == tokenRole)
+                    .map(u -> new DepotPrincipal(u.getEmail(), jwt.getDepotId(token), tokenRole))
+                    .orElse(null);
         } catch (RuntimeException e) {
             return null;
         }

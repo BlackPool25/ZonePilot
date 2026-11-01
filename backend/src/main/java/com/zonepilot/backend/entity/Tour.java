@@ -35,6 +35,13 @@ public class Tour {
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
+    /**
+     * Creator's app-user id for approve separation-of-duties: the dispatcher
+     * who created the tour cannot approve it.
+     */
+    @Column(name = "created_by_user_id")
+    private Long createdByUserId;
+
     @PrePersist
     protected void onCreate() {
         this.createdAt = Instant.now();
@@ -54,4 +61,6 @@ public class Tour {
     public void setDutyStatus(DutyStatus dutyStatus) { this.dutyStatus = dutyStatus; }
     public Instant getCreatedAt() { return createdAt; }
     public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }
+    public Long getCreatedByUserId() { return createdByUserId; }
+    public void setCreatedByUserId(Long createdByUserId) { this.createdByUserId = createdByUserId; }
 }

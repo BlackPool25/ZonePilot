@@ -81,7 +81,12 @@ public class MqttConfig {
         return message -> {
             String topic = (String) message.getHeaders().get("mqtt_receivedTopic");
             Object payload = message.getPayload();
-            ingest.handle(topic, payload instanceof String s ? s : String.valueOf(payload));
+            // The broker pipe is the authenticated worker identity: devices
+            // authenticate per-device inside handle() (deviceKey), and the
+            // worker context lets key-binding trust the server-side tour
+            // resolution instead of rejecting the null caller.
+            com.zonepilot.backend.service.IngestWorkerContext.runAsWorker(() ->
+                    ingest.handle(topic, payload instanceof String s ? s : String.valueOf(payload)));
         };
     }
 }

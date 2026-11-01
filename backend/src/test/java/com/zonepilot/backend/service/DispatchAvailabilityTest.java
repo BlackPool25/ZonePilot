@@ -178,11 +178,19 @@ class DispatchAvailabilityTest {
         when(routes.findByTourIdOrderByIdDesc(62L)).thenReturn(List.of(leg));
         vehicle.setAvailability(VehicleAvailability.IN_TRANSIT);
 
-        TourResponse done = tourService.deliver(62L, 70L, 12.93, 77.62);
+        // Role-split deliver: the driver closes the stop on the driver path
+        // (owned-tour check), the manager approves on the manager path.
+        var req = new com.zonepilot.backend.dto.request.DeliverStopRequest();
+        req.setLat(12.93);
+        req.setLng(77.62);
+        TourResponse done = tourService.deliverForDriver(62L, 70L, req);
 
         // Last stop parks for approval; only approve releases the vehicle.
         assertEquals("PENDING_APPROVAL", done.getStatus());
         assertEquals(VehicleAvailability.IN_TRANSIT, vehicle.getAvailability());
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken(
+                        new DepotPrincipal("mgr@zp.test", null, Role.DISPATCHER), null, List.of()));
         TourResponse approved = tourService.approve(62L);
         assertEquals("COMPLETED", approved.getStatus());
         assertEquals(VehicleAvailability.AVAILABLE, vehicle.getAvailability());

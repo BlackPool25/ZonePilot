@@ -3,11 +3,16 @@ package com.zonepilot.backend.service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.zonepilot.backend.dto.response.PositionRecordResponse;
+import com.zonepilot.backend.entity.DispatchRoute;
 import com.zonepilot.backend.entity.Vehicle;
 import com.zonepilot.backend.entity.PositionQuarantine;
 import com.zonepilot.backend.enums.PositionSource;
+import com.zonepilot.backend.exception.ConflictException;
+import com.zonepilot.backend.exception.RateLimitExceededException;
 import com.zonepilot.backend.exception.ResourceNotFoundException;
 import com.zonepilot.backend.exception.ValidationException;
+import com.zonepilot.backend.repository.DispatchRouteRepository;
+import com.zonepilot.backend.repository.TourRepository;
 import com.zonepilot.backend.repository.PositionQuarantineRepository;
 import com.zonepilot.backend.repository.VehicleRepository;
 import java.math.BigDecimal;
@@ -47,12 +52,52 @@ public class TraccarIngestService {
         return n != null ? n.get() : 0L;
     }
 
+    /** Ingest schema version the server speaks; anything else quarantines. */
+    public static final int INGEST_SCHEMA_VERSION = 1;
+
+    /** Per-vehicle/per-driver fix throttle (fixes/min). Tunable for tests. */
+    static volatile int vehicleLimitPerMin = 10_000;
+    static volatile int driverLimitPerMin = 10_000;
+    private static final java.util.concurrent.ConcurrentHashMap<String, java.util.ArrayDeque<Long>>
+            throttleBuckets = new java.util.concurrent.ConcurrentHashMap<>();
+
+    /** Test hook: tune the per-vehicle/per-driver throttle. */
+    public static void setThrottleLimits(int perVehiclePerMin, int perDriverPerMin) {
+        vehicleLimitPerMin = perVehiclePerMin;
+        driverLimitPerMin = perDriverPerMin;
+    }
+
+    /** Test hook: clear throttle buckets. */
+    public static void resetThrottle() {
+        throttleBuckets.clear();
+    }
+
+    private static boolean admit(String bucket, int limit) {
+        long now = System.currentTimeMillis();
+        java.util.ArrayDeque<Long> q =
+                throttleBuckets.computeIfAbsent(bucket, k -> new java.util.ArrayDeque<>());
+        synchronized (q) {
+            while (!q.isEmpty() && now - q.peekFirst() >= 60_000) {
+                q.pollFirst();
+            }
+            if (q.size() >= limit) {
+                return false;
+            }
+            q.addLast(now);
+            return true;
+        }
+    }
+
     private final VehicleRepository vehicles;
     private final PositionTrackingService positions;
     private final QualityFilter quality;
     private final IngestState state;
     private final PositionQuarantineRepository quarantine;
     private final ObjectMapper mapper;
+    private final DispatchRouteRepository dispatchRoutes;
+    private final TourRepository tourRepo;
+    private final AuditService audit;
+    private final IdempotencyService idempotency;
 
     public TraccarIngestService(VehicleRepository vehicles,
                                 PositionTrackingService positions,
@@ -60,12 +105,31 @@ public class TraccarIngestService {
                                 IngestState state,
                                 PositionQuarantineRepository quarantine,
                                 ObjectMapper mapper) {
+        this(vehicles, positions, quality, state, quarantine, mapper,
+                null, null, AuditService.noop(), new IdempotencyService());
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public TraccarIngestService(VehicleRepository vehicles,
+                                PositionTrackingService positions,
+                                QualityFilter quality,
+                                IngestState state,
+                                PositionQuarantineRepository quarantine,
+                                ObjectMapper mapper,
+                                DispatchRouteRepository dispatchRoutes,
+                                TourRepository tourRepo,
+                                AuditService audit,
+                                IdempotencyService idempotency) {
         this.vehicles = vehicles;
         this.positions = positions;
         this.quality = quality;
         this.state = state;
         this.quarantine = quarantine;
         this.mapper = mapper;
+        this.dispatchRoutes = dispatchRoutes;
+        this.tourRepo = tourRepo;
+        this.audit = audit == null ? AuditService.noop() : audit;
+        this.idempotency = idempotency == null ? new IdempotencyService() : idempotency;
     }
 
     /** Entry point for the MQTT adapter: topic + raw JSON payload. */
@@ -118,6 +182,30 @@ public class TraccarIngestService {
             quarantine(vehicleId, null, "TOPIC_MISMATCH", payload);
             return;
         }
+        // Ingest schema gate: a device on a newer/older frame version must
+        // quarantine loudly (VERSION_CONFLICT), never silently mis-parse.
+        if (node.hasNonNull("v") && node.get("v").asInt(-1) != INGEST_SCHEMA_VERSION) {
+            quarantine(vehicleId, null, "VERSION_CONFLICT", payload);
+            return;
+        }
+        // Per-device auth: once a vehicle has a provisioned key, frames must
+        // carry it. Unprovisioned vehicles keep the legacy open pipe.
+        String expectedKey = vehicle.get().getDeviceApiKey();
+        if (expectedKey != null && !expectedKey.isBlank()) {
+            String presented = node.hasNonNull("deviceKey") ? node.get("deviceKey").asText() : null;
+            if (!expectedKey.equals(presented)) {
+                quarantine(vehicleId, null, "AUTH_REJECT", payload);
+                return;
+            }
+        }
+        // Per-vehicle/per-driver throttle: shed load to quarantine, never
+        // poison-loop on QoS1 redelivery.
+        Long payloadDriver = node.hasNonNull("driverId") ? node.get("driverId").asLong() : null;
+        if (!admit("v:" + vehicleId, vehicleLimitPerMin)
+                || (payloadDriver != null && !admit("d:" + payloadDriver, driverLimitPerMin))) {
+            quarantine(vehicleId, null, "THROTTLED", payload);
+            return;
+        }
         // Present-but-unparseable ts quarantines as BAD_TS: silently storing
         // it as now() would fabricate a fix time the device never sent.
         Instant ts = parseTsOrNull(node.get("ts"));
@@ -143,6 +231,38 @@ public class TraccarIngestService {
                 return;
             }
         }
+        // Server-side tour binding: the topic vehicleId resolves the tour
+        // from the vehicle's active dispatch route. Client tourId/groupId are
+        // untrusted — a mismatch quarantines instead of rebinding the fix.
+        Long clientTourId = node.hasNonNull("tourId") ? node.get("tourId").asLong() : null;
+        Long clientGroupId = node.hasNonNull("groupId") ? node.get("groupId").asLong() : null;
+        Long boundTourId = clientTourId;
+        Long boundGroupId = clientGroupId;
+        com.zonepilot.backend.entity.Tour serverTour = serverTourOf(vehicle.get());
+        if (serverTour != null) {
+            if (clientTourId != null && !clientTourId.equals(serverTour.getId())) {
+                quarantine(vehicleId, null, "TOUR_MISMATCH", payload);
+                return;
+            }
+            if (clientGroupId != null && serverTour.getGroup() != null
+                    && !clientGroupId.equals(serverTour.getGroup().getId())) {
+                // Forged groupId is ignored (never bound to another group).
+                quarantine(vehicleId, null, "GROUP_MISMATCH", payload);
+                return;
+            }
+            boundTourId = serverTour.getId();
+            boundGroupId = serverTour.getGroup() != null ? serverTour.getGroup().getId() : null;
+        }
+        String opId = node.hasNonNull("opId") ? node.get("opId").asText() : null;
+        if (opId != null) {
+            try {
+                idempotency.claim(opId);
+            } catch (ConflictException dup) {
+                // QoS1 redelivery of an already-applied op: ack and move on.
+                log.debug("ingest.duplicate-op vehicle={} opId={}", vehicleId, opId);
+                return;
+            }
+        }
         processFix(vehicleId, node.get("lat").asDouble(), node.get("lon").asDouble(),
                 ts,
                 node.hasNonNull("speedKmh") ? node.get("speedKmh").decimalValue() : null,
@@ -150,9 +270,23 @@ public class TraccarIngestService {
                 node.hasNonNull("heading") ? (short) node.get("heading").asInt() : null,
                 source,
                 node.hasNonNull("driverId") ? node.get("driverId").asLong() : null,
-                node.hasNonNull("tourId") ? node.get("tourId").asLong() : null,
-                node.hasNonNull("groupId") ? node.get("groupId").asLong() : null,
+                boundTourId,
+                boundGroupId,
                 payload);
+    }
+
+    /** Server tour for a topic vehicle: active dispatch route → linked tour. */
+    private com.zonepilot.backend.entity.Tour serverTourOf(Vehicle vehicle) {
+        if (dispatchRoutes == null || vehicle.getActiveDispatchRouteId() == null) {
+            return null;
+        }
+        try {
+            return dispatchRoutes.findById(vehicle.getActiveDispatchRouteId())
+                    .map(DispatchRoute::getTour)
+                    .orElse(null);
+        } catch (RuntimeException e) {
+            return null;
+        }
     }
 
     /**
@@ -164,8 +298,26 @@ public class TraccarIngestService {
                                          BigDecimal speedKmh, Double accuracyM, Short headingDeg,
                                          PositionSource source, Long driverId, Long tourId,
                                          Long groupId) {
+        return ingest(vehicleId, lat, lng, ts, speedKmh, accuracyM, headingDeg,
+                source, driverId, tourId, groupId, null);
+    }
+
+    /**
+     * HTTP ingest with client idempotency key: offline-queue redeliveries
+     * with a duplicate opId answer 409 instead of double-applying.
+     */
+    public PositionRecordResponse ingest(long vehicleId, double lat, double lng, Instant ts,
+                                         BigDecimal speedKmh, Double accuracyM, Short headingDeg,
+                                         PositionSource source, Long driverId, Long tourId,
+                                         Long groupId, String opId) {
         Vehicle vehicle = vehicles.findById(vehicleId)
                 .orElseThrow(() -> new ResourceNotFoundException("Vehicle", "id", vehicleId));
+        idempotency.claim(opId);
+        if (!admit("v:" + vehicleId, vehicleLimitPerMin)
+                || (driverId != null && !admit("d:" + driverId, driverLimitPerMin))) {
+            throw new RateLimitExceededException(
+                    "ingest throttled for vehicle " + vehicleId);
+        }
         Optional<PositionRecordResponse> accepted = processFix(vehicle.getId(), lat, lng, ts,
                 speedKmh, accuracyM, headingDeg, source, driverId, tourId, groupId, null);
         if (accepted.isPresent()) {
@@ -248,6 +400,8 @@ public class TraccarIngestService {
         row.setReason(reason);
         row.setPayload(payload);
         quarantine.save(row);
+        audit.log("ingest", "INGEST_REJECT", null, null,
+                reason + " vehicle=" + vehicleId, null, "mqtt");
         quarantineTotal.incrementAndGet();
         quarantineByReason.computeIfAbsent(reason, r -> new java.util.concurrent.atomic.AtomicLong())
                 .incrementAndGet();

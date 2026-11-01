@@ -78,7 +78,37 @@ public class DriverAppController {
     public ResponseEntity<ApiResponse<TourResponse>> setDuty(
             @PathVariable Long id, @RequestBody java.util.Map<String, String> body) {
         return ResponseEntity.ok(ApiResponse.success(
-                driverService.setTourDuty(id, parseDuty(body.get("status")))));
+                driverService.setTourDuty(id, parseDuty(body.get("status")),
+                        "true".equalsIgnoreCase(body.get("correction")), body.get("opId"))));
+    }
+
+    @PostMapping("/tours/{id}/duty-log/{logId}/annotate")
+    @Operation(summary = "Annotate a duty row on my tour (note, max 500 chars)")
+    public ResponseEntity<ApiResponse<com.zonepilot.backend.dto.response.DutyLogResponse>> annotateDuty(
+            @PathVariable Long id, @PathVariable Long logId,
+            @RequestBody java.util.Map<String, String> body) {
+        return ResponseEntity.ok(ApiResponse.success(
+                driverService.annotateDutyLog(id, logId, body.get("note"))));
+    }
+
+    @PostMapping("/shift/start")
+    @Operation(summary = "Start shift: mark driver on duty")
+    public ResponseEntity<ApiResponse<com.zonepilot.backend.dto.response.DriverResponse>> shiftStart() {
+        return ResponseEntity.ok(ApiResponse.success(
+                com.zonepilot.backend.dto.response.DriverResponse.from(driverService.startShift())));
+    }
+
+    @PostMapping("/shift/end")
+    @Operation(summary = "End shift: mark driver off duty (rejected while on a trip)")
+    public ResponseEntity<ApiResponse<com.zonepilot.backend.dto.response.DriverResponse>> shiftEnd() {
+        return ResponseEntity.ok(ApiResponse.success(
+                com.zonepilot.backend.dto.response.DriverResponse.from(driverService.endShift())));
+    }
+
+    @PostMapping("/sos/{id}/stand-down")
+    @Operation(summary = "Stand down my own OPEN SOS alert")
+    public ResponseEntity<ApiResponse<SosAlert>> standDown(@PathVariable Long id) {
+        return ResponseEntity.ok(ApiResponse.success(driverService.standDownSos(id)));
     }
 
     @GetMapping("/tours/{id}/duty-log")
@@ -110,9 +140,8 @@ public class DriverAppController {
     public ResponseEntity<ApiResponse<TourResponse>> deliver(@PathVariable Long id,
                                                              @PathVariable Long stopId,
                                                              @Valid @RequestBody DeliverStopRequest req) {
-        driverService.requireOwnedTour(id);
-        return ResponseEntity.ok(ApiResponse.success(tourService.deliver(
-                id, stopId, req.getLat(), req.getLng())));
+        return ResponseEntity.ok(ApiResponse.success(
+                tourService.deliverForDriver(id, stopId, req)));
     }
 
     @PostMapping("/tours/{id}/stops/{stopId}/skip")
@@ -120,8 +149,7 @@ public class DriverAppController {
     public ResponseEntity<ApiResponse<TourResponse>> skip(@PathVariable Long id,
                                                           @PathVariable Long stopId,
                                                           @Valid @RequestBody SkipStopRequest req) {
-        driverService.requireOwnedTour(id);
         return ResponseEntity.ok(ApiResponse.success(
-                tourService.skip(id, stopId, req.getReason())));
+                tourService.skipForDriver(id, stopId, req.getReason(), req.getOpId())));
     }
 }
