@@ -51,6 +51,7 @@ class MissingTourEmptyHistoryTest {
     @Mock org.springframework.context.ApplicationEventPublisher events;
     @Mock TickBroadcaster broadcaster;
     @Mock AppUserRepository appUsers;
+    @Mock GroupVehicleRepository groupVehicles;
 
     @Test
     void track_missingTour_throws404() {
@@ -65,8 +66,9 @@ class MissingTourEmptyHistoryTest {
         when(positionLogs.findByVehicleIdOrderByRecordedAtDesc(7L)).thenReturn(List.of());
         PositionTrackingService tracking = new PositionTrackingService(
                 vehicles, positionLogs, routes, tours, jdbc,
-                events, broadcaster, drivers, appUsers, scope);
+                events, broadcaster, drivers, appUsers, scope,
+                groups, groupVehicles);
 
-        assertThat(tracking.getPositionHistory(7L, null, null)).isEmpty();
+        assertThat(tracking.getPositionHistory(7L, null, null, null, null)).isEmpty();
     }
 }

@@ -158,7 +158,9 @@ class FixWaveTest {
         when(tourRepository.findById(3L)).thenReturn(Optional.of(tourInGroup(3L, 7L, 9L, TourStatus.ACTIVE)));
         PositionTrackingService service = new PositionTrackingService(vehicleRepository,
                 positionLogRepository, dispatchRouteRepository, tourRepository, jdbcTemplate,
-                events, broadcaster, driverRepository, appUserRepository, scope);
+                events, broadcaster, driverRepository, appUserRepository, scope,
+                org.mockito.Mockito.mock(com.zonepilot.backend.repository.FleetGroupRepository.class),
+                org.mockito.Mockito.mock(com.zonepilot.backend.repository.GroupVehicleRepository.class));
 
         ValidationException e = assertThrows(ValidationException.class, () ->
                 service.recordPosition(1L, 9L, 3L, 999L, 12.97, 77.59,
@@ -174,7 +176,9 @@ class FixWaveTest {
         when(tourRepository.findById(3L)).thenReturn(Optional.of(tourInGroup(3L, 7L, 9L, TourStatus.COMPLETED)));
         PositionTrackingService service = new PositionTrackingService(vehicleRepository,
                 positionLogRepository, dispatchRouteRepository, tourRepository, jdbcTemplate,
-                events, broadcaster, driverRepository, appUserRepository, scope);
+                events, broadcaster, driverRepository, appUserRepository, scope,
+                org.mockito.Mockito.mock(com.zonepilot.backend.repository.FleetGroupRepository.class),
+                org.mockito.Mockito.mock(com.zonepilot.backend.repository.GroupVehicleRepository.class));
 
         assertThrows(ValidationException.class, () ->
                 service.recordPosition(1L, 9L, 3L, 7L, 12.97, 77.59,
@@ -320,6 +324,7 @@ class FixWaveTest {
         verify(tracking, times(3)).recordReplayFix(any(), any(), any(), any(),
                 anyDouble(), anyDouble(), first.capture(), any(), any(), any());
         clearInvocations(tracking);
+        replay.resetRateLimits(); // retry-after-window: same stamps, no second copy
 
         replay.start(9L, 5, endAt);
         ArgumentCaptor<Instant> second = ArgumentCaptor.forClass(Instant.class);
@@ -552,7 +557,9 @@ class FixWaveTest {
                 mock(com.zonepilot.backend.auth.JwtService.class), groups, sc,
                 mock(AppUserRepository.class), mock(DriverRepository.class),
                 mock(GroupDriverRepository.class),
-                mock(org.springframework.messaging.SubscribableChannel.class));
+                mock(org.springframework.messaging.SubscribableChannel.class),
+                mock(org.springframework.messaging.simp.SimpMessagingTemplate.class),
+                mock(com.zonepilot.backend.service.TickBroadcaster.class));
     }
 
     private Message<?> frame(StompCommand cmd, String dest, DepotPrincipal principal) {

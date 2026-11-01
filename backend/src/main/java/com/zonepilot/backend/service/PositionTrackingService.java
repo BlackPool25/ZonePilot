@@ -18,6 +18,8 @@ import com.zonepilot.backend.exception.ResourceNotFoundException;
 import com.zonepilot.backend.exception.ValidationException;
 import com.zonepilot.backend.repository.DispatchRouteRepository;
 import com.zonepilot.backend.repository.DriverRepository;
+import com.zonepilot.backend.repository.FleetGroupRepository;
+import com.zonepilot.backend.repository.GroupVehicleRepository;
 import com.zonepilot.backend.repository.TourRepository;
 import com.zonepilot.backend.repository.VehiclePositionLogRepository;
 import com.zonepilot.backend.repository.VehicleRepository;
@@ -70,6 +72,8 @@ public class PositionTrackingService {
     private final TickBroadcaster broadcaster;
     private final DriverRepository driverRepository;
     private final AppUserRepository appUserRepository;
+    private final FleetGroupRepository fleetGroups;
+    private final GroupVehicleRepository groupVehicles;
     private final GroupScope scope;
 
     public PositionTrackingService(VehicleRepository vehicleRepository,
@@ -81,7 +85,9 @@ public class PositionTrackingService {
                                    TickBroadcaster broadcaster,
                                    DriverRepository driverRepository,
                                    AppUserRepository appUserRepository,
-                                   GroupScope scope) {
+                                   GroupScope scope,
+                                   FleetGroupRepository fleetGroups,
+                                   GroupVehicleRepository groupVehicles) {
         this.vehicleRepository = vehicleRepository;
         this.positionLogRepository = positionLogRepository;
         this.dispatchRouteRepository = dispatchRouteRepository;
@@ -93,6 +99,8 @@ public class PositionTrackingService {
         this.driverRepository = driverRepository;
         this.appUserRepository = appUserRepository;
         this.scope = scope;
+        this.fleetGroups = fleetGroups;
+        this.groupVehicles = groupVehicles;
     }
 
     @Transactional
@@ -409,14 +417,73 @@ public class PositionTrackingService {
         }
     }
 
+    /**
+     * Tour/group-scoped position history. A tour filter shows only that tour's
+     * fixes (cross-group tourIds 403); a group filter shows only that group's
+     * fixes. With no filter, managers are limited to vehicles in their own groups.
+     */
+    @Transactional(readOnly = true)
     public List<com.zonepilot.backend.dto.response.PositionResponse> getPositionHistory(
-            Long vehicleId, Instant from, Instant to) {
+            Long vehicleId, Instant from, Instant to, Long tourId, Long groupId) {
+        if (tourId != null) {
+            com.zonepilot.backend.entity.Tour tour = tourRepository.findById(tourId)
+                    .orElseThrow(() -> new ResourceNotFoundException("Tour", "id", tourId));
+            scope.requireGroupAccess(tour.getGroup());
+            if (!tour.getVehicle().getId().equals(vehicleId)) {
+                throw new ValidationException(
+                        "Tour " + tourId + " is not for vehicle " + vehicleId);
+            }
+            return toPositionResponses(positionLogsForTour(vehicleId, tourId, from, to));
+        }
+        if (groupId != null) {
+            com.zonepilot.backend.entity.FleetGroup group = fleetGroups.findById(groupId)
+                    .orElseThrow(() -> new ResourceNotFoundException("FleetGroup", "id", groupId));
+            scope.requireGroupAccess(group);
+            return toPositionResponses(positionLogsForGroup(vehicleId, groupId, from, to));
+        }
+        if (!scope.isOwner() && scope.currentUserId().isPresent()) {
+            boolean member = groupVehicles.findByVehicleId(vehicleId).stream()
+                    .anyMatch(gv -> {
+                        try {
+                            scope.requireGroupAccess(gv.getGroup());
+                            return true;
+                        } catch (AccessDeniedException denied) {
+                            return false;
+                        }
+                    });
+            if (!member) {
+                throw new AccessDeniedException("Not your group");
+            }
+        }
         List<VehiclePositionLog> logs;
         if (from != null && to != null) {
             logs = positionLogRepository.findByVehicleIdAndRecordedAtBetween(vehicleId, from, to);
         } else {
             logs = positionLogRepository.findByVehicleIdOrderByRecordedAtDesc(vehicleId);
         }
+        return toPositionResponses(logs);
+    }
+
+    private List<VehiclePositionLog> positionLogsForTour(
+            Long vehicleId, Long tourId, Instant from, Instant to) {
+        if (from != null && to != null) {
+            return positionLogRepository.findByVehicleIdAndTourIdAndRecordedAtBetween(
+                    vehicleId, tourId, from, to);
+        }
+        return positionLogRepository.findByVehicleIdAndTourIdOrderByRecordedAtDesc(vehicleId, tourId);
+    }
+
+    private List<VehiclePositionLog> positionLogsForGroup(
+            Long vehicleId, Long groupId, Instant from, Instant to) {
+        if (from != null && to != null) {
+            return positionLogRepository.findByVehicleIdAndGroupIdAndRecordedAtBetween(
+                    vehicleId, groupId, from, to);
+        }
+        return positionLogRepository.findByVehicleIdAndGroupIdOrderByRecordedAtDesc(vehicleId, groupId);
+    }
+
+    private List<com.zonepilot.backend.dto.response.PositionResponse> toPositionResponses(
+            List<VehiclePositionLog> logs) {
         return logs.stream().map(this::toPositionResponse).collect(Collectors.toList());
     }
 

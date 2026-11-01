@@ -38,6 +38,35 @@ public interface VehiclePositionLogRepository extends JpaRepository<VehiclePosit
 
     List<VehiclePositionLog> findByTourIdOrderByRecordedAtAsc(Long tourId);
 
+    // Tour/group-scoped history (live reads only, like the vehicle queries above).
+    @Query("SELECT p FROM VehiclePositionLog p WHERE p.vehicleId = :vehicleId AND p.tourId = :tourId "
+            + "AND p.replay = FALSE AND p.groupId NOT IN (SELECT g.id FROM FleetGroup g WHERE g.name = 'HISTORIC') "
+            + "ORDER BY p.recordedAt DESC")
+    List<VehiclePositionLog> findByVehicleIdAndTourIdOrderByRecordedAtDesc(
+            @Param("vehicleId") Long vehicleId, @Param("tourId") Long tourId);
+
+    @Query("SELECT p FROM VehiclePositionLog p WHERE p.vehicleId = :vehicleId AND p.tourId = :tourId "
+            + "AND p.recordedAt BETWEEN :from AND :to "
+            + "AND p.replay = FALSE AND p.groupId NOT IN (SELECT g.id FROM FleetGroup g WHERE g.name = 'HISTORIC') "
+            + "ORDER BY p.recordedAt DESC")
+    List<VehiclePositionLog> findByVehicleIdAndTourIdAndRecordedAtBetween(
+            @Param("vehicleId") Long vehicleId, @Param("tourId") Long tourId,
+            @Param("from") Instant from, @Param("to") Instant to);
+
+    @Query("SELECT p FROM VehiclePositionLog p WHERE p.vehicleId = :vehicleId AND p.groupId = :groupId "
+            + "AND p.replay = FALSE AND p.groupId NOT IN (SELECT g.id FROM FleetGroup g WHERE g.name = 'HISTORIC') "
+            + "ORDER BY p.recordedAt DESC")
+    List<VehiclePositionLog> findByVehicleIdAndGroupIdOrderByRecordedAtDesc(
+            @Param("vehicleId") Long vehicleId, @Param("groupId") Long groupId);
+
+    @Query("SELECT p FROM VehiclePositionLog p WHERE p.vehicleId = :vehicleId AND p.groupId = :groupId "
+            + "AND p.recordedAt BETWEEN :from AND :to "
+            + "AND p.replay = FALSE AND p.groupId NOT IN (SELECT g.id FROM FleetGroup g WHERE g.name = 'HISTORIC') "
+            + "ORDER BY p.recordedAt DESC")
+    List<VehiclePositionLog> findByVehicleIdAndGroupIdAndRecordedAtBetween(
+            @Param("vehicleId") Long vehicleId, @Param("groupId") Long groupId,
+            @Param("from") Instant from, @Param("to") Instant to);
+
     /**
      * Replay window: latest-2000 tail at SQL level (never full-load history).
      * Reads live rows only (is_replay=FALSE): replaying a tour must re-insert

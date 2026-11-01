@@ -202,6 +202,30 @@ class BreachWorkerTest {
     }
 
     @Test
+    void advisoryLock_acquiredBeforeOpenEntryRead() {
+        Instant t0 = Instant.parse("2026-10-20T08:00:00Z");
+        stubZoneMatch(zoneRow(1L, 9L, "NO_ENTRY"));
+
+        when(breachLogRepository.save(any(ZoneBreachLog.class))).thenAnswer(inv -> {
+            ZoneBreachLog b = inv.getArgument(0);
+            if (b.getId() == null) b.setId(77L);
+            return b;
+        });
+        when(breachLogRepository.findOpenBreachForUpdate(eq(5L), eq(1L), any(Instant.class)))
+                .thenReturn(Optional.empty());
+
+        worker.onEvent(fix(t0, PositionSource.LIVE));
+
+        // One-per-entry guard: the tx-scoped advisory lock serializes racers
+        // before the locked open-entry read — no both-empty double insert.
+        org.mockito.InOrder order = org.mockito.Mockito.inOrder(jdbcTemplate, breachLogRepository);
+        order.verify(jdbcTemplate).execute(
+                argThat((String sql) -> sql != null && sql.contains("pg_advisory_xact_lock")));
+        order.verify(breachLogRepository)
+                .findOpenBreachForUpdate(eq(5L), eq(1L), any(Instant.class));
+    }
+
+    @Test
     void offRouteSecondConsecutivePing_triggersReroute() {
         Instant t0 = Instant.parse("2026-10-20T08:00:00Z");
         stubZoneMatch(Collections.emptyList());

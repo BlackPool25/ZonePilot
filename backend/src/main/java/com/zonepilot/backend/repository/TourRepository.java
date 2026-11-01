@@ -22,6 +22,8 @@ public interface TourRepository extends JpaRepository<Tour, Long> {
 
     List<Tour> findByDriverIdOrderByIdDesc(Long driverId);
 
+    List<Tour> findByGroupId(Long groupId);
+
     /** Active-only myTours window (COMPLETED/PENDING_APPROVAL excluded), paged. */
     Page<Tour> findByDriverIdAndStatusInOrderByIdDesc(
             Long driverId, Collection<TourStatus> statuses, Pageable pageable);

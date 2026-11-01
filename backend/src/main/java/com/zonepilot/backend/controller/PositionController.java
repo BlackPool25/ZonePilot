@@ -45,12 +45,14 @@ public class PositionController {
     }
 
     @GetMapping
-    @Operation(summary = "Get position history", description = "Returns position history for a vehicle with optional date range")
+    @Operation(summary = "Get position history", description = "Returns position history for a vehicle with optional date range; tourId/groupId scope to one tour or group")
     public ResponseEntity<ApiResponse<List<PositionResponse>>> getPositionHistory(
             @PathVariable Long vehicleId,
             @RequestParam(required = false) Instant from,
-            @RequestParam(required = false) Instant to) {
-        List<PositionResponse> positions = positionTrackingService.getPositionHistory(vehicleId, from, to);
+            @RequestParam(required = false) Instant to,
+            @RequestParam(required = false) Long tourId,
+            @RequestParam(required = false) Long groupId) {
+        List<PositionResponse> positions = positionTrackingService.getPositionHistory(vehicleId, from, to, tourId, groupId);
         return ResponseEntity.ok(ApiResponse.success(positions));
     }
 

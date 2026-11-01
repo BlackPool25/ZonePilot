@@ -1,9 +1,16 @@
 package com.zonepilot.backend.service;
 
+import com.zonepilot.backend.auth.GroupScope;
+import com.zonepilot.backend.entity.FleetGroup;
+import com.zonepilot.backend.entity.Tour;
+import com.zonepilot.backend.exception.ResourceNotFoundException;
+import com.zonepilot.backend.repository.FleetGroupRepository;
+import com.zonepilot.backend.repository.TourRepository;
 import com.zonepilot.backend.repository.VehiclePositionLogRepository;
 import com.zonepilot.backend.repository.ZoneBreachLogRepository;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -16,17 +23,57 @@ public class ReportingService {
 
     private final ZoneBreachLogRepository breachLogRepository;
     private final JdbcTemplate jdbcTemplate;
+    private final TourRepository tours;
+    private final FleetGroupRepository groups;
+    private final GroupScope scope;
 
     public ReportingService(ZoneBreachLogRepository breachLogRepository,
-                            JdbcTemplate jdbcTemplate) {
+                            JdbcTemplate jdbcTemplate,
+                            TourRepository tours,
+                            FleetGroupRepository groups,
+                            GroupScope scope) {
         this.breachLogRepository = breachLogRepository;
         this.jdbcTemplate = jdbcTemplate;
+        this.tours = tours;
+        this.groups = groups;
+        this.scope = scope;
     }
 
     public List<Map<String, Object>> getVehicleBreachSummary() {
+        return getVehicleBreachSummary(null, null);
+    }
+
+    /**
+     * Fleet breach summary, optionally scoped to one tour (its vehicle) or one
+     * group (vehicles running that group's tours). Managers without a filter
+     * default to their own groups — never the whole fleet.
+     */
+    @Transactional(readOnly = true)
+    public List<Map<String, Object>> getVehicleBreachSummary(Long tourId, Long groupId) {
+        java.util.Set<Long> keep = null;
+        if (tourId != null) {
+            Tour tour = tours.findById(tourId)
+                    .orElseThrow(() -> new ResourceNotFoundException("Tour", "id", tourId));
+            scope.requireGroupAccess(tour.getGroup());
+            keep = java.util.Set.of(tour.getVehicle().getId());
+        } else if (groupId != null) {
+            FleetGroup group = groups.findById(groupId)
+                    .orElseThrow(() -> new ResourceNotFoundException("FleetGroup", "id", groupId));
+            scope.requireGroupAccess(group);
+            keep = vehicleIdsInToursOf(groupId);
+        } else if (!scope.isOwner() && scope.currentUserId().isPresent()) {
+            Long uid = scope.currentUserId().get();
+            keep = groups.findByManager_IdOrderByCreatedAtDesc(uid).stream()
+                    .flatMap(g -> vehicleIdsInToursOf(g.getId()).stream())
+                    .collect(java.util.stream.Collectors.toSet());
+        }
+        final java.util.Set<Long> only = keep;
         List<Object[]> rows = breachLogRepository.getVehicleBreachSummary();
         List<Map<String, Object>> results = new ArrayList<>();
         for (Object[] row : rows) {
+            if (only != null && (row[0] == null || !only.contains(((Number) row[0]).longValue()))) {
+                continue;
+            }
             Map<String, Object> map = new HashMap<>();
             map.put("vehicleId", row[0]);
             map.put("registrationNumber", row[1]);
@@ -40,6 +87,12 @@ public class ReportingService {
             results.add(map);
         }
         return results;
+    }
+
+    private java.util.Set<Long> vehicleIdsInToursOf(Long groupId) {
+        return tours.findByGroupId(groupId).stream()
+                .map(t -> t.getVehicle().getId())
+                .collect(java.util.stream.Collectors.toSet());
     }
 
     public List<Map<String, Object>> getZoneViolationStats() {

@@ -62,18 +62,18 @@ class BreachServiceTest {
         breach.setZone(zone);
         breach.setBreachType(BreachType.NO_ENTRY);
 
-        when(routingService.findNearestNodeOrNull(12.91, 77.63)).thenReturn(100L); // currentNode
-        
         // Mock finding destination coordinates for vehicle
         List<Object[]> destCoords = new ArrayList<>();
         destCoords.add(new Object[]{12.97, 77.64});
         when(jdbcTemplate.query(anyString(), any(RowMapper.class), eq(5L))).thenReturn(destCoords);
-        when(routingService.findNearestNodeOrNull(12.97, 77.64)).thenReturn(200L); // destinationNode
 
-        // Mock pgr_dijkstra database execution in computeZoneAvoidingRoute
-        List<Object[]> routingResults = new ArrayList<>();
-        routingResults.add(new Object[]{1, 1001L, 10.0, "LINESTRING(77.63 12.91, 77.64 12.97)"});
-        when(jdbcTemplate.query(anyString(), any(RowMapper.class), anyString(), eq(100L), eq(200L))).thenReturn(routingResults);
+        // Road phase is isolated in RoutingService (REQUIRES_NEW): mock the result.
+        LineString mockReroute = gf.createLineString(new Coordinate[]{
+                new Coordinate(77.63, 12.91),
+                new Coordinate(77.64, 12.97)
+        });
+        when(routingService.computeZoneAvoidingReroute(
+                eq(12.91), eq(77.63), eq(12.97), eq(77.64), eq(1L))).thenReturn(mockReroute);
 
         breachService.computeReroute(breach, 5L, 12.91, 77.63);
 
@@ -83,12 +83,20 @@ class BreachServiceTest {
     }
 
     @Test
-    void computeReroute_whenNoDestinationFound_skipsRerouting() {
+    void computeReroute_whenRoadsUnavailable_breachSurvivesWithoutGeometry() {
         ZoneBreachLog breach = new ZoneBreachLog();
         breach.setId(10L);
+        ZoneRestriction zone = new ZoneRestriction();
+        zone.setId(1L);
+        breach.setZone(zone);
 
-        when(routingService.findNearestNodeOrNull(12.91, 77.63)).thenReturn(100L);
-        when(jdbcTemplate.query(anyString(), any(RowMapper.class), eq(5L))).thenReturn(Collections.emptyList());
+        List<Object[]> destCoords = new ArrayList<>();
+        destCoords.add(new Object[]{12.97, 77.64});
+        when(jdbcTemplate.query(anyString(), any(RowMapper.class), eq(5L))).thenReturn(destCoords);
+        // Missing road network: isolated road phase returns null instead of
+        // aborting the caller's txn (which used to roll back the breach row).
+        when(routingService.computeZoneAvoidingReroute(
+                anyDouble(), anyDouble(), anyDouble(), anyDouble(), anyLong())).thenReturn(null);
 
         breachService.computeReroute(breach, 5L, 12.91, 77.63);
 
@@ -97,22 +105,35 @@ class BreachServiceTest {
     }
 
     @Test
-    void computeOffRouteReroute_whenCalled_recomputesPlannedRouteAndSavesToDispatchRoute() {
-        when(routingService.findNearestNodeOrNull(12.91, 77.63)).thenReturn(100L); // currentNode
+    void computeReroute_whenNoDestinationFound_skipsRerouting() {
+        ZoneBreachLog breach = new ZoneBreachLog();
+        breach.setId(10L);
 
+        when(jdbcTemplate.query(anyString(), any(RowMapper.class), eq(5L))).thenReturn(Collections.emptyList());
+
+        breachService.computeReroute(breach, 5L, 12.91, 77.63);
+
+        assertNull(breach.getResolvedRouteGeometry());
+        verify(breachLogRepository, never()).save(any());
+        verify(routingService, never()).computeZoneAvoidingReroute(
+                anyDouble(), anyDouble(), anyDouble(), anyDouble(), anyLong());
+    }
+
+    @Test
+    void computeOffRouteReroute_whenCalled_recomputesPlannedRouteAndSavesToDispatchRoute() {
         // Mock destination coordinates for vehicle
         List<Object[]> destCoords = new ArrayList<>();
         destCoords.add(new Object[]{12.97, 77.64});
         when(jdbcTemplate.query(eq("SELECT ST_Y(destination_point) AS lat, ST_X(destination_point) AS lng FROM dispatch_route WHERE vehicle_id = ? ORDER BY created_at DESC LIMIT 1"), any(RowMapper.class), eq(5L)))
                 .thenReturn(destCoords);
-        when(routingService.findNearestNodeOrNull(12.97, 77.64)).thenReturn(200L); // destinationNode
 
-        // Mock computed route geometry
+        // Mock computed route geometry (isolated road phase in RoutingService)
         LineString mockReroute = gf.createLineString(new Coordinate[]{
                 new Coordinate(77.63, 12.91),
                 new Coordinate(77.64, 12.97)
         });
-        when(routingService.computeRoute(100L, 200L)).thenReturn(mockReroute);
+        when(routingService.computeDirectReroute(eq(12.91), eq(77.63), eq(12.97), eq(77.64)))
+                .thenReturn(mockReroute);
 
         // Mock latest route lookup and loading
         List<Object[]> latestRouteId = new ArrayList<>();

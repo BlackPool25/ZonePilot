@@ -22,9 +22,11 @@ public class ReportController {
     }
 
     @GetMapping("/summary")
-    @Operation(summary = "Fleet-wide breach summary", description = "Returns aggregate breach statistics per vehicle")
-    public ResponseEntity<ApiResponse<List<Map<String, Object>>>> getSummary() {
-        return ResponseEntity.ok(ApiResponse.success(reportingService.getVehicleBreachSummary()));
+    @Operation(summary = "Fleet breach summary", description = "Returns aggregate breach statistics per vehicle; tourId/groupId scope to one tour or group (managers see own groups only)")
+    public ResponseEntity<ApiResponse<List<Map<String, Object>>>> getSummary(
+            @RequestParam(required = false) Long tourId,
+            @RequestParam(required = false) Long groupId) {
+        return ResponseEntity.ok(ApiResponse.success(reportingService.getVehicleBreachSummary(tourId, groupId)));
     }
 
     @GetMapping("/zones/{zoneId}/violations")

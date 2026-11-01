@@ -1,20 +1,16 @@
 package com.zonepilot.backend.service;
 
-import com.zonepilot.backend.entity.DispatchRoute;
 import com.zonepilot.backend.entity.ZoneBreachLog;
 import com.zonepilot.backend.exception.RoutingException;
 import com.zonepilot.backend.repository.DispatchRouteRepository;
 import com.zonepilot.backend.repository.ZoneBreachLogRepository;
-import org.locationtech.jts.geom.GeometryFactory;
 import org.locationtech.jts.geom.LineString;
-import org.locationtech.jts.geom.PrecisionModel;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.ArrayList;
 import java.util.List;
 
 @Service
@@ -26,7 +22,6 @@ public class BreachService {
     private final DispatchRouteRepository dispatchRouteRepository;
     private final RoutingService routingService;
     private final JdbcTemplate jdbcTemplate;
-    private final GeometryFactory geometryFactory;
 
     public BreachService(ZoneBreachLogRepository breachLogRepository,
                          DispatchRouteRepository dispatchRouteRepository,
@@ -36,7 +31,6 @@ public class BreachService {
         this.dispatchRouteRepository = dispatchRouteRepository;
         this.routingService = routingService;
         this.jdbcTemplate = jdbcTemplate;
-        this.geometryFactory = new GeometryFactory(new PrecisionModel(), 4326);
     }
 
     /**
@@ -44,30 +38,30 @@ public class BreachService {
      * The destination is taken from the vehicle's most recent dispatch route if available.
      * The resolved geometry is persisted on the breach log record.
      *
-     * Called by BreachWorker inside the worker's own background txn (default
-     * REQUIRED joins it). Never call from the ingest txn: a failed pgRouting
-     * query aborts the whole Postgres txn and the ingest would 500.
+     * Joins the caller's txn (BreachWorker's own background txn — never the
+     * ingest txn: a failed road query aborts the whole Postgres txn and the
+     * ingest would 500, Task 3 Major). The road-network reads themselves run
+     * isolated (RoutingService REQUIRES_NEW) so a missing road network can
+     * never roll back the breach insert — the row stays, the reroute is skipped.
      */
     @Transactional
     public void computeReroute(ZoneBreachLog breach, Long vehicleId,
                                 double currentLat, double currentLng) {
         try {
-            Long currentNode = routingService.findNearestNodeOrNull(currentLat, currentLng);
-            if (currentNode == null) {
-                log.warn("Cannot compute reroute for breach {}: no road node near ({}, {})",
-                        breach.getId(), currentLat, currentLng);
-                return;
-            }
-
-            Long destinationNode = findDestinationNodeForVehicle(vehicleId);
-            if (destinationNode == null) {
+            double[] dest = findDestinationLatLng(vehicleId);
+            if (dest == null) {
                 log.info("No active dispatch route found for vehicle {}; skipping reroute for breach {}",
                         vehicleId, breach.getId());
                 return;
             }
 
             Long zoneId = breach.getZone().getId();
-            LineString rerouteGeometry = computeZoneAvoidingRoute(currentNode, destinationNode, zoneId);
+            LineString rerouteGeometry = routingService.computeZoneAvoidingReroute(
+                    currentLat, currentLng, dest[0], dest[1], zoneId);
+            if (rerouteGeometry == null) {
+                log.warn("No zone-avoiding reroute available for breach {}", breach.getId());
+                return;
+            }
 
             breach.setResolvedRouteGeometry(rerouteGeometry);
             breachLogRepository.save(breach);
@@ -90,20 +84,19 @@ public class BreachService {
     @Transactional
     public void computeOffRouteReroute(Long vehicleId, double currentLat, double currentLng) {
         try {
-            Long currentNode = routingService.findNearestNodeOrNull(currentLat, currentLng);
-            if (currentNode == null) {
-                log.warn("Off-route reroute: no road node near ({}, {}) for vehicle {}", currentLat, currentLng, vehicleId);
-                return;
-            }
-
-            Long destinationNode = findDestinationNodeForVehicle(vehicleId);
-            if (destinationNode == null) {
+            double[] dest = findDestinationLatLng(vehicleId);
+            if (dest == null) {
                 log.info("Off-route reroute: no active dispatch route for vehicle {}", vehicleId);
                 return;
             }
 
             // Straight reroute — no zone to avoid
-            LineString rerouteGeometry = routingService.computeRoute(currentNode, destinationNode);
+            LineString rerouteGeometry = routingService.computeDirectReroute(
+                    currentLat, currentLng, dest[0], dest[1]);
+            if (rerouteGeometry == null) {
+                log.warn("Off-route reroute: no route available for vehicle {}", vehicleId);
+                return;
+            }
             log.info("Off-route reroute computed for vehicle {}: {} points",
                     vehicleId, rerouteGeometry.getNumPoints());
 
@@ -125,7 +118,7 @@ public class BreachService {
         }
     }
 
-    private Long findDestinationNodeForVehicle(Long vehicleId) {
+    private double[] findDestinationLatLng(Long vehicleId) {
         try {
             List<Object[]> rows = jdbcTemplate.query(
                     "SELECT ST_Y(destination_point) AS lat, ST_X(destination_point) AS lng " +
@@ -136,78 +129,10 @@ public class BreachService {
 
             if (rows.isEmpty()) return null;
 
-            double destLat = (double) rows.get(0)[0];
-            double destLng = (double) rows.get(0)[1];
-            return routingService.findNearestNodeOrNull(destLat, destLng);
+            return new double[]{(double) rows.get(0)[0], (double) rows.get(0)[1]};
         } catch (Exception e) {
             log.warn("Could not find destination for vehicle {}: {}", vehicleId, e.getMessage());
             return null;
         }
-    }
-
-    /**
-     * Runs pgr_dijkstra with a 1000x cost penalty on edges that intersect the given zone.
-     * Uses cost_time_sec (Epic 1) as the base cost.
-     *
-     * BUG-NEW-006: pgr_dijkstra requires its edge SQL as a server-evaluated string literal —
-     * JDBC bind parameters cannot be used inside it. Zone IDs are server-side Long values
-     * (never user-controlled input), so %d formatting is safe here. The outer pgr_dijkstra
-     * call uses JDBC bind parameters for sourceNode and targetNode.
-     */
-    private LineString computeZoneAvoidingRoute(Long sourceNode, Long targetNode, Long zoneId) {
-        String pgRoutingEdgeSql = String.format(
-                "SELECT id, source, target, " +
-                "CASE WHEN ST_Intersects(the_geom, (SELECT boundary FROM zone_restriction WHERE id = %d)) " +
-                "THEN cost_time_sec * 1000 ELSE cost_time_sec END AS cost, " +
-                "CASE WHEN reverse_cost > 0 AND ST_Intersects(the_geom, (SELECT boundary FROM zone_restriction WHERE id = %d)) " +
-                "THEN cost_time_sec * 1000 WHEN reverse_cost > 0 THEN cost_time_sec ELSE reverse_cost END AS reverse_cost " +
-                "FROM blr_2po_4pgr",
-                zoneId, zoneId);
-
-        List<Object[]> results = jdbcTemplate.query(
-                "SELECT seq, edge, cost, ST_AsText(pt.the_geom) AS geom " +
-                "FROM pgr_dijkstra(?, CAST(? AS BIGINT), CAST(? AS BIGINT), directed := true) AS di " +
-                "JOIN blr_2po_4pgr pt ON pt.id = di.edge ORDER BY seq",
-                (rs, rowNum) -> new Object[]{
-                        rs.getInt("seq"), rs.getLong("edge"),
-                        rs.getDouble("cost"), rs.getString("geom")
-                },
-                pgRoutingEdgeSql, sourceNode, targetNode);
-
-        if (results.isEmpty()) {
-            throw new RoutingException("No zone-avoiding route found from node " + sourceNode + " to " + targetNode);
-        }
-
-        return buildLineString(results);
-    }
-
-    private LineString buildLineString(List<Object[]> results) {
-        List<org.locationtech.jts.geom.Coordinate> coordinates = new ArrayList<>();
-        for (Object[] row : results) {
-            String geomText = (String) row[3];
-            if (geomText == null) continue;
-            try {
-                org.locationtech.jts.io.WKTReader reader =
-                        new org.locationtech.jts.io.WKTReader(geometryFactory);
-                LineString edge = (LineString) reader.read(geomText);
-                org.locationtech.jts.geom.Coordinate[] edgeCoords = edge.getCoordinates();
-                if (coordinates.isEmpty()) {
-                    for (org.locationtech.jts.geom.Coordinate c : edgeCoords) coordinates.add(c);
-                } else {
-                    for (int i = 1; i < edgeCoords.length; i++) coordinates.add(edgeCoords[i]);
-                }
-            } catch (org.locationtech.jts.io.ParseException e) {
-                log.warn("Failed to parse reroute edge geometry: {}", geomText);
-            }
-        }
-
-        if (coordinates.size() < 2) {
-            throw new RoutingException("Reroute geometry has insufficient points");
-        }
-
-        LineString result = geometryFactory.createLineString(
-                coordinates.toArray(new org.locationtech.jts.geom.Coordinate[0]));
-        result.setSRID(4326);
-        return result;
     }
 }

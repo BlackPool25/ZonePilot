@@ -49,6 +49,8 @@ public interface ZoneBreachLogRepository extends JpaRepository<ZoneBreachLog, Lo
 
     List<ZoneBreachLog> findByVehicleIdOrderByBreachTimeDesc(Long vehicleId);
 
+    List<ZoneBreachLog> findByPositionLogIdIn(java.util.Collection<Long> positionLogIds);
+
     @Query(value = "SELECT * FROM zone_breach_log WHERE vehicle_id = :vehicleId AND breach_time BETWEEN :from AND :to ORDER BY breach_time DESC", nativeQuery = true)
     List<ZoneBreachLog> findByVehicleIdAndBreachTimeBetween(
             @Param("vehicleId") Long vehicleId,

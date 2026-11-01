@@ -53,7 +53,9 @@ class PositionTrackingServiceTest {
         service = new PositionTrackingService(
                 vehicleRepository, positionLogRepository,
                 dispatchRouteRepository, tourRepository, jdbcTemplate, events, broadcaster,
-                driverRepository, appUserRepository, groupScope);
+                driverRepository, appUserRepository, groupScope,
+                mock(com.zonepilot.backend.repository.FleetGroupRepository.class),
+                mock(com.zonepilot.backend.repository.GroupVehicleRepository.class));
         // Strict-keys default: active route 500 resolves to tour 3 (driver 9, group 7).
         DispatchRoute route = mock(DispatchRoute.class);
         Tour tour = mock(Tour.class);

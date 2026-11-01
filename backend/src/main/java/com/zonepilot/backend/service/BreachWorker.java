@@ -158,6 +158,22 @@ public class BreachWorker {
         Long ruleId = ((Number) zoneRow[1]).longValue();
         String restrictionType = (String) zoneRow[2];
 
+        // One-per-entry guard: serialize concurrent fixes for one vehicle+zone
+        // on a transaction-scoped advisory lock BEFORE the locked open-entry
+        // read. Two racers can't both see "no open entry" and double-insert;
+        // the loser blocks here, then finds the winner's row and extends it.
+        // Auto-released at commit/rollback; never held across transactions.
+        // (A partial unique index can't express the 60s extend window, and the
+        // row lock below only serializes readers that find a row — not the
+        // both-empty race.) Lock failure degrades to the row lock alone.
+        try {
+            // IDs are server-side longs, never user input (same rule as BUG-NEW-006).
+            jdbcTemplate.execute("SELECT pg_advisory_xact_lock(" + vehicleId + ", " + zoneId + ")");
+        } catch (Exception e) {
+            log.debug("Breach advisory lock unavailable for vehicle {} zone {}: {}",
+                    vehicleId, zoneId, e.getMessage());
+        }
+
         Instant cutoff = fix.recordedAt().minusSeconds(EXTEND_WINDOW_SEC);
         // Row lock: concurrent fixes for one vehicle+zone serialize here
         // instead of opening duplicate rows (one-per-entry guard).

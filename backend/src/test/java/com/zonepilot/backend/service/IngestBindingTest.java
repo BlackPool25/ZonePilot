@@ -62,7 +62,9 @@ class IngestBindingTest {
     void setUp() {
         service = new PositionTrackingService(vehicleRepository, positionLogRepository,
                 dispatchRouteRepository, tourRepository, jdbcTemplate, events, broadcaster,
-                driverRepository, appUserRepository, scope);
+                driverRepository, appUserRepository, scope,
+                mock(com.zonepilot.backend.repository.FleetGroupRepository.class),
+                mock(com.zonepilot.backend.repository.GroupVehicleRepository.class));
         // Vehicle 1 active, no route (keys must come from the caller/tour).
         Vehicle v = new Vehicle();
         v.setId(1L);
