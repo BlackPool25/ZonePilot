@@ -8,9 +8,11 @@ Homepage `/` = Dashboard ops hub (Motive Fleet-View pattern: live map center + s
 
 **Try-demo (no signup):** banner `You're in demo mode — shared read-only data, resets daily` + button `Try the demo` → one-click login as demo dispatcher (no password typing). Demo data coherent: 8 vehicles, 4 zones, 7 positions, 5 breaches, 2 restrictions. Include one unflattering state (1 overdue breach, 1 failed PoD). Edits in demo: read-only or per-session reset. One visible route demo → real account (`Create workspace` carries group filter).
 
-**Sample logins (test fixtures, no seed users in migrations — bootstrap = first `POST /api/auth/register` → OWNER):**
-- Owner: `owner@zonepilot.io / owner-pass-1` (sees all groups)
-- Dispatcher: `disp@hsr.test / disp-pass-1` (own groups only)
+**Demo logins (seeded by migration V53, password `demo1234` for all — see [`DEMO.md`](../DEMO.md)):**
+- Owner: `demo.owner@zonepilot.io` (sees all groups)
+- Dispatcher: `demo.disp@zonepilot.io` (owns HSR Demo Fleet)
+- Driver One: `demo.driver1@zonepilot.io` (active tour + open breach)
+- Driver Two: `demo.driver2@zonepilot.io` (planned tour)
 - Driver: register via `POST /api/drivers` then login (owns no groups, `requireOwnedTour` gates tours)
 - Manager UI has no login page today — paste JWT from Swagger `Authorize` (fix in overhaul: add `/login` for manager/dispatcher + role picker cards).
 

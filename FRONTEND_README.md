@@ -45,7 +45,10 @@ src/
 │   ├── Routes.jsx         — Route validation form + history
 │   ├── Breaches.jsx       — Breach log with acknowledge
 │   ├── Reports.jsx        — Fleet analytics + charts
-│   └── Simulation.jsx     — Scenario control panel + tick loop
+│   ├── Replay.jsx         — Tour replay player (lazy chunk, replaces retired /simulation)
+│   ├── Driver.jsx         — Driver PWA (tours, PoD, duty, SOS; en/kn/hi)
+│   ├── Groups.jsx         — Fleet groups + dispatch
+│   └── Login.jsx          — Sign-in + one-click demo logins
 ├── styles/
 │   └── global.css         — Design tokens (CSS vars) + reset
 ├── utils/
@@ -160,14 +163,10 @@ When the backend is offline, all pages fall back to `src/data/demo.js`. The demo
 - Active restrictions list
 - Zone violation drill-down (select zone → stacked bar chart by vehicle class)
 
-### Simulation (`/simulation`)
-- Split layout: control panel (left) + map (right)
-- Scenario selection with toggle cards (A, B, C)
-- Controls: Start, Step (single tick), Auto (1 tick/sec), Reset
-- Vehicle progress bars with step counter
-- Breach log (real-time, last 10 events)
-- Tick counter display
-- Exhausted banner when all vehicles complete
+### Replay (`/replay`)
+- Tour replay player (lazy-loaded chunk): pick a tour, speed 1–30x
+- `POST /api/replay/start {tourId, speed}` — inserts as REPLAY (never fires breach worker)
+- Breach feed is read separately (`GET /api/breaches?tourId=`) since detection is eventual
 
 ## Polling Intervals
 
@@ -176,7 +175,7 @@ When the backend is offline, all pages fall back to `src/data/demo.js`. The demo
 | Dashboard positions | 10s | `GET /api/vehicles/{id}/positions/latest` |
 | Breach count (nav badge) | 30s | `GET /api/breaches?unacknowledged=true` |
 | Active restrictions (top bar) | 30s | `GET /api/reports/active-restrictions` |
-| Simulation tick (auto mode) | 1s | `POST /api/simulation/tick` |
+| Replay (historic ticks) | on demand | `POST /api/replay/start` |
 
 ## Accessibility
 
