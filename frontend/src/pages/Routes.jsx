@@ -56,10 +56,10 @@ export default function Routes() {
   useEffect(() => {
     vehiclesApi.list({ isActive: true })
       .then(setVehicles)
-      .catch(() => setVehicles(DEMO_VEHICLES.filter(v => v.isActive)));
+      .catch(() => { addToast('warning', 'Backend unreachable — showing sample vehicles'); setVehicles(DEMO_VEHICLES.filter(v => v.isActive)); });
     zonesApi.list()
       .then(setZones)
-      .catch(() => setZones(DEMO_ZONES));
+      .catch(() => { addToast('warning', 'Backend unreachable — showing sample zones'); setZones(DEMO_ZONES); });
   }, []);
 
   const loadHistory = () => {

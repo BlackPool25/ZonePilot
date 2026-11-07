@@ -178,6 +178,17 @@ BEGIN
          NULL, NULL, NULL, 'DELIVERED', NOW() - INTERVAL '5 hours', 12.9116, 77.6389, NULL),
         (v_tour_c, 1, ST_SetSRID(ST_MakePoint(77.6040, 12.9400), 4326), 'Richmond Town Drop',
          6, 90.0, 'Demo Pharma', 'DELIVERED', NOW() - INTERVAL '4 hours', 12.9400, 77.6040, 6);
+    -- Dispatch route linking Tour C so the Routes history -> timeline -> Approve path works in-UI.
+    INSERT INTO dispatch_route
+        (vehicle_id, origin_point, destination_point, planned_route_geometry,
+         status, validation_timestamp, dispatched_at, tour_id)
+    VALUES (v_veh5,
+        ST_SetSRID(ST_MakePoint(77.6389, 12.9116), 4326),
+        ST_SetSRID(ST_MakePoint(77.6040, 12.9400), 4326),
+        ST_SetSRID(ST_MakeLine(ARRAY[
+            ST_MakePoint(77.6389, 12.9116), ST_MakePoint(77.6200, 12.9250),
+            ST_MakePoint(77.6040, 12.9400)]), 4326),
+        'COMPLIANT', NOW() - INTERVAL '5 hours', NOW() - INTERVAL '5 hours', v_tour_c);
     INSERT INTO duty_log (tour_id, driver_id, duty_status, recorded_at)
     VALUES
         (v_tour_c, v_drv2, 'ON_DUTY', NOW() - INTERVAL '5 hours'),

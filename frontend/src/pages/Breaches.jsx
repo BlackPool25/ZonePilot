@@ -37,6 +37,9 @@ export default function Breaches() {
     setBreaches(b.status === 'fulfilled' ? b.value : DEMO_BREACHES);
     setVehicles(v.status === 'fulfilled' ? v.value : DEMO_VEHICLES);
     setZones(z.status === 'fulfilled' ? z.value : DEMO_ZONES);
+    if (b.status !== 'fulfilled' || v.status !== 'fulfilled' || z.status !== 'fulfilled') {
+      addToast('warning', 'Backend unreachable — showing sample data');
+    }
     setLoading(false);
   }
 

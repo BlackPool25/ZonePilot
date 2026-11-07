@@ -16,7 +16,7 @@ import styles from './Reports.module.css';
 const CHART_COLORS = ['#dc2626', '#d97706', '#7c3aed'];
 
 export default function Reports() {
-  const { openDrawer } = useApp();
+  const { openDrawer, addToast } = useApp();
   const [searchParams] = useSearchParams();
   const vehicleIdParam = searchParams.get('vehicleId');
 
@@ -38,6 +38,9 @@ export default function Reports() {
       setSummary(s.status === 'fulfilled' ? s.value : DEMO_REPORT_SUMMARY);
       setRestrictions(r.status === 'fulfilled' ? r.value : DEMO_ACTIVE_RESTRICTIONS);
       setZones(z.status === 'fulfilled' ? z.value : DEMO_ZONES);
+      if (s.status !== 'fulfilled' || r.status !== 'fulfilled' || z.status !== 'fulfilled') {
+        addToast('warning', 'Backend unreachable — showing sample data');
+      }
       setLoading(false);
     }
     load();

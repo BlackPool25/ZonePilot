@@ -28,6 +28,7 @@ export default function Vehicles() {
       const v = await vehiclesApi.list();
       setVehicles(v);
     } catch (e) {
+      addToast('warning', 'Backend unreachable — showing sample vehicles');
       setVehicles(DEMO_VEHICLES);
     } finally {
       setLoading(false);

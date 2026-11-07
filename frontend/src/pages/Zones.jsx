@@ -26,6 +26,7 @@ export default function Zones() {
       const data = await zonesApi.list();
       setZones(data);
     } catch {
+      addToast('warning', 'Backend unreachable — showing sample zones');
       setZones(DEMO_ZONES);
     } finally {
       setLoading(false);

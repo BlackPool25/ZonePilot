@@ -112,9 +112,9 @@ class AuthApiTest {
         dutyLogs.deleteAll();
         positions.deleteAll();
         breaches.deleteAll();
+        dispatchRoutes.deleteAll();
         tourStops.deleteAll();
         tours.deleteAll();
-        dispatchRoutes.deleteAll();
         groupDrivers.deleteAll();
         groupVehicles.deleteAll();
         drivers.deleteAll();

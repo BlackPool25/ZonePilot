@@ -26,12 +26,12 @@ Or hit **Account → Try the demo** one-click buttons on the `/login` page.
 ## The flow (in order)
 
 1. **Home** (`/`, login as dispatcher): KPI cards, live map with trucks + purple zone polygons, alerts feed. Toggle map layers.
-2. **Fleet** (`/vehicles`, `/groups`): HSR Demo Fleet members, availability states (IN_TRANSIT/RESERVED), solo + group dispatch forms.
+2. **Fleet** (`/vehicles`, `/groups`): HSR Demo Fleet members, availability states (IN_TRANSIT/RESERVED), group dispatch form (origin/destination → assigns free vehicles).
 3. **Zones** (`/zones`): the 5 polygons + rules; click one for time windows and vehicle classes.
 4. **Pre-dispatch check** (`/routes`): validate HSR → MG Road for an HCV — expect NON_COMPLIANT + alternative route.
 5. **Live breach** (`/breaches`): the open MG Road breach (unacknowledged) + the older acknowledged Silk Board one. Acknowledge the open one.
 6. **Driver run** (`/driver`, login as driver1): My Tours → active tour → stops with GPS PoD tap → duty buttons (OFF/ON/DRIVING/BREAK) → SOS drill.
-7. **Approve** (dispatcher): open Tour C → timeline → Approve as dispatcher → COMPLETED.
+7. **Approve** (dispatcher): `Routes` → history → open the Richmond Road route → Tour C timeline → **✓ Approve tour** → COMPLETED, vehicle released.
 8. **Replay** (`/replay`): pick Tour A, 5x — watch the breach-point replay; breaches listed separately (worker is eventual).
 9. **Reports** (`/reports`): breach summary per vehicle, zone violation stats, active restrictions.
 

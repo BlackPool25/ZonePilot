@@ -109,9 +109,9 @@ public abstract class SliceIT {
                 dutyLogs.deleteAll();
                 breaches.deleteAll();
                 positions.deleteAll();
+                dispatchRoutes.deleteAll();
                 tourStops.deleteAll();
                 tours.deleteAll();
-                dispatchRoutes.deleteAll();
                 groupDrivers.deleteAll();
                 groupVehicles.deleteAll();
                 drivers.deleteAll();

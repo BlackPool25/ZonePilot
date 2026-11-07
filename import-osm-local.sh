@@ -27,6 +27,10 @@ DB_USER="${DB_USER:-zonepilot}"
 export PGPASSWORD="${DB_PASSWORD:-zonepilot}"
 
 [ -f "$SRC" ] || { echo "ERROR: source PBF not found: $SRC"; exit 1; }
+if [ "$(realpath "$SRC")" = "$(realpath -m "$CLIPPED")" ]; then
+  echo "ERROR: source is the script output file itself ($CLIPPED). Pass the upstream extract (e.g. ~/osm/southern-zone-latest.osm.pbf), never the clipped output."
+  exit 1
+fi
 
 # SKIP_LOAD=1 reuses already-loaded planet_osm_* tables (topology rebuild only).
 if [ "${SKIP_LOAD:-0}" != "1" ]; then
