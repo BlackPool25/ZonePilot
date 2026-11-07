@@ -1,0 +1,22 @@
+.banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 16px;
+  background: #fef3c7;
+  color: #92400e;
+  font-size: 13px;
+  border-bottom: 1px solid #fcd34d;
+}
+.banner code {
+  background: rgba(146, 64, 14, 0.12);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+.link {
+  margin-left: auto;
+  color: #92400e;
+  font-weight: 600;
+  white-space: nowrap;
+}

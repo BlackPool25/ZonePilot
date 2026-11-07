@@ -6,6 +6,7 @@ import com.zonepilot.backend.enums.RouteStatus;
 import com.zonepilot.backend.auth.AppUserRepository;
 import com.zonepilot.backend.repository.DispatchRouteRepository;
 import com.zonepilot.backend.repository.DriverRepository;
+import com.zonepilot.backend.repository.DutyLogRepository;
 import com.zonepilot.backend.repository.FleetGroupRepository;
 import com.zonepilot.backend.repository.GroupDriverRepository;
 import com.zonepilot.backend.repository.GroupVehicleRepository;
@@ -15,6 +16,7 @@ import com.zonepilot.backend.repository.TourStopRepository;
 import com.zonepilot.backend.repository.TripSlipRepository;
 import com.zonepilot.backend.repository.VehiclePositionLogRepository;
 import com.zonepilot.backend.repository.VehicleRepository;
+import com.zonepilot.backend.repository.ZoneBreachLogRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.locationtech.jts.geom.Coordinate;
@@ -89,6 +91,10 @@ class DriverApiTest {
     @Autowired
     VehiclePositionLogRepository positionLogRepository;
     @Autowired
+    DutyLogRepository dutyLogRepository;
+    @Autowired
+    ZoneBreachLogRepository breachRepository;
+    @Autowired
     TourStopRepository stopRepository;
     @Autowired
     TourRepository tourRepository;
@@ -108,10 +114,12 @@ class DriverApiTest {
 
     @BeforeEach
     void setup() {
-        // FK order (mirrors TourApiTest): sos/slips -> positions -> routes -> stops
+        // FK order (mirrors TourApiTest): sos/slips/duty/breaches -> positions -> routes -> stops
         // -> tours -> memberships -> groups -> drivers -> users.
         sosAlertRepository.deleteAll();
         slipRepository.deleteAll();
+        dutyLogRepository.deleteAll();
+        breachRepository.deleteAll();
         positionLogRepository.deleteAll();
         routes.deleteAll();
         stopRepository.deleteAll();

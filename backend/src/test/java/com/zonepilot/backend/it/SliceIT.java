@@ -71,6 +71,28 @@ public abstract class SliceIT {
     protected VehicleRepository vehicles;
     @Autowired
     protected AppUserRepository users;
+    @Autowired
+    protected com.zonepilot.backend.repository.SosAlertRepository sosAlerts;
+    @Autowired
+    protected com.zonepilot.backend.repository.TripSlipRepository tripSlips;
+    @Autowired
+    protected com.zonepilot.backend.repository.DutyLogRepository dutyLogs;
+    @Autowired
+    protected com.zonepilot.backend.repository.VehiclePositionLogRepository positions;
+    @Autowired
+    protected com.zonepilot.backend.repository.ZoneBreachLogRepository breaches;
+    @Autowired
+    protected com.zonepilot.backend.repository.TourStopRepository tourStops;
+    @Autowired
+    protected com.zonepilot.backend.repository.TourRepository tours;
+    @Autowired
+    protected com.zonepilot.backend.repository.DispatchRouteRepository dispatchRoutes;
+    @Autowired
+    protected com.zonepilot.backend.repository.GroupDriverRepository groupDrivers;
+    @Autowired
+    protected com.zonepilot.backend.repository.GroupVehicleRepository groupVehicles;
+    @Autowired
+    protected com.zonepilot.backend.repository.DriverRepository drivers;
 
     protected final GeometryFactory gf = new GeometryFactory(new PrecisionModel(), 4326);
 
@@ -78,8 +100,21 @@ public abstract class SliceIT {
     void cleanUsers() {
         // Flake guard: parallel IT containers share the DB while another test
         // may still hold FK rows; retry briefly instead of failing the suite.
+        // FK-safe order first (V53 demo seed links drivers/tours/positions
+        // to users), retry around the whole sweep.
         for (int attempt = 0; ; attempt++) {
             try {
+                sosAlerts.deleteAll();
+                tripSlips.deleteAll();
+                dutyLogs.deleteAll();
+                breaches.deleteAll();
+                positions.deleteAll();
+                tourStops.deleteAll();
+                tours.deleteAll();
+                dispatchRoutes.deleteAll();
+                groupDrivers.deleteAll();
+                groupVehicles.deleteAll();
+                drivers.deleteAll();
                 users.deleteAll();
                 return;
             } catch (org.springframework.dao.DataAccessException e) {

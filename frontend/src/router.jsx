@@ -9,6 +9,7 @@ import Breaches from './pages/Breaches.jsx';
 import Reports from './pages/Reports.jsx';
 import Driver from './pages/Driver.jsx';
 import Groups from './pages/Groups.jsx';
+import Login from './pages/Login.jsx';
 
 // Lazy: Replay pulls its own chunk so the initial bundle stays under budget.
 const Replay = lazy(() => import('./pages/Replay.jsx'));
@@ -33,6 +34,7 @@ export const router = createBrowserRouter([
       { path: 'replay', element: replayElement },
       { path: 'driver', element: <Driver /> },
       { path: 'groups', element: <Groups /> },
+      { path: 'login', element: <Login /> },
     ],
   },
 ]);

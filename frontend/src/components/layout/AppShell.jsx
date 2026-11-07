@@ -1,4 +1,5 @@
 import { Outlet, NavLink, useNavigate } from 'react-router-dom';
+import DemoBanner from '../atoms/DemoBanner.jsx';
 import { useEffect, useRef } from 'react';
 import { useApp } from '../../context/AppContext.jsx';
 import { breachesApi, reportsApi } from '../../api/client.js';
@@ -135,9 +136,9 @@ export default function AppShell() {
         </ul>
 
         <div className={styles.navFooter}>
-          <button className={styles.navItem} aria-label="Settings" onClick={() => {}}>
+          <button className={styles.navItem} aria-label="Account and sign in" onClick={() => navigate('/login')}>
             <span className={styles.navIcon} aria-hidden="true">{ICONS.settings}</span>
-            <span className={styles.navLabel}>Settings</span>
+            <span className={styles.navLabel}>Account</span>
           </button>
         </div>
       </nav>
@@ -169,9 +170,11 @@ export default function AppShell() {
                 ⚠ {state.unacknowledgedBreachCount} breach{state.unacknowledgedBreachCount !== 1 ? 'es' : ''}
               </button>
             )}
-            <div className={styles.userAvatar} aria-label="User menu" role="img">FO</div>
+            <div className={styles.userAvatar} aria-label="User menu" role="img" onClick={() => navigate('/login')} style={{ cursor: 'pointer' }} title="Account / sign in">FO</div>
           </div>
         </header>
+
+        <DemoBanner />
 
         {/* Page content */}
         <main className={styles.content} id="main-content" tabIndex={-1}>

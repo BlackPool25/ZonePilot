@@ -19,6 +19,18 @@ import java.nio.file.Paths;
 import java.util.List;
 import java.util.Map;
 
+import com.zonepilot.backend.repository.DispatchRouteRepository;
+import com.zonepilot.backend.repository.DriverRepository;
+import com.zonepilot.backend.repository.DutyLogRepository;
+import com.zonepilot.backend.repository.GroupDriverRepository;
+import com.zonepilot.backend.repository.GroupVehicleRepository;
+import com.zonepilot.backend.repository.SosAlertRepository;
+import com.zonepilot.backend.repository.TourRepository;
+import com.zonepilot.backend.repository.TourStopRepository;
+import com.zonepilot.backend.repository.TripSlipRepository;
+import com.zonepilot.backend.repository.VehiclePositionLogRepository;
+import com.zonepilot.backend.repository.ZoneBreachLogRepository;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
@@ -57,9 +69,55 @@ class AuthApiTest {
     @Autowired
     AppUserRepository users;
 
+    @Autowired
+    SosAlertRepository sosAlerts;
+
+    @Autowired
+    TripSlipRepository tripSlips;
+
+    @Autowired
+    DutyLogRepository dutyLogs;
+
+    @Autowired
+    VehiclePositionLogRepository positions;
+
+    @Autowired
+    ZoneBreachLogRepository breaches;
+
+    @Autowired
+    TourStopRepository tourStops;
+
+    @Autowired
+    TourRepository tours;
+
+    @Autowired
+    DispatchRouteRepository dispatchRoutes;
+
+    @Autowired
+    GroupDriverRepository groupDrivers;
+
+    @Autowired
+    GroupVehicleRepository groupVehicles;
+
+    @Autowired
+    DriverRepository drivers;
+
     @BeforeEach
     void seedUsers() {
-        // app_user has no child FKs: reset so each test can bootstrap its OWNER.
+        // FK-safe reset: children before parents (V53 demo seed links
+        // drivers/tours/positions to users, so plain users.deleteAll()
+        // violates driver_user_id_fkey).
+        sosAlerts.deleteAll();
+        tripSlips.deleteAll();
+        dutyLogs.deleteAll();
+        positions.deleteAll();
+        breaches.deleteAll();
+        tourStops.deleteAll();
+        tours.deleteAll();
+        dispatchRoutes.deleteAll();
+        groupDrivers.deleteAll();
+        groupVehicles.deleteAll();
+        drivers.deleteAll();
         users.deleteAll();
     }
 
