@@ -8,7 +8,7 @@ backend/
 fly/
 docker/
 docker-compose.yml
-import-osm-remote.sh
+import-osm-local.sh
 
 # Exclude local caches
 .idea/

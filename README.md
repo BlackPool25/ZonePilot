@@ -116,6 +116,7 @@ docs/      DEMO walkthrough, ARCHITECTURE, API guide, MDA suite
 
 | Doc | What it answers |
 |---|---|
+| [`docs/README.md`](docs/README.md) | Docs map — find anything by task (tutorials / how-tos / reference / explanation) |
 | [`docs/DEMO.md`](docs/DEMO.md) | 15-minute guided demo script + logins + reset |
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | C4, sequences, state machines, classes, ER (all Mermaid) |
 | [`docs/API-FRONTEND-GUIDE.md`](docs/API-FRONTEND-GUIDE.md) | Endpoint-by-endpoint frontend guide |

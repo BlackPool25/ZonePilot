@@ -114,7 +114,10 @@ try {
 
 ## Demo Data Fallback
 
-When the backend is offline, all pages fall back to `src/data/demo.js`. The demo data matches the exact API response shapes from `FRONTEND_API_REPORT.md`. No special configuration needed — the fallback is automatic via `Promise.allSettled`.
+When the backend is offline, most pages fall back to `src/data/demo.js` shapes and show a
+"Backend unreachable — showing sample data" warning toast (see `docs/DEMO.md` for the real
+seeded demo). Exceptions: Dashboard shows empty state, Groups shows an error with retry,
+Driver and Replay show no demo data (they need auth / a real tour).
 
 ## Pages
 
